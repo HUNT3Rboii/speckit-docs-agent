@@ -1,0 +1,2 @@
+api_base_url: "http://localhost:8000"
+api_key: "${SPECKIT_EXT_API_KEY}"

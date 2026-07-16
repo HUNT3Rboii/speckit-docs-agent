@@ -20,10 +20,10 @@
 
 **Purpose**: Create the extension package, backend skeleton, and local container wiring.
 
-- [ ] T001 Create the extension package structure at extension/, extension/commands/, extension/scripts/python/, and extension/config-template.yml
-- [ ] T002 Initialize the FastAPI backend skeleton under backend/app/ with main entrypoint, API route modules, and dependency scaffolding
-- [ ] T003 [P] Create the PostgreSQL container and local development wiring in infra/docker-compose.yml
-- [ ] T004 [P] Create the initial test structure under backend/tests/contract/, backend/tests/integration/, and backend/tests/unit/
+- [x] T001 Create the extension package structure at extension/, extension/commands/, extension/scripts/python/, and extension/config-template.yml
+- [x] T002 Initialize the FastAPI backend skeleton under backend/app/ with main entrypoint, API route modules, and dependency scaffolding
+- [x] T003 [P] Create the PostgreSQL container and local development wiring in infra/docker-compose.yml
+- [x] T004 [P] Create the initial test structure under backend/tests/contract/, backend/tests/integration/, and backend/tests/unit/
 
 ---
 
@@ -33,13 +33,13 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T005 Create the PostgreSQL schema for projects, artifacts, and doc_versions in backend/app/models/schemas.py and the associated repository layer in backend/app/repositories/artifact_repo.py
-- [ ] T006 Implement the project registration and artifact persistence flow for the backend API in backend/app/api/routes.py
-- [ ] T007 Implement artifact discovery and classification logic for both specs/** and .kiro/specs/** in backend/app/services/ingestion.py
-- [ ] T008 Implement content-hash deduplication before any AI-driven or render-related work in backend/app/services/ingestion.py
-- [ ] T009 Implement deterministic validation logic for missing headings and misclassified task/user-story content in backend/app/services/validation.py
-- [ ] T010 Implement the render pipeline entrypoint and PDF generation integration in backend/app/services/rendering.py
-- [ ] T011 Configure environment and configuration handling for API base URL, API key, and output storage path in backend/app/api/deps.py and backend/app/main.py
+- [x] T005 Create the PostgreSQL schema for projects, artifacts, and doc_versions in backend/app/models/schemas.py and the associated repository layer in backend/app/repositories/artifact_repo.py
+- [x] T006 Implement the project registration and artifact persistence flow for the backend API in backend/app/api/routes.py
+- [x] T007 Implement artifact discovery and classification logic for both specs/** and .kiro/specs/** in backend/app/services/ingestion.py
+- [x] T008 Implement content-hash deduplication before any AI-driven or render-related work in backend/app/services/ingestion.py
+- [x] T009 Implement deterministic validation logic for missing headings and misclassified task/user-story content in backend/app/services/validation.py
+- [x] T010 Implement the render pipeline entrypoint and PDF generation integration in backend/app/services/rendering.py
+- [x] T011 Configure environment and configuration handling for API base URL, API key, and output storage path in backend/app/api/deps.py and backend/app/main.py
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel.
 
@@ -53,15 +53,15 @@
 
 ### Tests for User Story 1
 
-- [ ] T012 [P] [US1] Add contract tests for the structured ingestion endpoint in backend/tests/contract/test_ingest_structured.py
-- [ ] T013 [P] [US1] Add integration tests for artifact discovery and classification in backend/tests/integration/test_ingestion_flow.py
+- [x] T012 [P] [US1] Add contract tests for the structured ingestion endpoint in backend/tests/contract/test_ingest_structured.py
+- [x] T013 [P] [US1] Add integration tests for artifact discovery and classification in backend/tests/integration/test_ingestion_flow.py
 
 ### Implementation for User Story 1
 
-- [ ] T014 [P] [US1] Implement the structured ingestion endpoint for POST /api/artifacts/ingest-structured in backend/app/api/routes.py
-- [ ] T015 [US1] Wire the ingestion service to classify artifacts and create or update artifact records in backend/app/services/ingestion.py
-- [ ] T016 [US1] Connect validation and render orchestration to the structured path in backend/app/services/validation.py and backend/app/services/rendering.py
-- [ ] T017 [US1] Persist versioned PDF and structured JSON output in backend/app/services/persistence.py
+- [x] T014 [P] [US1] Implement the structured ingestion endpoint for POST /api/artifacts/ingest-structured in backend/app/api/routes.py
+- [x] T015 [US1] Wire the ingestion service to classify artifacts and create or update artifact records in backend/app/services/ingestion.py
+- [x] T016 [US1] Connect validation and render orchestration to the structured path in backend/app/services/validation.py and backend/app/services/rendering.py
+- [x] T017 [US1] Persist versioned PDF and structured JSON output in backend/app/services/persistence.py
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently.
 
@@ -75,14 +75,14 @@
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Add unit tests for deduplication behavior in backend/tests/unit/test_deduplication.py
-- [ ] T019 [P] [US2] Add integration tests for version creation and skipping unchanged content in backend/tests/integration/test_versioning.py
+- [x] T018 [P] [US2] Add unit tests for deduplication behavior in backend/tests/unit/test_deduplication.py
+- [x] T019 [P] [US2] Add integration tests for version creation and skipping unchanged content in backend/tests/integration/test_versioning.py
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Implement the content-hash lookup and no-op return path in backend/app/services/ingestion.py
-- [ ] T021 [US2] Implement version increment and persisted doc_versions creation in backend/app/services/persistence.py
-- [ ] T022 [US2] Ensure artifacts.status is set to rendered for successful renders and stale for fallback-only ingestion in backend/app/services/persistence.py
+- [x] T020 [P] [US2] Implement the content-hash lookup and no-op return path in backend/app/services/ingestion.py
+- [x] T021 [US2] Implement version increment and persisted doc_versions creation in backend/app/services/persistence.py
+- [x] T022 [US2] Ensure artifacts.status is set to rendered for successful renders and stale for fallback-only ingestion in backend/app/services/persistence.py
 
 **Checkpoint**: At this point, User Stories 1 and 2 should both work independently.
 
@@ -96,14 +96,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T023 [P] [US3] Add unit tests for render structure grouping in backend/tests/unit/test_rendering.py
-- [ ] T024 [P] [US3] Add integration tests for task and user-story section classification in backend/tests/integration/test_render_structure.py
+- [x] T023 [P] [US3] Add unit tests for render structure grouping in backend/tests/unit/test_rendering.py
+- [x] T024 [P] [US3] Add integration tests for task and user-story section classification in backend/tests/integration/test_render_structure.py
 
 ### Implementation for User Story 3
 
-- [ ] T025 [P] [US3] Implement task, user story, design decision, and fallback section rendering in backend/app/services/rendering.py
-- [ ] T026 [US3] Implement the task-summary block for artifact_type task documents in backend/app/services/rendering.py
-- [ ] T027 [US3] Ensure the render output includes the required cover page, table of contents, section grouping, and footer metadata in backend/app/services/rendering.py
+- [x] T025 [P] [US3] Implement task, user story, design decision, and fallback section rendering in backend/app/services/rendering.py
+- [x] T026 [US3] Implement the task-summary block for artifact_type task documents in backend/app/services/rendering.py
+- [x] T027 [US3] Ensure the render output includes the required cover page, table of contents, section grouping, and footer metadata in backend/app/services/rendering.py
 
 **Checkpoint**: All user stories should now be independently functional.
 
@@ -113,10 +113,10 @@
 
 **Purpose**: Expose the extension commands and wire the fallback ingestion path for post-commit changes.
 
-- [ ] T028 Create the extension command documents at extension/commands/setup.md, extension/commands/docgen.md, extension/commands/status.md, and extension/commands/regenerate.md
-- [ ] T029 Implement the post-commit hook script at extension/scripts/python/post_commit_hook.py for raw ingestion and stale-state handling
-- [ ] T030 Implement the extension configuration template at extension/config-template.yml with API base URL and API key placeholders only
-- [ ] T031 [P] Add extension manifest metadata in extension/extension.yml for commands, hooks, and compatibility requirements
+- [x] T028 Create the extension command documents at extension/commands/setup.md, extension/commands/docgen.md, extension/commands/status.md, and extension/commands/regenerate.md
+- [x] T029 Implement the post-commit hook script at extension/scripts/python/post_commit_hook.py for raw ingestion and stale-state handling
+- [x] T030 Implement the extension configuration template at extension/config-template.yml with API base URL and API key placeholders only
+- [x] T031 [P] Add extension manifest metadata in extension/extension.yml for commands, hooks, and compatibility requirements
 
 ---
 
@@ -124,9 +124,9 @@
 
 **Purpose**: Final validation, documentation, and hardening for the pipeline.
 
-- [ ] T032 [P] Add quickstart and usage guidance in specs/001-documentation-agent/quickstart.md and extension/README.md
-- [ ] T033 [P] Add error handling and clear failure messaging for setup and validation failures in backend/app/api/routes.py and extension/commands/
-- [ ] T034 Run the backend test suite and verify the documented end-to-end behaviors for discovery, validation, dedupe, and rendering
+- [x] T032 [P] Add quickstart and usage guidance in specs/001-documentation-agent/quickstart.md and extension/README.md
+- [x] T033 [P] Add error handling and clear failure messaging for setup and validation failures in backend/app/api/routes.py and extension/commands/
+- [x] T034 Run the backend test suite and verify the documented end-to-end behaviors for discovery, validation, dedupe, and rendering
 
 ---
 

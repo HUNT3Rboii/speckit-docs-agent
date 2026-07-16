@@ -48,6 +48,8 @@ A developer wants the system to avoid reprocessing the same content repeatedly a
 
 A reviewer wants the generated documentation to be easy to scan and understand, with distinct sections for tasks, stories, decisions, and other content types.
 
+The implementation now includes an explicit agent-style transformation step that inspects markdown content, derives titles and abstracts, groups content into section types, and prepares a user-friendly structure before PDF rendering.
+
 **Why this priority**: The value of the system depends not just on conversion, but on the quality and structure of the resulting documentation.
 
 **Independent Test**: A generated document can be inspected and clearly shows the intended sections and content types rather than a flat dump of markdown.
@@ -79,6 +81,8 @@ A reviewer wants the generated documentation to be easy to scan and understand, 
 - **FR-006A**: When validation rejects generated output, the system MUST stop immediately, return the specific missing headings or misclassified sections that caused the failure, and leave retry decisions to the calling agent rather than retrying automatically.
 - **FR-007**: The system MUST preserve a versioned record of rendered documentation so that each successful generation is traceable.
 - **FR-008**: The system MUST render the documentation in an organized structure that distinguishes common artifact types such as tasks, user stories, design decisions, and other narrative content.
+- **FR-008A**: The pipeline MUST include an explicit agent-style transformation stage that interprets markdown into a structured document plan with a title, abstract, and grouped sections before PDF generation.
+- **FR-008B**: The generated document MUST include a polished cover page, a table of contents, grouped section blocks, and footer metadata so the output is user-friendly rather than a flat markdown dump.
 - **FR-009**: The system MUST retain an artifact record even when its content does not fit a known category, rather than dropping it from the workflow.
 - **FR-010**: When content changes through a fallback pathway that cannot immediately produce fully structured renderable content, the system MUST mark the artifact as needing regeneration rather than pretending it is fully rendered.
 
@@ -97,6 +101,8 @@ A reviewer wants the generated documentation to be easy to scan and understand, 
 - **SC-003**: A changed artifact produces a new documented version the next time the workflow runs with valid content.
 - **SC-004**: Generated documentation clearly separates core section types such as tasks and user stories from ordinary narrative content.
 - **SC-005**: Users can identify the latest renderable version for each artifact and understand whether an artifact is pending, rendered, or needs regeneration.
+- **SC-006**: The pipeline produces a user-friendly document structure from raw markdown through the agent-style transformation stage rather than emitting a flat, ungrouped conversion.
+- **SC-007**: The generated PDF presents a polished layout with cover-page metadata, a table of contents, grouped sections, and footer details that make the artifact easier to review.
 
 ## Assumptions
 

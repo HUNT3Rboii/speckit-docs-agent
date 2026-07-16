@@ -6,7 +6,7 @@
 
 ## Summary
 
-Build a Spec Kit extension and backend pipeline that discovers markdown artifacts from the supported spec directories, classifies them by role, deduplicates unchanged content, validates structured output, renders PDF documents deterministically, and persists versioned results in PostgreSQL. The implementation will include the extension command set, the FastAPI endpoints, the PostgreSQL schema, and the rendering pipeline defined in the feature spec, while keeping frontend work out of scope.
+Build a Spec Kit extension and backend pipeline that discovers markdown artifacts from the supported spec directories, classifies them by role, deduplicates unchanged content, validates structured output, routes content through an explicit agent-style transformation stage, renders PDF documents deterministically, and persists versioned results in PostgreSQL. The implementation will include the extension command set, the FastAPI endpoints, the PostgreSQL schema, the transformation service, and the rendering pipeline defined in the feature spec, while keeping frontend work out of scope.
 
 ## Technical Context
 
@@ -93,7 +93,7 @@ infra/
 └── docker-compose.yml
 ```
 
-**Structure Decision**: The implementation will be split into a Spec Kit extension package plus a FastAPI backend service, with persistence and rendering handled inside the backend and with no frontend application included in this plan.
+**Structure Decision**: The implementation will be split into a Spec Kit extension package plus a FastAPI backend service, with an explicit agent-style transformation service handling title/abstract/section planning before persistence and rendering, and with a richer document renderer that builds a polished cover page, table of contents, grouped sections, and footer metadata for the PDF output.
 
 ## Complexity Tracking
 

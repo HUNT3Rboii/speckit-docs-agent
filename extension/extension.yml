@@ -1,0 +1,13 @@
+id: docs-agent-extension
+name: Documentation Agent Extension
+version: 0.1.0
+requires:
+  speckit_version: "0.11.9"
+provides:
+  commands:
+    - setup
+    - docgen
+    - status
+    - regenerate
+  hooks:
+    - post-commit
