@@ -11,13 +11,15 @@ class ValidationError(Exception):
 
 
 class ValidationService:
-    def validate(self, source_path: str, structured_json: Dict[str, Any]) -> None:
+    def validate(self, source_path: str, structured_json: Dict[str, Any], source_content: Optional[str] = None) -> None:
         sections = structured_json.get("sections", [])
         headings = [section.get("heading") for section in sections if isinstance(section, dict)]
         if not isinstance(sections, list):
             raise ValidationError("sections must be a list", ["sections"])
 
         source_headings = self._extract_source_headings(source_path)
+        if not source_headings and source_content:
+            source_headings = self._extract_markdown_headings(source_content)
         if not source_headings:
             raise ValidationError("Missing headings from structured output", [source_path])
 
@@ -37,6 +39,9 @@ class ValidationService:
                 return [line.strip("# ") for line in handle if line.startswith("#") and line.strip()]
         except FileNotFoundError:
             return []
+
+    def _extract_markdown_headings(self, source_content: str) -> List[str]:
+        return [line.strip("# ") for line in source_content.splitlines() if line.startswith("#") and line.strip()]
 
     def _find_misclassified_sections(self, sections: List[Dict[str, Any]]) -> List[str]:
         misclassified: List[str] = []

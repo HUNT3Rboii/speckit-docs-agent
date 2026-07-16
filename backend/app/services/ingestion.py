@@ -77,7 +77,7 @@ class IngestionService:
             return {"artifact": existing, "skipped": True, "reason": "unchanged"}
 
         artifact_type = self.classify(source_path, content)
-        artifact_id = existing["id"] if existing else f"artifact-{len(self.repo.artifacts) + 1}"
+        artifact_id = existing["id"] if existing else f"artifact-{len(self.repo.list_artifacts(project_id)) + 1}"
         artifact_payload = {
             "id": artifact_id,
             "project_id": project_id,
@@ -98,7 +98,7 @@ class IngestionService:
             return {"artifact": existing, "skipped": True, "reason": "unchanged"}
 
         artifact_type = self.classify(source_path, raw_content)
-        artifact_id = existing["id"] if existing else f"artifact-{len(self.repo.artifacts) + 1}"
+        artifact_id = existing["id"] if existing else f"artifact-{len(self.repo.list_artifacts(project_id)) + 1}"
         artifact_payload = {
             "id": artifact_id,
             "project_id": project_id,

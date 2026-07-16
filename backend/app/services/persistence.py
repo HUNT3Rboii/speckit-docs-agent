@@ -16,7 +16,7 @@ class PersistenceService:
         artifact_id = artifact_payload["id"]
         render_result = self.rendering_service.render(artifact_id, structured_json, artifact_payload["artifact_type"], artifact_payload["source_path"], commit_hash)
         version = {
-            "id": f"version-{artifact_id}",
+            "id": f"version-{artifact_id}-{len(self.repo.list_versions(artifact_id)) + 1}",
             "artifact_id": artifact_id,
             "version_no": len(self.repo.list_versions(artifact_id)) + 1,
             "pdf_path": render_result["pdf_path"],

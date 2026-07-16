@@ -1,4 +1,5 @@
 version: '3.9'
+
 services:
   db:
     image: postgres:16-alpine
@@ -8,14 +9,37 @@ services:
       POSTGRES_PASSWORD: docsagent
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docsagent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ../backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       SPECKIT_EXT_API_KEY: dev-key
-      DOC_OUTPUT_DIR: /tmp/doc-output
+      DOC_OUTPUT_DIR: /app/pdf-output
+      USE_POSTGRES: "true"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: docsagent
+      POSTGRES_USER: docsagent
+      POSTGRES_PASSWORD: docsagent
     ports:
       - "8000:8000"
+    volumes:
+      - ../backend:/app
+      - pdf_output:/app/pdf-output
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  pdf_output:
