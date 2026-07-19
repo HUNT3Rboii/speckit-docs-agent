@@ -31,6 +31,10 @@ services:
       POSTGRES_DB: docsagent
       POSTGRES_USER: docsagent
       POSTGRES_PASSWORD: docsagent
+      # AI Agent Configuration (optional)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SPECKIT_MODEL_ENDPOINT: ${SPECKIT_MODEL_ENDPOINT:-https://api.openai.com/v1/chat/completions}
+      SPECKIT_MODEL_NAME: ${SPECKIT_MODEL_NAME:-gpt-4o-mini}
     ports:
       - "8000:8000"
     volumes:

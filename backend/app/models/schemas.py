@@ -47,3 +47,25 @@ class DocVersionResponse(BaseModel):
     structured_json: dict[str, Any]
     generated_by: str
     generated_at: str
+
+
+class SectionSchema(BaseModel):
+    heading: str
+    content: str
+    type: str = Field(..., pattern="^(task|user_story|design_decision|normal)$")
+
+
+class AgentTransformRequest(BaseModel):
+    """Request from IDE extension with AI transformation result."""
+    source_path: str
+    artifact_type: str
+    title: str
+    abstract: str
+    sections: List[SectionSchema]
+
+
+class AgentTransformResponse(BaseModel):
+    """Response confirming receipt of AI transformation."""
+    status: str
+    message: str
+    result: dict[str, Any]

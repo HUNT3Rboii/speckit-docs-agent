@@ -1,215 +1,150 @@
-# Documentation Agent Pipeline
+# Documentation Agent Extension for Spec Kit
 
 Automatically generate polished PDF documentation from your markdown spec files using AI-powered transformation and validation.
 
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Spec Kit](https://img.shields.io/badge/spec--kit-0.11.9+-green)
+![License](https://img.shields.io/badge/license-MIT-orange)
+
 ## Features
 
-- 🔄 **Event-driven ingestion** - Hooks onto markdown file creation/modification
-- 🤖 **AI transformation** - Converts raw markdown into structured documents with titles, abstracts, and grouped sections
+- 🤖 **AI-powered transformation** - Uses your IDE's AI model (Copilot, Claude, Kiro) for intelligent parsing
+- 🔄 **Automatic file watching** - Continuously monitors workspace for markdown changes
+- 🎯 **Event-driven ingestion** - Hooks onto file creation, modification, and commits  
+- ✨ **Smart content analysis** - AI generates professional titles, abstracts, and classifications
 - ✅ **Validation** - Ensures completeness and correctness before rendering
 - 📦 **Deduplication** - Skips unchanged content automatically
 - 📄 **PDF generation** - Creates polished PDFs with cover pages, table of contents, and grouped sections
 - 🗄️ **Version tracking** - Maintains complete version history in PostgreSQL
+- 🔙 **Fallback support** - Works with or without AI (rule-based fallback)
 
-## Quick Start
+## ⚡ Quick Start
 
-### Prerequisites
+**New to this extension?** → See **[CLONE-AND-TEST.md](CLONE-AND-TEST.md)** for step-by-step clone and test instructions.
 
-- Docker & Docker Compose
-- Python 3.11+ (for local development)
+### 1. Start Backend
 
-### Running with Docker
-
-1. **Start the services:**
-
-```bash
-cd infra
-docker-compose up -d
+```powershell
+.\start.ps1  # Windows
+# or
+./start.sh   # Mac/Linux
 ```
 
-This will start:
-- PostgreSQL database on port 5432
-- FastAPI backend on port 8000
-
-2. **Check the services are running:**
-
-```bash
-docker-compose ps
-```
-
-3. **View logs:**
-
-```bash
-docker-compose logs -f backend
-```
-
-### Testing the Pipeline
-
-1. **Create a project:**
-
-```bash
-curl -X POST http://localhost:8000/api/projects \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer dev-key" \
-  -d '{
-    "name": "my-project",
-    "repo_url": "https://github.com/user/repo"
-  }'
-```
-
-2. **Ingest a markdown file:**
-
-```bash
-curl -X POST http://localhost:8000/api/artifacts/ingest-raw \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer dev-key" \
-  -d '{
-    "project_id": "proj-1",
-    "source_path": "specs/001-feature/spec.md",
-    "raw_content": "# My Feature\n\nThis is a test feature.\n\n## Overview\n\nSome details here.",
-    "commit_hash": "abc123"
-  }'
-```
-
-3. **List artifacts:**
-
-```bash
-curl http://localhost:8000/api/projects/proj-1/artifacts \
-  -H "Authorization: Bearer dev-key"
-```
-
-4. **Check PDF output:**
-
-The PDFs are stored in the `pdf_output` Docker volume, which maps to `/app/pdf-output` inside the container.
-
-To access them:
-
-```bash
-docker-compose exec backend ls -la /app/pdf-output
-```
-
-### Stopping the Services
-
-```bash
-cd infra
-docker-compose down
-```
-
-To remove volumes (database and PDFs):
-
-```bash
-docker-compose down -v
-```
-
-## Architecture
+### 2. Configure in Spec Kit
 
 ```
-┌─────────────────┐
-│  Markdown Files │
-└────────┬────────┘
-         │
-    ┌────▼────────────────┐
-    │  Event Hooks        │
-    │  - File watcher     │
-    │  - Post-commit hook │
-    │  - Agent commands   │
-    └────┬────────────────┘
-         │
-    ┌────▼─────────────────┐
-    │  Ingestion Service   │
-    │  - Classification    │
-    │  - Deduplication     │
-    └────┬─────────────────┘
-         │
-    ┌────▼──────────────────┐
-    │  Transform Service    │
-    │  - AI or heuristics   │
-    │  - Structure building │
-    └────┬──────────────────┘
-         │
-    ┌────▼──────────────────┐
-    │  Validation Service   │
-    │  - Heading checks     │
-    │  - Section validation │
-    └────┬──────────────────┘
-         │
-    ┌────▼──────────────────┐
-    │  Rendering Service    │
-    │  - PDF generation     │
-    │  - Cover + TOC        │
-    └────┬──────────────────┘
-         │
-    ┌────▼──────────────────┐
-    │  PostgreSQL Database  │
-    │  - Projects           │
-    │  - Artifacts          │
-    │  - Doc Versions       │
-    └───────────────────────┘
+/speckit.ext.setup
+```
+- API URL: `http://localhost:8000`
+- API Key: `dev-key`
+
+### 3. Start Automatic File Watching (Optional but Recommended)
+
+**In a separate terminal:**
+```powershell
+.\start-watcher.ps1 -WorkspaceRoot "C:\path\to\your\workspace"
 ```
 
-## Environment Variables
+Now all markdown file changes are automatically processed!
 
-### Backend Configuration
+### 4. Or Generate PDF Manually
 
-- `SPECKIT_EXT_API_KEY` - API authentication key (default: `dev-key`)
-- `DOC_OUTPUT_DIR` - Directory for PDF output (default: `/app/pdf-output`)
-- `USE_POSTGRES` - Use PostgreSQL instead of SQLite (default: `true`)
-
-### PostgreSQL Configuration
-
-- `POSTGRES_HOST` - Database host (default: `db`)
-- `POSTGRES_PORT` - Database port (default: `5432`)
-- `POSTGRES_DB` - Database name (default: `docsagent`)
-- `POSTGRES_USER` - Database user (default: `docsagent`)
-- `POSTGRES_PASSWORD` - Database password (default: `docsagent`)
-
-### AI Transformation (Optional)
-
-- `SPECKIT_MODEL_ENDPOINT` - AI model endpoint URL
-- `SPECKIT_MODEL_NAME` - AI model name (default: `gpt-4.1-mini`)
-
-## Development
-
-### Local Development Setup
-
-1. **Install dependencies:**
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install psycopg2-binary
+Open a markdown file in Spec Kit, then:
+```
+/speckit.ext.docgen
 ```
 
-2. **Run tests:**
+**Done!** Your PDF is generated and stored in the database.
 
-```bash
-pytest
+📖 **Detailed guides:**
+- **[WATCHER-QUICKSTART.md](WATCHER-QUICKSTART.md)** - Set up automatic file watching
+- **[CLONE-AND-TEST.md](CLONE-AND-TEST.md)** - Clone and test in new environment
+- **[INSTALLATION.md](INSTALLATION.md)** - Complete installation guide
+- **[QUICKSTART-USER.md](QUICKSTART-USER.md)** - 5-minute user quick start
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[AGENTIC-PIPELINE.md](AGENTIC-PIPELINE.md)** | AI-powered transformation explained |
+| **[WATCHER-QUICKSTART.md](WATCHER-QUICKSTART.md)** | Set up automatic file watching |
+| **[INSTALLATION.md](INSTALLATION.md)** | Complete installation and setup guide |
+| **[QUICKSTART-USER.md](QUICKSTART-USER.md)** | 5-minute quick start for Spec Kit users |
+| **[USER-GUIDE.md](USER-GUIDE.md)** | Comprehensive user documentation |
+| **[TESTING-CHECKLIST.md](TESTING-CHECKLIST.md)** | Step-by-step testing scenarios |
+| **[SETUP-GUIDE.md](SETUP-GUIDE.md)** | Detailed setup and troubleshooting |
+| **[CHANGES-SUMMARY.md](CHANGES-SUMMARY.md)** | Technical implementation details |
+
+---
+
+## 🏗️ Architecture
+
+```
+Markdown Files → Event Hooks → Transform → Validate → Render → Store
+                                                                ↓
+                                                    PostgreSQL + PDF Volume
 ```
 
-3. **Run the backend locally:**
+**Event-Driven Processing:**
+- **File watcher** monitors for changes (automatic, continuous)
+- **Post-commit hooks** trigger on git commits
+- **Manual commands** for on-demand generation (`/speckit.ext.docgen`)
 
-```bash
-# Start PostgreSQL first
-cd infra
-docker-compose up -d db
+**Pipeline Stages:**
+1. **Ingest** - Classify and deduplicate
+2. **Transform** - AI or heuristic structuring  
+3. **Validate** - Check completeness
+4. **Render** - Generate PDF with cover + TOC
+5. **Store** - Save to database + volume
 
-# Run the backend
-cd ../backend
-export USE_POSTGRES=true
-export POSTGRES_HOST=localhost
-uvicorn app.main:app --reload
+See [CHANGES-SUMMARY.md](CHANGES-SUMMARY.md) for technical details.
+
+---
+
+## 🎯 Extension Commands
+
+Use these commands in Spec Kit:
+
+| Command | Description |
+|---------|-------------|
+| `/speckit.ext.setup` | Configure backend connection (one-time) |
+| `/speckit.ext.docgen` | Generate PDF from active markdown file |
+| `/speckit.ext.status` | View all artifacts and their status |
+| `/speckit.ext.regenerate <path>` | Force regenerate a PDF |
+
+---
+
+## 🔧 Project Structure
+
+```
+.
+├── extension/              # Spec Kit extension
+│   ├── commands/          # Extension commands
+│   ├── scripts/           # Hook scripts
+│   └── extension.yml      # Extension manifest
+│
+├── backend/               # FastAPI backend
+│   ├── app/
+│   │   ├── api/          # API routes
+│   │   ├── services/     # Business logic
+│   │   ├── repositories/ # Database layer
+│   │   └── models/       # Data schemas
+│   ├── tests/            # Unit & integration tests
+│   ├── Dockerfile        # Backend container
+│   └── requirements.txt  # Python dependencies
+│
+├── infra/                # Infrastructure
+│   └── docker-compose.yml # Service orchestration
+│
+├── specs/                # Feature specifications
+│   └── 001-documentation-agent/
+│
+└── *.md                  # Documentation
 ```
 
-## Extension Commands
-
-The system provides Spec Kit extension commands:
-
-- `/speckit.ext.setup` - Configure backend connection
-- `/speckit.ext.docgen` - Generate docs from active markdown
-- `/speckit.ext.status` - View artifact status
-- `/speckit.ext.regenerate <path>` - Force re-render
+---
 
 ## License
 

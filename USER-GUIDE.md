@@ -49,9 +49,49 @@ The extension will:
 - Register your current project with the backend
 - Confirm the connection is working
 
-## Step 3: Generate Documentation from a Spec File
+## Step 3: Generate Documentation from Spec Files
 
-### Option A: Using the Agent Command
+You have **three options** for processing markdown files:
+
+### Option A: Automatic File Watching (Recommended)
+
+Start the file watcher to automatically process all markdown file changes:
+
+**From the backend repository:**
+
+```powershell
+# Windows
+.\start-watcher.ps1 -WorkspaceRoot "C:\Users\MSI\Desktop\testing"
+
+# Linux/Mac
+./start-watcher.sh "/path/to/your/workspace"
+```
+
+**Or from within Spec Kit:**
+
+```
+/speckit.ext.watch
+```
+
+**What the watcher does:**
+- Monitors your workspace for `.md` files
+- Automatically processes **new files** when created
+- Automatically re-processes files when **edited and saved**
+- Polls every 2 seconds for changes
+- Ignores common directories (`.git`, `node_modules`, `.venv`, etc.)
+- Runs continuously in the foreground (Ctrl+C to stop)
+
+**Recommended workflow:**
+1. Start the watcher in a separate terminal
+2. Create/edit markdown files normally
+3. Save files → automatically processed
+4. Check status with `/speckit.ext.status`
+
+---
+
+### Option B: Manual Command (On-Demand)
+
+Process a specific file when needed:
 
 1. Open any markdown spec file in Spec Kit (e.g., `specs/001-documentation-agent/spec.md`)
 2. Make sure the file is the active editor
@@ -69,7 +109,9 @@ This will:
 - Generate a PDF automatically
 - Store metadata in PostgreSQL
 
-### Option B: Just Create or Edit a Markdown File
+---
+
+### Option C: Git Commit Hook (On Commit)
 
 The extension also has a **post-commit hook** that automatically processes markdown files when you commit them.
 

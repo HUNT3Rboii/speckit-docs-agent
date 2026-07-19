@@ -7,7 +7,7 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
-from typing import Dict, Iterator, Set
+from typing import Dict, Iterator
 
 API_URL_ENV = "SPECKIT_EXT_API_URL"
 API_KEY_ENV = "SPECKIT_EXT_API_KEY"
@@ -65,24 +65,43 @@ def discover_markdown_files(root: Path) -> Iterator[Path]:
 
 
 def watch(root: Path, project_id: str) -> None:
-    seen: Set[Path] = set()
+    file_mtimes: Dict[Path, float] = {}
+    
     while True:
-        for path in discover_markdown_files(root):
-            if path in seen:
-                continue
-            seen.add(path)
+        current_files = set(discover_markdown_files(root))
+        
+        # Process new or modified files
+        for path in current_files:
             if not path.exists():
                 continue
+            
             try:
-                content = path.read_text(encoding="utf-8")
+                current_mtime = path.stat().st_mtime
             except Exception:
-                content = ""
-            payload = build_ingest_payload(project_id, path.relative_to(root).as_posix(), content)
-            try:
-                result = _post_json("/api/artifacts/ingest-raw", payload)
-                print(json.dumps({"path": payload["source_path"], "result": result}))
-            except Exception as exc:  # pragma: no cover - runtime network failure
-                print(json.dumps({"path": payload["source_path"], "error": str(exc)}))
+                continue
+            
+            # Check if file is new or modified
+            if path not in file_mtimes or file_mtimes[path] != current_mtime:
+                file_mtimes[path] = current_mtime
+                
+                try:
+                    content = path.read_text(encoding="utf-8")
+                except Exception:
+                    content = ""
+                
+                payload = build_ingest_payload(project_id, path.relative_to(root).as_posix(), content)
+                try:
+                    result = _post_json("/api/artifacts/ingest-raw", payload)
+                    action = "created" if path not in file_mtimes else "updated"
+                    print(json.dumps({"path": payload["source_path"], "action": action, "result": result}))
+                except Exception as exc:  # pragma: no cover - runtime network failure
+                    print(json.dumps({"path": payload["source_path"], "error": str(exc)}))
+        
+        # Clean up deleted files from tracking
+        deleted_files = set(file_mtimes.keys()) - current_files
+        for deleted in deleted_files:
+            del file_mtimes[deleted]
+        
         time.sleep(POLL_INTERVAL_SECONDS)
 
 
