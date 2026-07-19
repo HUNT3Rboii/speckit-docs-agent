@@ -9,7 +9,8 @@ Automatically generate polished PDF documentation from your markdown spec files 
 ## Features
 
 - 🤖 **AI-powered transformation** - Uses your IDE's AI model (Copilot, Claude, Kiro) for intelligent parsing
-- 🔄 **Automatic file watching** - Continuously monitors workspace for markdown changes
+- 🔄 **Mode toggling** - Switch between AI-powered and rule-based transformation on-demand
+- ⚡ **Automatic file watching** - Continuously monitors workspace for markdown changes
 - 🎯 **Event-driven ingestion** - Hooks onto file creation, modification, and commits  
 - ✨ **Smart content analysis** - AI generates professional titles, abstracts, and classifications
 - ✅ **Validation** - Ensures completeness and correctness before rendering
@@ -68,6 +69,7 @@ Open a markdown file in Spec Kit, then:
 
 | Document | Description |
 |----------|-------------|
+| **[MODE-TOGGLING-GUIDE.md](MODE-TOGGLING-GUIDE.md)** | Switch between AI and rule-based modes |
 | **[AGENTIC-PIPELINE.md](AGENTIC-PIPELINE.md)** | AI-powered transformation explained |
 | **[WATCHER-QUICKSTART.md](WATCHER-QUICKSTART.md)** | Set up automatic file watching |
 | **[INSTALLATION.md](INSTALLATION.md)** | Complete installation and setup guide |

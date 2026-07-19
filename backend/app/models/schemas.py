@@ -69,3 +69,26 @@ class AgentTransformResponse(BaseModel):
     status: str
     message: str
     result: dict[str, Any]
+
+
+
+class TransformationModeRequest(BaseModel):
+    """Request to change transformation mode."""
+    mode: str = Field(..., pattern="^(ai|agentic|ai-powered|rule-based|classic|heuristic)$")
+
+
+class TransformationModeResponse(BaseModel):
+    """Response with transformation mode information."""
+    status: str
+    mode: str
+    mode_display: str
+    description: str
+    ai_enabled: bool
+    message: str
+
+
+class ConfigStatusResponse(BaseModel):
+    """Overall configuration status response."""
+    transformation_mode: dict[str, Any]
+    backend_version: str
+    features: dict[str, bool]

@@ -13,6 +13,16 @@ except Exception:  # pragma: no cover
 from app.services.agent_integration import AgentIntegrationService
 
 
+def get_transformation_mode() -> bool:
+    """Get current transformation mode from config routes."""
+    try:
+        from app.api.config_routes import get_transformation_mode_flag
+        return get_transformation_mode_flag()
+    except:
+        # Fallback to environment variable
+        return os.getenv("USE_AI_TRANSFORM", "true").lower() == "true"
+
+
 class AgentTransformService:
     """
     Agentic transformation service that uses the active IDE AI agent for intelligent markdown parsing.
@@ -43,10 +53,18 @@ class AgentTransformService:
         Transform raw markdown into structured document using AI-powered analysis.
         
         Pipeline:
-        1. Try IDE Agent (Copilot, Claude, Kiro) - uses your current model
-        2. Try external API if configured (OpenAI, Azure, etc.)
-        3. Fallback to rule-based heuristics
+        1. Check if AI mode is enabled
+        2. Try IDE Agent (Copilot, Claude, Kiro) - uses your current model
+        3. Try external API if configured (OpenAI, Azure, etc.)
+        4. Fallback to rule-based heuristics
         """
+        # Check if AI transformation is enabled
+        ai_mode_enabled = get_transformation_mode()
+        
+        if not ai_mode_enabled:
+            print(f"⚡ AI mode disabled - using rule-based transformation: {source_path}")
+            return self._heuristic_transform(source_path, raw_content, artifact_type)
+        
         # Priority 1: Use IDE Agent (leverages user's existing AI model)
         try:
             agent_result = self.agent_integration.transform_markdown(source_path, raw_content, artifact_type)
