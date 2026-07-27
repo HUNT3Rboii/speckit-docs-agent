@@ -36,12 +36,12 @@ class ValidationService:
             return []
         try:
             with open(source_path, "r", encoding="utf-8") as handle:
-                return [line.strip("# ") for line in handle if line.startswith("#") and line.strip()]
+                return [line.strip().lstrip("#").strip() for line in handle if line.startswith("#") and line.strip()]
         except FileNotFoundError:
             return []
 
     def _extract_markdown_headings(self, source_content: str) -> List[str]:
-        return [line.strip("# ") for line in source_content.splitlines() if line.startswith("#") and line.strip()]
+        return [line.strip().lstrip("#").strip() for line in source_content.splitlines() if line.startswith("#") and line.strip()]
 
     def _find_misclassified_sections(self, sections: List[Dict[str, Any]]) -> List[str]:
         misclassified: List[str] = []

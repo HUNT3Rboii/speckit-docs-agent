@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   db:
     image: postgres:16-alpine
@@ -35,6 +33,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SPECKIT_MODEL_ENDPOINT: ${SPECKIT_MODEL_ENDPOINT:-https://api.openai.com/v1/chat/completions}
       SPECKIT_MODEL_NAME: ${SPECKIT_MODEL_NAME:-gpt-4o-mini}
+      # Copilot Bridge Configuration
+      COPILOT_BRIDGE_URL: ${COPILOT_BRIDGE_URL:-http://host.docker.internal:5555}
+      USE_AI_TRANSFORM: ${USE_AI_TRANSFORM:-true}
     ports:
       - "8000:8000"
     volumes:

@@ -17,13 +17,18 @@ class AgentIntegrationService:
 
     def __init__(self) -> None:
         self.workspace_root = os.getenv("SPECKIT_WORKSPACE_ROOT")
+        self.bridge_url = os.getenv("COPILOT_BRIDGE_URL", "http://host.docker.internal:5555")
         self.agent_available = self._check_agent_available()
 
     def _check_agent_available(self) -> bool:
-        """Check if we can access the IDE agent."""
-        # For now, assume agent is available if running in dev mode
-        # In production, this would check for agent CLI or API
-        return True
+        """Check if we can access the IDE agent via bridge."""
+        try:
+            import urllib.request
+            req = urllib.request.Request(f"{self.bridge_url}/health", method="GET")
+            with urllib.request.urlopen(req, timeout=2) as response:
+                return response.status == 200
+        except Exception:
+            return False
 
     def call_agent(self, system_prompt: str, user_prompt: str) -> Optional[str]:
         """
@@ -55,18 +60,49 @@ Respond with valid JSON only. No markdown code blocks, no explanations."""
 
     def _invoke_via_extension(self, prompt: str) -> Optional[str]:
         """
-        Invoke the AI agent via the extension interface.
+        Invoke the AI agent via the bridge server with automatic Copilot invocation.
         
-        In practice, this would:
-        1. Write prompt to a shared location
-        2. Trigger agent via extension API
-        3. Read response from shared location
-        
-        For now, returns None to fallback to heuristics.
+        The bridge server runs on the host machine and automatically triggers
+        the IDE agent without manual intervention.
         """
-        # TODO: Implement actual agent invocation
-        # This requires extension support for backend->agent communication
-        return None
+        try:
+            import urllib.request
+            import urllib.parse
+            
+            # This will be populated by transform_markdown
+            request_data = getattr(self, '_current_request', {})
+            
+            # Add automatic invocation flag
+            request_data['auto_invoke'] = True
+            
+            data = json.dumps(request_data).encode('utf-8')
+            req = urllib.request.Request(
+                f"{self.bridge_url}/transform",
+                data=data,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            
+            with urllib.request.urlopen(req, timeout=60) as response:  # Longer timeout for AI processing
+                result = json.loads(response.read().decode('utf-8'))
+                
+                if result.get('status') == 'pending':
+                    # Manual workflow - return None to fallback
+                    print(f"⚠️  Copilot bridge requires manual processing")
+                    print(f"   Workspace: {result.get('workspace')}")
+                    print(f"   Instructions: {result.get('instructions')}")
+                    return None
+                
+                if result.get('status') == 'success':
+                    # Automatic invocation succeeded
+                    print(f"✅ AI transformation completed automatically")
+                    return json.dumps(result.get('data', result))
+                
+                return json.dumps(result)
+                
+        except Exception as e:
+            print(f"Bridge invocation failed: {e}")
+            return None
 
     def transform_markdown(self, source_path: str, raw_content: str, artifact_type: str) -> Optional[Dict[str, Any]]:
         """
@@ -118,6 +154,15 @@ Return valid JSON in this exact format:
 ```
 
 Transform this into structured documentation with enhanced title, abstract, and classified sections."""
+
+        # Store request data for bridge invocation
+        self._current_request = {
+            "source_path": source_path,
+            "raw_content": raw_content,
+            "artifact_type": artifact_type,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt
+        }
 
         response = self.call_agent(system_prompt, user_prompt)
         if not response:

@@ -13,7 +13,7 @@ API_URL_ENV = "SPECKIT_EXT_API_URL"
 API_KEY_ENV = "SPECKIT_EXT_API_KEY"
 ROOT_ENV = "SPECKIT_EXT_ROOT"
 POLL_INTERVAL_SECONDS = 2
-IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "tmp"}
+IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "tmp", ".ai-requests", ".ai-responses"}
 
 
 def build_ingest_payload(project_id: str, source_path: str, content: str) -> Dict[str, object]:

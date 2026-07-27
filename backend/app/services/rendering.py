@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import html
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -14,7 +16,9 @@ try:
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, ListFlowable
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, ListFlowable, PageBreak, Table, TableStyle
+    from reportlab.platypus.tableofcontents import TableOfContents
 except Exception:  # pragma: no cover
     colors = None
     letter = None
@@ -23,6 +27,9 @@ except Exception:  # pragma: no cover
     inch = None
     Paragraph = None
     SimpleDocTemplate = None
+    TA_LEFT = None
+    TA_CENTER = None
+    TA_JUSTIFY = None
     Spacer = None
     ListFlowable = None
 
@@ -102,29 +109,192 @@ class RenderingService:
     def _render_with_reportlab(self, output_path: Path, title: str, abstract: str, structured_json: Dict[str, Any], artifact_type: str, source_path: str, commit_hash: str | None = None) -> None:
         if SimpleDocTemplate is None:
             raise RuntimeError("reportlab is not available")
+        
+        # Create custom styles
         styles = getSampleStyleSheet()
-        title_style = ParagraphStyle("TitleStyle", parent=styles["Title"], fontSize=20, leading=24, spaceAfter=12)
-        body_style = ParagraphStyle("BodyStyle", parent=styles["BodyText"], fontSize=11, leading=14)
+        
+        # Title style - large, bold, centered
+        title_style = ParagraphStyle(
+            "CustomTitle",
+            parent=styles["Title"],
+            fontSize=24,
+            leading=30,
+            textColor=colors.HexColor("#1a1a1a"),
+            spaceAfter=12,
+            alignment=TA_CENTER,
+            fontName="Helvetica-Bold"
+        )
+        
+        # Heading styles
+        h1_style = ParagraphStyle(
+            "CustomH1",
+            parent=styles["Heading1"],
+            fontSize=18,
+            leading=22,
+            textColor=colors.HexColor("#2c3e50"),
+            spaceAfter=12,
+            spaceBefore=16,
+            fontName="Helvetica-Bold"
+        )
+        
+        h2_style = ParagraphStyle(
+            "CustomH2",
+            parent=styles["Heading2"],
+            fontSize=14,
+            leading=18,
+            textColor=colors.HexColor("#34495e"),
+            spaceAfter=10,
+            spaceBefore=12,
+            fontName="Helvetica-Bold"
+        )
+        
+        # Body text style - justified, readable
+        body_style = ParagraphStyle(
+            "CustomBody",
+            parent=styles["BodyText"],
+            fontSize=11,
+            leading=16,
+            textColor=colors.HexColor("#333333"),
+            alignment=TA_JUSTIFY,
+            spaceAfter=8
+        )
+        
+        # Metadata style - small, gray
+        meta_style = ParagraphStyle(
+            "CustomMeta",
+            parent=styles["Normal"],
+            fontSize=9,
+            leading=12,
+            textColor=colors.HexColor("#7f8c8d"),
+            alignment=TA_CENTER
+        )
+        
+        # Abstract style - italic, highlighted
+        abstract_style = ParagraphStyle(
+            "CustomAbstract",
+            parent=styles["BodyText"],
+            fontSize=11,
+            leading=16,
+            textColor=colors.HexColor("#2c3e50"),
+            fontName="Helvetica-Oblique",
+            leftIndent=20,
+            rightIndent=20,
+            spaceAfter=16
+        )
+        
+        # Build PDF content
         story = []
-        story.append(Paragraph(title, title_style))
-        story.append(Paragraph(f"Generated from {source_path}", styles["BodyText"]))
-        story.append(Spacer(1, 0.1 * inch))
-        story.append(Paragraph(f"Artifact type: {artifact_type}", body_style))
-        story.append(Spacer(1, 0.1 * inch))
-        story.append(Paragraph(abstract or "No abstract provided.", body_style))
-        story.append(Spacer(1, 0.15 * inch))
-        story.append(Paragraph("Table of contents", styles["Heading2"]))
-        for section in structured_json.get("sections", []):
-            story.append(Paragraph(section.get("heading", "Section"), body_style))
+        
+        # Cover page
+        story.append(Spacer(1, 1.5 * inch))
+        story.append(Paragraph(html.escape(title), title_style))
+        story.append(Spacer(1, 0.3 * inch))
+        story.append(Paragraph(f"<i>{html.escape(artifact_type.replace('_', ' ').title())}</i>", meta_style))
+        story.append(Spacer(1, 0.5 * inch))
+        
+        # Abstract box with border
+        if abstract:
+            story.append(Paragraph("<b>Abstract</b>", h2_style))
+            story.append(Paragraph(html.escape(abstract), abstract_style))
+            story.append(Spacer(1, 0.3 * inch))
+        
+        # Metadata section
+        story.append(Paragraph(f"<b>Source:</b> {html.escape(source_path)}", meta_style))
+        if commit_hash:
+            story.append(Paragraph(f"<b>Commit:</b> {html.escape(commit_hash)}", meta_style))
+        story.append(Spacer(1, 0.5 * inch))
+        
+        # Table of contents
+        story.append(PageBreak())
+        story.append(Paragraph("Table of Contents", h1_style))
         story.append(Spacer(1, 0.2 * inch))
-        story.append(Paragraph("Body", styles["Heading2"]))
-        for section in structured_json.get("sections", []):
-            story.append(Paragraph(section.get("heading", "Section"), styles["Heading3"]))
-            story.append(Paragraph(section.get("content", ""), body_style))
-            story.append(Spacer(1, 0.08 * inch))
-        story.append(Spacer(1, 0.2 * inch))
-        story.append(Paragraph(f"source: {source_path} | commit: {commit_hash or 'n/a'}", styles["Italic"]))
-        document = SimpleDocTemplate(str(output_path), pagesize=letter)
+        
+        toc_entries = []
+        for idx, section in enumerate(structured_json.get("sections", []), 1):
+            heading = section.get("heading", "Section")
+            toc_entries.append([f"{idx}.", html.escape(heading)])
+        
+        if toc_entries:
+            toc_table = Table(toc_entries, colWidths=[0.5*inch, 5.5*inch])
+            toc_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor("#34495e")),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            story.append(toc_table)
+        
+        story.append(Spacer(1, 0.5 * inch))
+        
+        # Content sections
+        story.append(PageBreak())
+        
+        for idx, section in enumerate(structured_json.get("sections", []), 1):
+            heading = section.get("heading", "Section")
+            content = section.get("content", "")
+            section_type = section.get("type", "normal")
+            
+            # Section heading with number
+            story.append(Paragraph(f"{idx}. {html.escape(heading)}", h1_style))
+            
+            # Section type badge (if not normal)
+            if section_type != "normal":
+                type_label = section_type.replace("_", " ").title()
+                badge_style = ParagraphStyle(
+                    "Badge",
+                    parent=meta_style,
+                    fontSize=8,
+                    textColor=colors.white,
+                    backColor=colors.HexColor("#3498db") if section_type == "task" else colors.HexColor("#27ae60"),
+                    borderPadding=4,
+                    alignment=TA_LEFT
+                )
+                story.append(Paragraph(f"<b>{html.escape(type_label)}</b>", badge_style))
+                story.append(Spacer(1, 0.1 * inch))
+            
+            # Process content - handle lists and paragraphs
+            if content:
+                # Split into paragraphs
+                paragraphs = content.split("\n\n")
+                for para in paragraphs:
+                    para = para.strip()
+                    if not para:
+                        continue
+                    
+                    # Handle lists
+                    if para.startswith("- ") or para.startswith("* "):
+                        list_items = []
+                        for line in para.split("\n"):
+                            if line.strip().startswith(("- ", "* ")):
+                                item_text = line.strip()[2:].strip()
+                                list_items.append(html.escape(item_text))
+                        
+                        if list_items:
+                            for item in list_items:
+                                story.append(Paragraph(f"• {item}", body_style))
+                    else:
+                        # Regular paragraph
+                        story.append(Paragraph(html.escape(para), body_style))
+                
+                story.append(Spacer(1, 0.15 * inch))
+        
+        # Footer
+        story.append(Spacer(1, 0.5 * inch))
+        story.append(Paragraph("—" * 40, meta_style))
+        story.append(Paragraph(f"Generated by Documentation Agent | {html.escape(source_path)}", meta_style))
+        
+        # Build PDF
+        document = SimpleDocTemplate(
+            str(output_path),
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
         document.build(story)
 
     def _group_sections(self, sections: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:

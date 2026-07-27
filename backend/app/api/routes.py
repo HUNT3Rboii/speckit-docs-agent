@@ -42,6 +42,17 @@ def create_project(payload: ProjectCreate, _=Depends(require_api_key)) -> Dict[s
 def ingest_structured(payload: ArtifactIngestStructuredRequest, _=Depends(require_api_key)) -> Dict[str, Any]:
     repo, ingestion_service, rendering_service, persistence_service, validation_service, transform_service = get_services()
     
+    # Import enhancement service
+    from app.services.document_enhancement import DocumentEnhancementService
+    enhancement_service = DocumentEnhancementService()
+    
+    # Resolve project name to ID
+    project_id = payload.project_id
+    all_projects = repo.list_projects()
+    project_match = next((p for p in all_projects if p["name"] == payload.project_id), None)
+    if project_match:
+        project_id = project_match["id"]
+    
     structured_payload = payload.structured_json
     if not structured_payload.get("sections"):
         transformed = transform_service.transform(payload.source_path, payload.structured_json.get("raw_content", ""), payload.structured_json.get("artifact_type", "other"))
@@ -58,17 +69,37 @@ def ingest_structured(payload: ArtifactIngestStructuredRequest, _=Depends(requir
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail={"message": str(exc), "details": exc.details}) from exc
 
-    result = ingestion_service.ingest_structured(payload.project_id, payload.source_path, structured_payload, payload.commit_hash)
+    result = ingestion_service.ingest_structured(project_id, payload.source_path, structured_payload, payload.commit_hash)
     if result.get("skipped"):
         return {"status": "ok", "artifact": result["artifact"], "skipped": True}
 
-    persisted = persistence_service.persist(payload.project_id, result["artifact"], structured_payload, payload.commit_hash)
-    return {"status": "ok", "artifact": persisted["artifact"], "version": persisted["version"]}
+    # ENHANCEMENT: Apply intelligent document enhancement
+    artifact_type = structured_payload.get("artifact_type", "other")
+    enhanced_payload = enhancement_service.enhance_document(structured_payload, artifact_type)
+    
+    persisted = persistence_service.persist(project_id, result["artifact"], enhanced_payload, payload.commit_hash)
+    return {
+        "status": "ok",
+        "artifact": persisted["artifact"],
+        "version": persisted["version"],
+        "enhancements": enhanced_payload.get("enhancements", {})
+    }
 
 
 @router.post("/api/artifacts/ingest-raw")
 def ingest_raw(payload: ArtifactIngestRawRequest, _=Depends(require_api_key)) -> Dict[str, Any]:
     repo, ingestion_service, rendering_service, persistence_service, validation_service, transform_service = get_services()
+    
+    # Import enhancement service
+    from app.services.document_enhancement import DocumentEnhancementService
+    enhancement_service = DocumentEnhancementService()
+    
+    # Resolve project name to ID
+    project_id = payload.project_id
+    all_projects = repo.list_projects()
+    project_match = next((p for p in all_projects if p["name"] == payload.project_id), None)
+    if project_match:
+        project_id = project_match["id"]
     
     transformed = transform_service.transform(payload.source_path, payload.raw_content, ingestion_service.classify(payload.source_path, payload.raw_content))
     structured_payload = {
@@ -84,12 +115,23 @@ def ingest_raw(payload: ArtifactIngestRawRequest, _=Depends(require_api_key)) ->
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail={"message": str(exc), "details": exc.details}) from exc
 
-    result = ingestion_service.ingest_raw(payload.project_id, payload.source_path, payload.raw_content, payload.commit_hash)
+    result = ingestion_service.ingest_raw(project_id, payload.source_path, payload.raw_content, payload.commit_hash)
     if result.get("skipped"):
         return {"status": "ok", "artifact": result["artifact"], "skipped": True, "structured": structured_payload}
 
-    persisted = persistence_service.persist(payload.project_id, result["artifact"], structured_payload, payload.commit_hash)
-    return {"status": "ok", "artifact": persisted["artifact"], "version": persisted["version"], "stale": result.get("stale", False), "structured": structured_payload}
+    # ENHANCEMENT: Apply intelligent document enhancement
+    artifact_type = structured_payload.get("artifact_type", "other")
+    enhanced_payload = enhancement_service.enhance_document(structured_payload, artifact_type)
+    
+    persisted = persistence_service.persist(project_id, result["artifact"], enhanced_payload, payload.commit_hash)
+    return {
+        "status": "ok",
+        "artifact": persisted["artifact"],
+        "version": persisted["version"],
+        "stale": result.get("stale", False),
+        "structured": structured_payload,
+        "enhancements": enhanced_payload.get("enhancements", {})
+    }
 
 
 @router.get("/api/projects")
