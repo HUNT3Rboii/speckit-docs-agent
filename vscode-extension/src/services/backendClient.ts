@@ -1,0 +1,211 @@
+/**
+ * Backend API Client Service
+ * Handles communication with Speckit backend API
+ */
+
+import { BackendClient as IBackendClient, StructuredJSON, IngestResponse, IngestRequest } from '../types';
+
+/**
+ * Client for Speckit backend API with retry logic
+ */
+export class BackendClient implements IBackendClient {
+  private backendUrl: string;
+  private apiKey: string;
+  private maxRetries: number = 3;
+  private retryDelays: number[] = [1000, 2000, 4000]; // Exponential backoff
+
+  constructor(backendUrl: string, apiKey: string = '') {
+    this.backendUrl = backendUrl.replace(/\/$/, ''); // Remove trailing slash
+    this.apiKey = apiKey;
+  }
+
+  /**
+   * Update backend URL
+   */
+  public setBackendUrl(url: string): void {
+    this.backendUrl = url.replace(/\/$/, '');
+  }
+
+  /**
+   * Update API key
+   */
+  public setApiKey(key: string): void {
+    this.apiKey = key;
+  }
+
+  /**
+   * Ingest structured document to backend
+   */
+  public async ingest(data: StructuredJSON): Promise<IngestResponse> {
+    // Construct request payload
+    const payload: IngestRequest = {
+      project_id: this.extractProjectId(data.source_path),
+      source_path: data.source_path,
+      structured_json: data
+    };
+
+    // Try ingestion with retry logic
+    return await this.retryWithBackoff(async () => {
+      const response = await this.makeRequest('/api/agent/ingest', payload);
+      return response as IngestResponse;
+    });
+  }
+
+  /**
+   * Check backend health/availability
+   */
+  public async checkHealth(): Promise<boolean> {
+    try {
+      // Try primary URL
+      const primaryHealthy = await this.checkHealthEndpoint(this.backendUrl);
+      if (primaryHealthy) {
+        return true;
+      }
+
+      // Try bridge server URL if primary fails
+      if (!this.backendUrl.includes('host.docker.internal')) {
+        const bridgeUrl = this.backendUrl.replace('localhost', 'host.docker.internal');
+        console.log('[BackendClient] Trying bridge server URL:', bridgeUrl);
+        
+        const bridgeHealthy = await this.checkHealthEndpoint(bridgeUrl);
+        if (bridgeHealthy) {
+          // Update backend URL to use bridge
+          this.backendUrl = bridgeUrl;
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error('[BackendClient] Health check failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check health of specific endpoint
+   */
+  private async checkHealthEndpoint(baseUrl: string): Promise<boolean> {
+    try {
+      const healthUrl = `${baseUrl}/health`;
+      const response = await fetch(healthUrl, {
+        method: 'GET',
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+
+      return response.ok;
+    } catch (error) {
+      // Try alternative health endpoint
+      try {
+        const altHealthUrl = `${baseUrl}/api/health`;
+        const response = await fetch(altHealthUrl, {
+          method: 'GET',
+          headers: this.getHeaders(),
+          signal: AbortSignal.timeout(5000)
+        });
+
+        return response.ok;
+      } catch (altError) {
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Make HTTP request to backend
+   */
+  private async makeRequest(endpoint: string, payload: any): Promise<any> {
+    const url = `${this.backendUrl}${endpoint}`;
+    
+    console.log('[BackendClient] Making request to:', url);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30000) // 30 second timeout
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      
+      // Check if this is a client error (4xx) - don't retry
+      if (response.status >= 400 && response.status < 500) {
+        const error: any = new Error(`Client error ${response.status}: ${errorText}`);
+        error.cause = 'NO_RETRY';
+        throw error;
+      }
+
+      // Server error (5xx) - will retry
+      throw new Error(`Server error ${response.status}: ${errorText}`);
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Get request headers
+   */
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+
+    return headers;
+  }
+
+  /**
+   * Retry with exponential backoff
+   */
+  private async retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        lastError = error;
+
+        // Don't retry on client errors (4xx)
+        if (error.cause === 'NO_RETRY' || (error.message && error.message.includes('Client error'))) {
+          console.error('[BackendClient] Client error, not retrying:', error.message);
+          throw error;
+        }
+
+        // Don't retry on last attempt
+        if (attempt === this.maxRetries - 1) {
+          break;
+        }
+
+        // Wait before retry
+        const delay = this.retryDelays[attempt] || this.retryDelays[this.retryDelays.length - 1];
+        console.log(`[BackendClient] Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+        await this.sleep(delay);
+      }
+    }
+
+    throw new Error(`Backend request failed after ${this.maxRetries} attempts: ${lastError?.message}`);
+  }
+
+  /**
+   * Sleep utility
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Extract project ID from source path
+   */
+  private extractProjectId(sourcePath: string): string {
+    // Extract project name from path (first directory or filename)
+    const parts = sourcePath.split(/[/\\]/);
+    const projectName = parts.length > 1 ? parts[0] : parts[parts.length - 1].replace('.md', '');
+    return projectName || 'default-project';
+  }
+}

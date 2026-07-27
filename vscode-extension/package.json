@@ -1,0 +1,158 @@
+{
+  "name": "speckit-auto-ai",
+  "displayName": "Speckit Auto-AI",
+  "description": "Fully automatic AI-powered markdown-to-PDF documentation generation for VS Code",
+  "version": "0.1.0",
+  "publisher": "speckit",
+  "author": "Speckit Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/speckit/vscode-speckit-auto-ai"
+  },
+  "bugs": {
+    "url": "https://github.com/speckit/vscode-speckit-auto-ai/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Documentation",
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "pdf",
+    "documentation",
+    "ai",
+    "copilot",
+    "claude",
+    "automation",
+    "specs"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "speckit.processCurrentFile",
+        "title": "Speckit: Process Current File",
+        "category": "Speckit"
+      },
+      {
+        "command": "speckit.showLogs",
+        "title": "Speckit: Show Extension Logs",
+        "category": "Speckit"
+      },
+      {
+        "command": "speckit.checkBackend",
+        "title": "Speckit: Check Backend Status",
+        "category": "Speckit"
+      },
+      {
+        "command": "speckit.toggleAutoProcess",
+        "title": "Speckit: Toggle Auto-Processing",
+        "category": "Speckit"
+      }
+    ],
+    "configuration": {
+      "title": "Speckit Auto-AI",
+      "properties": {
+        "speckit.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Backend API URL for document processing",
+          "order": 1
+        },
+        "speckit.autoProcess": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically process markdown files on save",
+          "order": 2
+        },
+        "speckit.includePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*.md"
+          ],
+          "description": "Glob patterns for files to include in auto-processing",
+          "order": 3
+        },
+        "speckit.excludePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.vscode/**",
+            "**/.ai-requests/**",
+            "**/.ai-responses/**",
+            "**/dist/**",
+            "**/out/**"
+          ],
+          "description": "Glob patterns for files to exclude from processing",
+          "order": 4
+        },
+        "speckit.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for backend authentication (optional, will migrate to secure storage)",
+          "order": 5
+        },
+        "speckit.enableDebugLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable verbose debug logging (may log sensitive content)",
+          "order": 6
+        },
+        "speckit.debounceMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "Debounce delay in milliseconds for file change events",
+          "order": 7
+        },
+        "speckit.maxConcurrentProcessing": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum number of files to process concurrently",
+          "order": 8
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "minimatch": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.32.0",
+    "eslint": "^8.56.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.3"
+  }
+}

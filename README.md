@@ -1,120 +1,175 @@
-# Documentation Agent Extension for Spec Kit
+# Speckit Auto-AI - Documentation Generation System
 
-Automatically generate polished PDF documentation from your markdown spec files using AI-powered transformation and validation.
+Automatically generate polished PDF documentation from markdown files using AI-powered transformation. Now featuring a native VS Code extension for fully automatic processing!
 
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
-![Spec Kit](https://img.shields.io/badge/spec--kit-0.11.9+-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
-## Features
+## 🚀 Features
 
-- 🤖 **AI-powered transformation** - Uses your IDE's AI model (Copilot, Claude, Kiro) for intelligent parsing
-- 🔄 **Mode toggling** - Switch between AI-powered and rule-based transformation on-demand
-- ⚡ **Automatic file watching** - Continuously monitors workspace for markdown changes
-- 🎯 **Event-driven ingestion** - Hooks onto file creation, modification, and commits  
-- ✨ **Smart content analysis** - AI generates professional titles, abstracts, and classifications
-- ✅ **Validation** - Ensures completeness and correctness before rendering
-- 📦 **Deduplication** - Skips unchanged content automatically
-- 📄 **PDF generation** - Creates polished PDFs with cover pages, table of contents, and grouped sections
-- 🗄️ **Version tracking** - Maintains complete version history in PostgreSQL
-- 🔙 **Fallback support** - Works with or without AI (rule-based fallback)
+- ✨ **Fully Automatic** - VS Code extension monitors and processes markdown files on save
+- 🤖 **AI-Powered** - Uses GitHub Copilot, Claude, or other AI models for intelligent analysis
+- 📄 **Professional PDFs** - Generates polished PDFs with cover pages, TOC, and grouped sections
+- 🔄 **Smart Fallback** - Works with or without AI using rule-based parsing
+- ⚡ **Fast Processing** - Complete transformation in under 10 seconds
+- 🗄️ **Version Tracking** - Maintains complete history in PostgreSQL
+- 🎯 **Zero Configuration** - Works immediately with sensible defaults
 
-## ⚡ Quick Start
+## ⚡ Quick Start (2 Steps)
 
-**New to this extension?** → See **[CLONE-AND-TEST.md](CLONE-AND-TEST.md)** for step-by-step clone and test instructions.
-
-### 1. Start Backend
+### Step 1: Start Backend
 
 ```powershell
-.\start.ps1  # Windows
-# or
-./start.sh   # Mac/Linux
+.\START-EVERYTHING.ps1
 ```
 
-### 2. Configure in Spec Kit
+This starts the Docker backend (FastAPI + PostgreSQL) on `http://localhost:8000`
 
-```
-/speckit.ext.setup
-```
-- API URL: `http://localhost:8000`
-- API Key: `dev-key`
+### Step 2: Install VS Code Extension
 
-### 3. Start Automatic File Watching (Optional but Recommended)
-
-**In a separate terminal:**
 ```powershell
-.\start-watcher.ps1 -WorkspaceRoot "C:\path\to\your\workspace"
+.\INSTALL-EXTENSION.ps1
 ```
 
-Now all markdown file changes are automatically processed!
+This compiles and installs the VS Code extension.
 
-### 4. Or Generate PDF Manually
+**That's it!** Now just save any `.md` file in VS Code and it will automatically:
+1. Detect the file change
+2. Analyze the document with AI (or rule-based fallback)
+3. Generate a professional PDF
+4. Show you a notification with a link to open the PDF
 
-Open a markdown file in Spec Kit, then:
+## 📖 How It Works
+
+### New Architecture (VS Code Extension)
+
 ```
-/speckit.ext.docgen
+Save .md file in VS Code
+    ↓
+Extension detects change (automatic)
+    ↓
+AI analyzes structure (Copilot/Claude/fallback)
+    ↓
+Sends to backend API
+    ↓
+PDF generated
+    ↓
+Notification with PDF link
 ```
 
-**Done!** Your PDF is generated and stored in the database.
+**Zero manual steps!** Just edit and save.
 
-📖 **Detailed guides:**
-- **[WATCHER-QUICKSTART.md](WATCHER-QUICKSTART.md)** - Set up automatic file watching
-- **[CLONE-AND-TEST.md](CLONE-AND-TEST.md)** - Clone and test in new environment
-- **[INSTALLATION.md](INSTALLATION.md)** - Complete installation guide
-- **[QUICKSTART-USER.md](QUICKSTART-USER.md)** - 5-minute user quick start
 
----
+## 📚 What You Get
 
-## 📚 Documentation
+### Backend (Docker)
+- **FastAPI server** - REST API for document processing
+- **PostgreSQL database** - Version tracking and artifact storage
+- **PDF generator** - Professional PDF output with cover pages and TOC
+- **AI diagram service** - Optional diagram generation
 
-| Document | Description |
-|----------|-------------|
-| **[MODE-TOGGLING-GUIDE.md](MODE-TOGGLING-GUIDE.md)** | Switch between AI and rule-based modes |
-| **[AGENTIC-PIPELINE.md](AGENTIC-PIPELINE.md)** | AI-powered transformation explained |
-| **[WATCHER-QUICKSTART.md](WATCHER-QUICKSTART.md)** | Set up automatic file watching |
-| **[INSTALLATION.md](INSTALLATION.md)** | Complete installation and setup guide |
-| **[QUICKSTART-USER.md](QUICKSTART-USER.md)** | 5-minute quick start for Spec Kit users |
-| **[USER-GUIDE.md](USER-GUIDE.md)** | Comprehensive user documentation |
-| **[TESTING-CHECKLIST.md](TESTING-CHECKLIST.md)** | Step-by-step testing scenarios |
-| **[SETUP-GUIDE.md](SETUP-GUIDE.md)** | Detailed setup and troubleshooting |
-| **[CHANGES-SUMMARY.md](CHANGES-SUMMARY.md)** | Technical implementation details |
+### VS Code Extension
+- **Automatic file monitoring** - Watches for markdown changes
+- **AI provider support** - GitHub Copilot, Claude, generic models
+- **Rule-based fallback** - Works without AI
+- **User notifications** - Real-time status updates
+- **Command palette** - Manual processing and configuration
+- **Settings UI** - Full configuration through VS Code
+
+## 🎯 VS Code Extension Commands
+
+Open Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`):
+
+| Command | Description |
+|---------|-------------|
+| `Speckit: Process Current File` | Manually process active markdown file |
+| `Speckit: Show Extension Logs` | View detailed processing logs |
+| `Speckit: Check Backend Status` | Verify backend connection |
+| `Speckit: Toggle Auto-Processing` | Enable/disable automatic processing |
+
+## ⚙️ Configuration
+
+VS Code Settings (`Ctrl+,` or `Cmd+,` → search "Speckit"):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `speckit.backendUrl` | `http://localhost:8000` | Backend API URL |
+| `speckit.autoProcess` | `true` | Auto-process on save |
+| `speckit.includePatterns` | `["**/*.md"]` | Files to process |
+| `speckit.excludePatterns` | `[...]` | Files to ignore |
+| `speckit.debounceMs` | `500` | Debounce delay (ms) |
+| `speckit.maxConcurrentProcessing` | `3` | Max concurrent files |
+| `speckit.enableDebugLogging` | `false` | Verbose logging |
+
+## 🔍 What's New
+
+### ✅ Added: VS Code Extension
+- Native integration - no Python scripts needed
+- Multiple AI providers with automatic fallback
+- Better error handling and user experience
+- Automatic activation on VS Code startup
+
+### ✂️ Removed: Python Bridge
+The old `backend/copilot_bridge.py` system has been replaced by the VS Code extension.
+
+**Old way (manual)**:
+1. Run Python file watcher
+2. Run Python AI bridge
+3. Manually use Copilot Chat for each file
+4. Wait for processing
+
+**New way (automatic)**:
+1. Install extension
+2. Save markdown file
+3. PDF appears automatically ✨
 
 ---
 
 ## 🏗️ Architecture
 
+### System Overview
+
 ```
-Markdown Files → Event Hooks → Transform → Validate → Render → Store
-                                                                ↓
-                                                    PostgreSQL + PDF Volume
+┌─────────────────────────────────────────┐
+│         VS Code Extension               │
+│  ┌─────────────────────────────────┐   │
+│  │  File Watcher (automatic)       │   │
+│  └──────────────┬──────────────────┘   │
+│                 ↓                        │
+│  ┌─────────────────────────────────┐   │
+│  │  AI Providers (fallback chain)  │   │
+│  │  • Copilot → Claude → Generic   │   │
+│  │  • Rule-based (always works)    │   │
+│  └──────────────┬──────────────────┘   │
+│                 ↓                        │
+│  ┌─────────────────────────────────┐   │
+│  │  JSON Parser & Validator        │   │
+│  └──────────────┬──────────────────┘   │
+└─────────────────┼────────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│      Backend API (Docker)               │
+│  ┌─────────────────────────────────┐   │
+│  │  FastAPI Server (port 8000)     │   │
+│  └──────────────┬──────────────────┘   │
+│                 ↓                        │
+│  ┌─────────────────────────────────┐   │
+│  │  PDF Generator + Database       │   │
+│  └──────────────┬──────────────────┘   │
+└─────────────────┼────────────────────────┘
+                  ↓
+              PDF Output
 ```
 
-**Event-Driven Processing:**
-- **File watcher** monitors for changes (automatic, continuous)
-- **Post-commit hooks** trigger on git commits
-- **Manual commands** for on-demand generation (`/speckit.ext.docgen`)
+### Data Flow
 
-**Pipeline Stages:**
-1. **Ingest** - Classify and deduplicate
-2. **Transform** - AI or heuristic structuring  
-3. **Validate** - Check completeness
-4. **Render** - Generate PDF with cover + TOC
-5. **Store** - Save to database + volume
-
-See [CHANGES-SUMMARY.md](CHANGES-SUMMARY.md) for technical details.
-
----
-
-## 🎯 Extension Commands
-
-Use these commands in Spec Kit:
-
-| Command | Description |
-|---------|-------------|
-| `/speckit.ext.setup` | Configure backend connection (one-time) |
-| `/speckit.ext.docgen` | Generate PDF from active markdown file |
-| `/speckit.ext.status` | View all artifacts and their status |
-| `/speckit.ext.regenerate <path>` | Force regenerate a PDF |
+1. **Save** → Extension detects markdown file change
+2. **Transform** → AI analyzes structure (or rule-based fallback)
+3. **Validate** → JSON parser validates structured data
+4. **Ingest** → Backend API receives structured JSON
+5. **Generate** → PDF created with formatting
+6. **Store** → Saved to database + file volume
+7. **Notify** → User gets notification with PDF link
 
 ---
 
@@ -122,32 +177,104 @@ Use these commands in Spec Kit:
 
 ```
 .
-├── extension/              # Spec Kit extension
-│   ├── commands/          # Extension commands
-│   ├── scripts/           # Hook scripts
-│   └── extension.yml      # Extension manifest
+├── vscode-extension/        # 🆕 VS Code Extension (NEW!)
+│   ├── src/
+│   │   ├── extension.ts              # Entry point
+│   │   ├── services/                 # Core services
+│   │   │   ├── config.ts            # Configuration
+│   │   │   ├── fileWatcher.ts       # File monitoring
+│   │   │   ├── aiProviderFactory.ts # AI detection
+│   │   │   ├── jsonParser.ts        # Parsing/validation
+│   │   │   ├── backendClient.ts     # API client
+│   │   │   ├── notificationService.ts # User feedback
+│   │   │   └── transformPipeline.ts  # Orchestration
+│   │   ├── providers/                # AI providers
+│   │   │   ├── copilotProvider.ts   # GitHub Copilot
+│   │   │   ├── claudeProvider.ts    # Claude AI
+│   │   │   ├── genericProvider.ts   # Generic model
+│   │   │   └── ruleBasedProvider.ts # Fallback
+│   │   └── types/                    # TypeScript interfaces
+│   ├── package.json                  # Extension manifest
+│   └── README.md                     # Extension docs
 │
-├── backend/               # FastAPI backend
+├── backend/                 # FastAPI Backend (Docker)
 │   ├── app/
-│   │   ├── api/          # API routes
-│   │   ├── services/     # Business logic
-│   │   ├── repositories/ # Database layer
-│   │   └── models/       # Data schemas
-│   ├── tests/            # Unit & integration tests
-│   ├── Dockerfile        # Backend container
-│   └── requirements.txt  # Python dependencies
+│   │   ├── api/            # API routes
+│   │   ├── services/       # Business logic
+│   │   ├── repositories/   # Database layer
+│   │   └── models/         # Data schemas
+│   ├── tests/              # Tests
+│   ├── Dockerfile          # Backend container
+│   └── requirements.txt    # Python dependencies
 │
-├── infra/                # Infrastructure
-│   └── docker-compose.yml # Service orchestration
+├── infra/                  # Infrastructure
+│   └── docker-compose.yml  # Service orchestration
 │
-├── specs/                # Feature specifications
-│   └── 001-documentation-agent/
-│
-└── *.md                  # Documentation
+├── START-EVERYTHING.ps1    # Start backend
+├── INSTALL-EXTENSION.ps1   # 🆕 Install VS Code extension
+└── README.md               # This file
+```
+
+## 🧪 Testing
+
+### Test the Extension
+
+1. Open `vscode-extension/` folder in VS Code
+2. Press `F5` to launch Extension Development Host
+3. In the new VS Code window:
+   - Open a workspace with markdown files
+   - Save a `.md` file
+   - Check notifications and logs
+
+### Test the Backend
+
+```powershell
+cd backend
+pytest tests/
 ```
 
 ---
 
-## License
+## 📋 Prerequisites
 
-[Your License Here]
+- **Docker** & Docker Compose
+- **Node.js** 20+ (for extension development)
+- **VS Code** 1.85.0 or later
+- **GitHub Copilot** or **Claude** extension (optional, for AI features)
+
+---
+
+## 🐛 Troubleshooting
+
+### Extension Not Activating
+
+1. Check VS Code version: Help → About (must be 1.85.0+)
+2. View extension logs: Ctrl+Shift+P → "Speckit: Show Extension Logs"
+3. Reload window: Ctrl+Shift+P → "Developer: Reload Window"
+
+### Backend Not Available
+
+1. Check Docker: `docker ps` (should see backend container)
+2. Check logs: `docker logs infra-backend-1`
+3. Verify URL: `curl http://localhost:8000/health`
+4. Try extension command: "Speckit: Check Backend Status"
+
+### No AI Provider Detected
+
+Extension will use rule-based fallback automatically. For AI features:
+1. Install GitHub Copilot or Claude extension
+2. Reload VS Code window
+3. Check logs for provider detection
+
+### Files Not Processing
+
+1. Check auto-process setting: `speckit.autoProcess` (should be `true`)
+2. Check file patterns: `speckit.includePatterns` and `excludePatterns`
+3. View logs: "Speckit: Show Extension Logs"
+4. Try manual: "Speckit: Process Current File"
+
+### More Help
+
+See `vscode-extension/TROUBLESHOOTING.md` for detailed debugging guide.
+
+---
