@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { usePDFDownload } from '../hooks/usePDFDownload';
 import { VersionList } from '../components/VersionList';
 import { Button } from '../components/ui/button';
-import { Download, Loader2 } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { config } from '../config/env';
 
 export function PDFViewer() {
   const { artifactId, versionId } = useParams<{
@@ -13,55 +13,26 @@ export function PDFViewer() {
   }>();
 
   const [currentVersionId, setCurrentVersionId] = useState(versionId || '');
-  const { data: pdfBlob, isLoading, error, downloadPDF } = usePDFDownload(currentVersionId);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (pdfBlob) {
-      const url = URL.createObjectURL(pdfBlob);
-      setPdfUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-  }, [pdfBlob]);
+  // Build direct PDF URL with authentication via query parameter
+  // Since iframe doesn't support custom headers, pass API key as query param
+  const pdfUrl = currentVersionId 
+    ? `${config.apiBaseUrl}/api/doc-versions/${currentVersionId}/pdf?api_key=${config.apiKey}#toolbar=1&navpanes=1`
+    : null;
 
   const handleVersionSelect = (newVersionId: string) => {
     setCurrentVersionId(newVersionId);
   };
 
   const handleDownload = () => {
-    if (pdfBlob) {
-      downloadPDF();
+    if (pdfUrl) {
+      // Open PDF in new tab which will trigger browser's download
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.download = `document-${currentVersionId}.pdf`;
+      link.click();
     }
   };
-
-  if (isLoading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex flex-col items-center justify-center min-h-[400px]">
-          <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-          <p className="text-muted-foreground">Loading PDF...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
-          <div className="max-w-md space-y-4">
-            <h2 className="text-2xl font-semibold text-destructive">Error Loading PDF</h2>
-            <p className="text-muted-foreground">
-              {error instanceof Error ? error.message : 'An unexpected error occurred'}
-            </p>
-            <Button onClick={() => window.location.reload()} variant="outline">
-              Retry
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -70,21 +41,36 @@ export function PDFViewer() {
         <div className="flex-1">
           <div className="mb-4 flex items-center justify-between">
             <h1 className="text-2xl font-bold">PDF Viewer</h1>
-            <Button onClick={handleDownload} disabled={!pdfBlob}>
+            <Button onClick={handleDownload} disabled={!pdfUrl}>
               <Download className="h-4 w-4 mr-2" />
               Download PDF
             </Button>
           </div>
           
           {pdfUrl ? (
-            <iframe
-              src={pdfUrl}
-              className="w-full h-[calc(100vh-200px)] border rounded-lg"
-              title="PDF Document"
-            />
+            <div className="relative w-full h-[calc(100vh-200px)]">
+              <object
+                data={pdfUrl}
+                type="application/pdf"
+                className="w-full h-full border rounded-lg"
+                key={currentVersionId} // Force re-render when version changes
+              >
+                <div className="flex flex-col items-center justify-center h-full space-y-4">
+                  <p className="text-muted-foreground">Unable to display PDF in browser.</p>
+                  <a 
+                    href={pdfUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline font-medium"
+                  >
+                    Click here to open PDF in new tab
+                  </a>
+                </div>
+              </object>
+            </div>
           ) : (
             <div className="flex items-center justify-center h-[400px] border rounded-lg bg-muted">
-              <p className="text-muted-foreground">No PDF available</p>
+              <p className="text-muted-foreground">Select a version to view PDF</p>
             </div>
           )}
         </div>

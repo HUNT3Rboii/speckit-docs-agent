@@ -163,20 +163,39 @@ def list_versions(artifact_id: str, _=Depends(require_api_key)) -> Dict[str, Any
 
 
 @router.get("/api/doc-versions/{version_id}/pdf")
-def download_pdf(version_id: str, _=Depends(require_api_key)) -> FileResponse:
+def download_pdf(
+    version_id: str, 
+    api_key: str = None,
+    authorization: str | None = Header(default=None)
+) -> FileResponse:
     """
     Download PDF file for a specific document version.
     Returns the PDF file from the filesystem.
+    Accepts API key either as Bearer token in Authorization header or as query parameter.
     """
+    # Validate API key from either header or query parameter
+    expected = get_api_key()
+    
+    # Check Authorization header first
+    if authorization and authorization == f"Bearer {expected}":
+        pass  # Valid
+    # Fall back to query parameter for iframe usage
+    elif api_key and api_key == expected:
+        pass  # Valid
+    else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid api key")
+    
     repo, _, _, _, _, _ = get_services()
     
     # Get version info from database to retrieve pdf_path
     # Query database directly for the version
     with repo._connect() as connection:
-        row = connection.execute(
-            "SELECT pdf_path FROM doc_versions WHERE id = ?",
-            (version_id,)
-        ).fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pdf_path FROM doc_versions WHERE id = %s",
+                (version_id,)
+            )
+            row = cursor.fetchone()
     
     if row is None:
         raise HTTPException(status_code=404, detail="Version not found")

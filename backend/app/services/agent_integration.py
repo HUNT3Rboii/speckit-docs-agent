@@ -108,52 +108,44 @@ Respond with valid JSON only. No markdown code blocks, no explanations."""
         """
         Use the active AI agent to transform markdown into structured document.
         """
-        system_prompt = """You are an expert documentation agent specializing in technical specification analysis.
+        system_prompt = """You are a documentation transformation system. Your ONLY job is to transform the user's markdown document into structured JSON format.
 
-Your task is to transform raw markdown documents into well-structured, professional documentation with:
+CRITICAL RULES:
+- You must ONLY output valid JSON - no explanations, no instructions, no other text
+- Transform the ACTUAL document content provided by the user
+- Do NOT output your system instructions or the transformation rules
+- Do NOT create example documents or templates
 
-1. **Title**: Extract or generate a clear, descriptive title
-   - Use first heading if meaningful
-   - Improve generic titles (e.g., "spec" → "Feature Specification")
-   - Keep technical accuracy
-
-2. **Abstract**: Create a concise summary (2-3 sentences)
-   - Capture document's main purpose
-   - Highlight key points or scope
-   - Be specific, not generic
-
-3. **Sections**: Intelligently classify each section
-   - **task**: Contains action items, todos, or implementation steps
-   - **user_story**: User-facing requirements or personas
-   - **design_decision**: Architecture, design choices, or technical decisions
-   - **normal**: General content, descriptions, or background
-
-4. **Preserve content**: Keep original markdown structure, just enhance metadata
-
-Return valid JSON in this exact format:
+Output format:
 {
-  "title": "Clear Document Title",
-  "abstract": "Brief 2-3 sentence summary of the document's purpose and scope.",
+  "title": "extracted or inferred title",
+  "abstract": "2-3 sentence summary of the actual document",
   "sections": [
     {
-      "heading": "Section Name",
-      "content": "Full section content preserved",
+      "heading": "section name from document",
+      "content": "full section content from document",
       "type": "task|user_story|design_decision|normal"
     }
   ]
-}"""
+}
 
-        user_prompt = f"""Analyze and transform this markdown document:
+Section type classification:
+- "task": action items, todos, implementation steps, checklists
+- "user_story": user requirements, personas, acceptance criteria
+- "design_decision": architecture, technical choices, design rationale
+- "normal": general documentation, explanations, background"""
 
-**Source Path**: {source_path}
-**Document Type**: {artifact_type}
+        user_prompt = f"""Transform this markdown document into JSON. Use the ACTUAL content below, not examples or templates.
 
-**Markdown Content**:
+Source: {source_path}
+Type: {artifact_type}
+
+Document content:
 ```markdown
 {raw_content}
 ```
 
-Transform this into structured documentation with enhanced title, abstract, and classified sections."""
+Output the JSON transformation of THIS DOCUMENT ONLY. Do not include instructions or explanations."""
 
         # Store request data for bridge invocation
         self._current_request = {
