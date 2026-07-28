@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 from app.services.diagram_generation import DiagramGenerationService, DiagramType
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentEnhancementService:
@@ -33,6 +37,17 @@ class DocumentEnhancementService:
         
         # Step 1: Analyze and generate diagrams
         diagrams = self.diagram_service.analyze_content_for_diagrams(sections, artifact_type)
+        
+        # Step 1.1: Populate Mermaid code for each diagram
+        for diagram in diagrams:
+            try:
+                diagram["mermaid_code"] = self.diagram_service.generate_mermaid_diagram(diagram)
+                # Add generation timestamp to diagram metadata
+                diagram["generated_at"] = datetime.now().isoformat()
+            except Exception as e:
+                # If Mermaid generation fails for a diagram, log warning and set mermaid_code to None
+                logger.warning(f"Failed to generate Mermaid code for diagram '{diagram.get('title', 'unknown')}': {e}")
+                diagram["mermaid_code"] = None
         
         # Step 2: Split large sections intelligently
         enhanced_sections = self._split_sections_intelligently(sections)

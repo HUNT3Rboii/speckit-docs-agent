@@ -46,7 +46,7 @@ export class BackendClient implements IBackendClient {
 
     // Try ingestion with retry logic
     return await this.retryWithBackoff(async () => {
-      const response = await this.makeRequest('/api/agent/ingest', payload);
+      const response = await this.makeRequest('/api/artifacts/ingest-structured', payload);
       return response as IngestResponse;
     });
   }

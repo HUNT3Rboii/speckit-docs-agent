@@ -101,6 +101,9 @@ export class TransformPipeline implements ITransformPipeline {
         typeof structuredJson === 'string' ? structuredJson : JSON.stringify(structuredJson)
       );
 
+      // Step 4.5: Add raw content for backend validation
+      validated.raw_content = content;
+
       // Step 5: Send to backend
       this.notificationService.info(`Sending to backend: ${fileName}`);
       const response = await this.backendClient.ingest(validated);

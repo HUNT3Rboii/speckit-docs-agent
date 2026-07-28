@@ -37,6 +37,8 @@ export interface StructuredJSON {
   ai_enhanced: boolean;
   /** Name of AI provider used (if applicable) */
   agent_source?: string;
+  /** Raw markdown content for validation */
+  raw_content?: string;
 }
 
 /**

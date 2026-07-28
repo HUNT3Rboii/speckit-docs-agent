@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import FileResponse
 
 from app.api.deps import get_api_key, get_output_dir, get_project_name, get_repository
 from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ProjectCreate, ProjectResponse
@@ -46,12 +48,16 @@ def ingest_structured(payload: ArtifactIngestStructuredRequest, _=Depends(requir
     from app.services.document_enhancement import DocumentEnhancementService
     enhancement_service = DocumentEnhancementService()
     
-    # Resolve project name to ID
+    # Resolve project name to ID, create if doesn't exist
     project_id = payload.project_id
     all_projects = repo.list_projects()
     project_match = next((p for p in all_projects if p["name"] == payload.project_id), None)
     if project_match:
         project_id = project_match["id"]
+    else:
+        # Auto-create project if it doesn't exist
+        new_project = repo.create_project(payload.project_id, repo_url=None)
+        project_id = new_project["id"]
     
     structured_payload = payload.structured_json
     if not structured_payload.get("sections"):
@@ -81,6 +87,8 @@ def ingest_structured(payload: ArtifactIngestStructuredRequest, _=Depends(requir
     return {
         "status": "ok",
         "artifact": persisted["artifact"],
+        "artifact_id": persisted["artifact"]["id"],
+        "pdf_location": persisted["version"]["pdf_path"],
         "version": persisted["version"],
         "enhancements": enhanced_payload.get("enhancements", {})
     }
@@ -127,6 +135,8 @@ def ingest_raw(payload: ArtifactIngestRawRequest, _=Depends(require_api_key)) ->
     return {
         "status": "ok",
         "artifact": persisted["artifact"],
+        "artifact_id": persisted["artifact"]["id"],
+        "pdf_location": persisted["version"]["pdf_path"],
         "version": persisted["version"],
         "stale": result.get("stale", False),
         "structured": structured_payload,
@@ -153,5 +163,33 @@ def list_versions(artifact_id: str, _=Depends(require_api_key)) -> Dict[str, Any
 
 
 @router.get("/api/doc-versions/{version_id}/pdf")
-def download_pdf(version_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
-    return {"version_id": version_id}
+def download_pdf(version_id: str, _=Depends(require_api_key)) -> FileResponse:
+    """
+    Download PDF file for a specific document version.
+    Returns the PDF file from the filesystem.
+    """
+    repo, _, _, _, _, _ = get_services()
+    
+    # Get version info from database to retrieve pdf_path
+    # Query database directly for the version
+    with repo._connect() as connection:
+        row = connection.execute(
+            "SELECT pdf_path FROM doc_versions WHERE id = ?",
+            (version_id,)
+        ).fetchone()
+    
+    if row is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    
+    pdf_path = row["pdf_path"]
+    
+    # Check if file exists
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail=f"PDF file not found at path: {pdf_path}")
+    
+    # Return PDF file
+    return FileResponse(
+        path=pdf_path,
+        media_type="application/pdf",
+        filename=os.path.basename(pdf_path)
+    )
