@@ -4,9 +4,9 @@
  */
 
 import * as vscode from 'vscode';
-import * as crypto from 'crypto';
 import { minimatch } from 'minimatch';
 import { FileWatcher as IFileWatcher, FileWatcherConfig } from '../types';
+import { ContentHashService } from './contentHashService';
 
 /**
  * Implements file watching with debouncing and duplicate detection
@@ -17,10 +17,12 @@ export class FileWatcher implements IFileWatcher {
   private fileCreateCallbacks: Array<(uri: vscode.Uri) => void> = [];
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private contentHashes: Map<string, string> = new Map();
+  private contentHashService: ContentHashService;
   private config: FileWatcherConfig;
 
-  constructor(config: FileWatcherConfig) {
+  constructor(config: FileWatcherConfig, contentHashService: ContentHashService = new ContentHashService()) {
     this.config = config;
+    this.contentHashService = contentHashService;
   }
 
   /**
@@ -168,10 +170,10 @@ export class FileWatcher implements IFileWatcher {
     try {
       const content = await vscode.workspace.fs.readFile(uri);
       const contentStr = Buffer.from(content).toString('utf8');
-      const hash = this.calculateHash(contentStr);
+      const hash = this.contentHashService.computeHash(contentStr);
 
       const previousHash = this.contentHashes.get(uri.fsPath);
-      if (previousHash === hash) {
+      if (previousHash && this.contentHashService.compareHashes(previousHash, hash)) {
         return true; // Duplicate content
       }
 
@@ -182,12 +184,5 @@ export class FileWatcher implements IFileWatcher {
       console.error('Error checking for duplicate:', error);
       return false; // Process on error to be safe
     }
-  }
-
-  /**
-   * Calculate SHA-256 hash of content
-   */
-  private calculateHash(content: string): string {
-    return crypto.createHash('sha256').update(content).digest('hex');
   }
 }

@@ -40,7 +40,13 @@ export class JSONParser implements IJSONParser {
   }
 
   /**
-   * Validate structured JSON
+   * Validate structured JSON against the EnrichedJSON schema: required
+   * fields for the backend's schema validator (title/abstract/sections/
+   * diagrams/glossary/summaries), and that every diagram component and
+   * glossary entry carries the evidence field the backend's grounding
+   * validators require. Catching a malformed/incomplete AI response here,
+   * before the network round trip, avoids a wasted retry_needed reply from
+   * the backend for something client-side validation could catch instantly.
    */
   public validate(json: StructuredJSON): ValidationResult {
     const errors: string[] = [];
@@ -71,12 +77,51 @@ export class JSONParser implements IJSONParser {
         if (!section.type || !this.isValidSectionType(section.type)) {
           errors.push(`Section ${index}: Invalid section type "${section.type}"`);
         }
+
+        if (typeof section.level !== 'number' || section.level < 1 || section.level > 6) {
+          errors.push(`Section ${index}: Missing or invalid level (must be 1-6)`);
+        }
       });
 
       // Warnings
       if (json.sections.length === 0) {
         warnings.push('Document has no sections');
       }
+    }
+
+    if (!Array.isArray(json.diagrams)) {
+      errors.push('Missing or invalid diagrams array');
+    } else {
+      json.diagrams.forEach((diagram, index) => {
+        if (!diagram.mermaidCode || typeof diagram.mermaidCode !== 'string') {
+          errors.push(`Diagram ${index}: Missing or invalid mermaidCode`);
+        }
+        if (!Array.isArray(diagram.components) || diagram.components.length === 0) {
+          errors.push(`Diagram ${index}: Missing components array`);
+        } else {
+          diagram.components.forEach((component, componentIndex) => {
+            if (!component.evidence || typeof component.evidence !== 'string') {
+              errors.push(
+                `Diagram ${index}, component ${componentIndex} (${component.name ?? 'unknown'}): Missing evidence field`
+              );
+            }
+          });
+        }
+      });
+    }
+
+    if (!Array.isArray(json.glossary)) {
+      errors.push('Missing or invalid glossary array');
+    } else {
+      json.glossary.forEach((entry, index) => {
+        if (!entry.evidence || typeof entry.evidence !== 'string') {
+          errors.push(`Glossary entry ${index} (${entry.term ?? 'unknown'}): Missing evidence field`);
+        }
+      });
+    }
+
+    if (!json.summaries || typeof json.summaries.executiveSummary !== 'string') {
+      errors.push('Missing or invalid summaries.executiveSummary field');
     }
 
     // Check source_path
@@ -179,7 +224,14 @@ export class JSONParser implements IJSONParser {
    * Check if section type is valid
    */
   private isValidSectionType(type: string): type is SectionType {
-    const validTypes: SectionType[] = ['task', 'user_story', 'design_decision', 'normal'];
+    const validTypes: SectionType[] = [
+      'task',
+      'user_story',
+      'design_decision',
+      'normal',
+      'callout',
+      'open_question'
+    ];
     return validTypes.includes(type as SectionType);
   }
 }

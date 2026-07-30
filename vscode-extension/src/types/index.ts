@@ -5,7 +5,13 @@
 /**
  * Section type classification for document structure
  */
-export type SectionType = 'task' | 'user_story' | 'design_decision' | 'normal';
+export type SectionType =
+  | 'task'
+  | 'user_story'
+  | 'design_decision'
+  | 'normal'
+  | 'callout'
+  | 'open_question';
 
 /**
  * Document section with classified type
@@ -17,18 +23,75 @@ export interface Section {
   content: string;
   /** Classification of section content */
   type: SectionType;
+  /** Heading level (1-6) */
+  level: number;
 }
 
 /**
- * Structured JSON representation of a markdown document
+ * A single component referenced by a diagram, with the verbatim source
+ * excerpt ("evidence") that grounds its inclusion.
+ */
+export interface DiagramComponent {
+  /** Component label (e.g. "Auth Service") */
+  name: string;
+  /** REQUIRED: verbatim/near-verbatim excerpt from the source document */
+  evidence: string;
+}
+
+/** Diagram type, matching the backend's DiagramType enum */
+export type DiagramType = 'architecture' | 'sequence' | 'state' | 'data_model' | 'flowchart';
+
+/** AI-generated diagram with evidence-cited components */
+export interface Diagram {
+  type: DiagramType;
+  /** Valid Mermaid syntax */
+  mermaidCode: string;
+  /** Section heading this diagram relates to */
+  sectionRef: string;
+  /** Placement, e.g. "after-section-1" or "inline-section-2-paragraph-1" */
+  location: string;
+  /** REQUIRED: components with evidence citations */
+  components: DiagramComponent[];
+  /** Optional diagram title */
+  title?: string;
+}
+
+/** Glossary entry with definition and evidence */
+export interface GlossaryEntry {
+  /** Technical term from the document */
+  term: string;
+  /** 1-2 sentence definition */
+  definition: string;
+  /** REQUIRED: verbatim excerpt where the term appears or is implied */
+  evidence: string;
+}
+
+/** Executive and optional per-section summaries */
+export interface Summaries {
+  /** 2-4 sentence document overview */
+  executiveSummary: string;
+  /** Optional 1-2 sentence summary per section heading (for sections > 200 words) */
+  perSection?: Record<string, string>;
+}
+
+/**
+ * Structured JSON representation of a markdown document, enriched with
+ * evidence-grounded diagrams, glossary, and summaries (the single AI call's
+ * output — see EnrichmentPromptBuilder).
  */
 export interface StructuredJSON {
   /** Document title */
   title: string;
   /** 2-3 sentence summary of the document */
   abstract: string;
-  /** Classified sections of the document */
+  /** Classified sections of the document (ALL original headings preserved) */
   sections: Section[];
+  /** AI-generated diagrams with evidence (0-10) */
+  diagrams: Diagram[];
+  /** Term definitions with evidence (max 30) */
+  glossary: GlossaryEntry[];
+  /** Executive and per-section summaries */
+  summaries: Summaries;
   /** Optional document type classification */
   artifact_type?: string;
   /** Relative path from workspace root */
@@ -57,6 +120,10 @@ export interface ProcessResult {
   provider?: string;
   /** Whether processing was skipped due to duplicate */
   skipped?: boolean;
+  /** True if the backend dropped ungrounded diagrams/glossary entries after retries were exhausted */
+  partial?: boolean;
+  /** Diagram titles / glossary terms dropped for lacking grounded evidence */
+  droppedItems?: Record<string, string[]>;
 }
 
 /**
@@ -92,6 +159,57 @@ export interface IngestRequest {
   structured_json: StructuredJSON;
   /** Optional Git commit hash */
   commit_hash?: string;
+}
+
+/**
+ * Structured, per-category validation error returned by the backend's
+ * RetryLoopOrchestrator when evidence-grounding validation fails and retries
+ * remain. Built for the Extension_AI to correct only the flagged items.
+ */
+export interface StructuredError {
+  valid: boolean;
+  retry_count: number;
+  errors: {
+    schema_errors?: string[];
+    missing_headings?: string[];
+    ungrounded_diagrams?: string[];
+    ungrounded_glossary?: string[];
+    mermaid_syntax_errors?: string[];
+  };
+  warnings: string[];
+}
+
+/**
+ * Request payload for the backend's /api/process endpoint (the agentic
+ * pipeline). retry_count is tracked client-side and incremented on each
+ * resubmission after a retry_needed response — see TransformPipeline.
+ */
+export interface ProcessRequest {
+  project_id: string;
+  source_path: string;
+  source_markdown: string;
+  enriched_json: StructuredJSON;
+  artifact_type?: string;
+  commit_hash?: string;
+  retry_count: number;
+}
+
+/**
+ * Response from /api/process. `status` discriminates between a completed
+ * render ("ok") and a request to correct and resubmit ("retry_needed").
+ */
+export interface ProcessResponse {
+  status: 'ok' | 'retry_needed';
+  skipped?: boolean;
+  partial?: boolean;
+  artifact_id?: string;
+  pdf_location?: string;
+  version?: { version_no: number; [key: string]: unknown };
+  dropped_items?: Record<string, string[]>;
+  validation_warnings?: string[];
+  structured_error?: StructuredError;
+  retry_count?: number;
+  stageTimings?: Record<string, number>;
 }
 
 /**
@@ -166,8 +284,18 @@ export interface AIProvider {
   isAvailable(): Promise<boolean>;
   /** Get provider name/identifier */
   getProviderName(): string;
-  /** Transform markdown to structured JSON */
-  transform(markdown: string, sourcePath: string): Promise<StructuredJSON>;
+  /**
+   * Transform markdown to structured JSON. If `structuredError` is provided,
+   * the prompt asks the AI to correct only the flagged items (missing
+   * headings / ungrounded diagram or glossary evidence / invalid Mermaid
+   * syntax) from a previous /api/process retry_needed response, rather than
+   * re-transforming from scratch.
+   */
+  transform(
+    markdown: string,
+    sourcePath: string,
+    structuredError?: StructuredError
+  ): Promise<StructuredJSON>;
 }
 
 /**
@@ -202,8 +330,10 @@ export interface JSONParser {
  * Backend Client interface
  */
 export interface BackendClient {
-  /** Ingest structured document to backend */
+  /** Ingest structured document to backend (legacy /api/artifacts/ingest-structured path) */
   ingest(data: StructuredJSON): Promise<IngestResponse>;
+  /** Submit an EnrichedJSON document to the agentic pipeline's /api/process endpoint */
+  process(request: ProcessRequest): Promise<ProcessResponse>;
   /** Check backend health/availability */
   checkHealth(): Promise<boolean>;
 }
@@ -216,6 +346,8 @@ export interface NotificationService {
   processing(fileName: string): void;
   /** Show success notification */
   success(result: IngestResponse): void;
+  /** Show partial-success notification (some diagrams/glossary entries were dropped) */
+  partial?(response: ProcessResponse): void;
   /** Show error notification */
   error(error: Error): void;
   /** Show progress for multiple files */
@@ -228,4 +360,15 @@ export interface NotificationService {
 export interface TransformPipeline {
   /** Process a markdown file through complete pipeline */
   process(fileUri: import('vscode').Uri): Promise<ProcessResult>;
+}
+
+/**
+ * Content Hash Service interface
+ * Computes SHA-256 hashes for markdown content to enable deduplication
+ */
+export interface ContentHashService {
+  /** Compute SHA-256 hash from content string */
+  computeHash(content: string): string;
+  /** Compare two hashes for equality */
+  compareHashes(hash1: string, hash2: string): boolean;
 }

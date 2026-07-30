@@ -4,7 +4,8 @@
  */
 
 import * as vscode from 'vscode';
-import { NotificationService as INotificationService, IngestResponse } from '../types';
+import * as path from 'path';
+import { NotificationService as INotificationService, IngestResponse, ProcessResponse } from '../types';
 
 /**
  * Manages user notifications and extension logging
@@ -70,6 +71,33 @@ export class NotificationService implements INotificationService {
     if (this.queuedNotifications.length > 0) {
       setTimeout(() => this.showAggregateNotifications(), 1000);
     }
+  }
+
+  /**
+   * Show a partial-success notification: the PDF was generated, but the
+   * backend dropped one or more ungrounded diagrams/glossary entries after
+   * retries were exhausted (Requirement 10.4's "Partial Success" case).
+   */
+  public partial(response: ProcessResponse): void {
+    const dropped = response.dropped_items ?? {};
+    const droppedCount = Object.values(dropped).reduce(
+      (total, items) => total + (Array.isArray(items) ? items.length : 0),
+      0
+    );
+    const message = `PDF generated with ${droppedCount} item(s) excluded (evidence not grounded): ${response.pdf_location}`;
+
+    this.info(message, dropped);
+    this.statusBarItem.text = '$(warning) Speckit: Partial Success';
+    this.statusBarItem.show();
+    setTimeout(() => this.statusBarItem.hide(), 5000);
+
+    vscode.window.showWarningMessage(message, 'Open PDF', 'Show Logs').then(selection => {
+      if (selection === 'Open PDF' && response.pdf_location) {
+        this.openPDF(response.pdf_location);
+      } else if (selection === 'Show Logs') {
+        this.showLogs();
+      }
+    });
   }
 
   /**
@@ -177,20 +205,25 @@ export class NotificationService implements INotificationService {
   }
 
   /**
-   * Open PDF in default viewer
+   * Open PDF in default viewer.
+   *
+   * The backend (both /api/process and the legacy /api/artifacts/ingest-*
+   * endpoints) returns pdf_location as an absolute filesystem path on the
+   * machine running the backend (e.g. DOC_OUTPUT_DIR/{artifact_id}.pdf) -
+   * not a path relative to the VS Code workspace. Joining an absolute path
+   * onto the workspace root URI silently produces a nonexistent path, which
+   * is why "PDF file not found" showed up even though the PDF was created.
    */
   private async openPDF(pdfPath: string): Promise<void> {
     try {
-      // Get workspace folder
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
+      const fullPath = path.isAbsolute(pdfPath)
+        ? vscode.Uri.file(pdfPath)
+        : this.resolveRelativeToWorkspace(pdfPath);
+
+      if (!fullPath) {
         vscode.window.showErrorMessage('No workspace folder open');
         return;
       }
-
-      // Construct full path
-      const workspaceRoot = workspaceFolders[0].uri;
-      const fullPath = vscode.Uri.joinPath(workspaceRoot, pdfPath);
 
       // Check if file exists
       try {
@@ -205,6 +238,19 @@ export class NotificationService implements INotificationService {
     } catch (error: any) {
       vscode.window.showErrorMessage(`Failed to open PDF: ${error.message}`);
     }
+  }
+
+  /**
+   * Resolve a workspace-relative pdf_location against the first open
+   * workspace folder. Only used as a fallback for relative paths; the
+   * backend currently always returns absolute paths.
+   */
+  private resolveRelativeToWorkspace(pdfPath: string): vscode.Uri | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      return null;
+    }
+    return vscode.Uri.joinPath(workspaceFolders[0].uri, pdfPath);
   }
 
   /**

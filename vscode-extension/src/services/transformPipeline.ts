@@ -1,15 +1,31 @@
 /**
  * Transform Pipeline Orchestration
- * Coordinates complete workflow from markdown to PDF
+ * Coordinates the complete agentic-pipeline workflow from markdown to PDF:
+ * AI enrichment -> backend evidence-grounding validation -> (client-driven
+ * retry loop on validation failure) -> PDF.
  */
 
 import * as vscode from 'vscode';
-import * as crypto from 'crypto';
-import { TransformPipeline as ITransformPipeline, ProcessResult, StructuredJSON } from '../types';
+import {
+  TransformPipeline as ITransformPipeline,
+  ProcessResult,
+  StructuredJSON,
+  StructuredError,
+  ProcessResponse
+} from '../types';
 import { AIProviderFactory } from './aiProviderFactory';
 import { JSONParser } from './jsonParser';
 import { BackendClient } from './backendClient';
 import { NotificationService } from './notificationService';
+import { ContentHashService } from './contentHashService';
+
+/**
+ * Safety cap on client-side correction attempts. The backend's own
+ * RetryLoopOrchestrator (max_retries=2) guarantees a terminal "ok" response
+ * (possibly with dropped items) well before this is reached; it exists only
+ * to prevent an infinite loop if that guarantee is ever violated.
+ */
+const MAX_CLIENT_CORRECTION_ATTEMPTS = 5;
 
 /**
  * Orchestrates the complete transformation pipeline
@@ -19,6 +35,7 @@ export class TransformPipeline implements ITransformPipeline {
   private jsonParser: JSONParser;
   private backendClient: BackendClient;
   private notificationService: NotificationService;
+  private contentHashService: ContentHashService;
   private processingQueue: Map<string, Promise<ProcessResult>>;
   private contentCache: Map<string, string>;
   private maxConcurrent: number;
@@ -28,12 +45,14 @@ export class TransformPipeline implements ITransformPipeline {
     jsonParser: JSONParser,
     backendClient: BackendClient,
     notificationService: NotificationService,
-    maxConcurrent: number = 3
+    maxConcurrent: number = 3,
+    contentHashService: ContentHashService = new ContentHashService()
   ) {
     this.aiFactory = aiFactory;
     this.jsonParser = jsonParser;
     this.backendClient = backendClient;
     this.notificationService = notificationService;
+    this.contentHashService = contentHashService;
     this.processingQueue = new Map();
     this.contentCache = new Map();
     this.maxConcurrent = maxConcurrent;
@@ -74,7 +93,7 @@ export class TransformPipeline implements ITransformPipeline {
    */
   private async executeProcess(fileUri: vscode.Uri): Promise<ProcessResult> {
     const fileName = fileUri.fsPath.split(/[/\\]/).pop() || 'unknown';
-    
+
     try {
       this.notificationService.processing(fileName);
 
@@ -82,53 +101,129 @@ export class TransformPipeline implements ITransformPipeline {
       this.notificationService.info(`Reading file: ${fileUri.fsPath}`);
       const content = await this.readFile(fileUri);
 
-      // Step 2: Check for duplicate content
-      if (await this.isDuplicate(fileUri, content)) {
+      // Step 2: Check for duplicate content (Requirement 1.1/1.4 - compute
+      // hash and skip before ever invoking the AI).
+      if (this.isDuplicate(fileUri, content)) {
         this.notificationService.info(`Skipping duplicate: ${fileName}`);
-        return {
-          success: true,
-          skipped: true
-        };
+        return { success: true, skipped: true };
       }
 
-      // Step 3: Transform with AI
-      this.notificationService.info(`Transforming with AI: ${fileName}`);
-      const { result: structuredJson, provider } = await this.transformWithAI(content, fileUri);
+      const sourcePath = vscode.workspace.asRelativePath(fileUri);
+      const projectId = this.extractProjectId(sourcePath);
 
-      // Step 4: Parse and validate JSON
-      this.notificationService.info(`Validating JSON: ${fileName}`);
-      const validated = this.jsonParser.parseAndValidate(
-        typeof structuredJson === 'string' ? structuredJson : JSON.stringify(structuredJson)
+      const { response, provider } = await this.transformValidateAndSubmit(
+        content,
+        fileUri,
+        sourcePath,
+        projectId,
+        fileName
       );
 
-      // Step 4.5: Add raw content for backend validation
-      validated.raw_content = content;
+      if (response.status === 'retry_needed') {
+        // The backend's own retry budget is exhausted from the client's
+        // perspective (MAX_CLIENT_CORRECTION_ATTEMPTS hit) without ever
+        // reaching a terminal "ok" - surface this as an error rather than
+        // silently giving up.
+        throw new Error(
+          `Validation did not resolve after ${MAX_CLIENT_CORRECTION_ATTEMPTS} attempts: ` +
+            JSON.stringify(response.structured_error?.errors ?? {})
+        );
+      }
 
-      // Step 5: Send to backend
-      this.notificationService.info(`Sending to backend: ${fileName}`);
-      const response = await this.backendClient.ingest(validated);
-
-      // Step 6: Update cache with successful content
+      // Step: Update cache with successful content
       this.updateCache(fileUri, content);
 
-      // Success notification
-      this.notificationService.success(response);
+      if (response.partial) {
+        this.notificationService.partial?.(response);
+      } else {
+        this.notificationService.success({
+          status: response.status,
+          artifact_id: Number(response.artifact_id) || 0,
+          pdf_location: response.pdf_location || '',
+          version: response.version?.version_no ?? 0,
+          skipped: response.skipped
+        });
+      }
 
       return {
         success: true,
-        artifactId: response.artifact_id,
         pdfLocation: response.pdf_location,
-        provider
+        provider,
+        partial: response.partial,
+        droppedItems: response.dropped_items
       };
-
     } catch (error: any) {
       this.notificationService.error(error);
-      
+
       return {
         success: false,
         error: error
       };
     }
+  }
+
+  /**
+   * Runs the AI-transform -> validate -> submit-to-backend cycle, resubmitting
+   * with a correction prompt whenever the backend responds "retry_needed".
+   * The backend guarantees termination within its own max_retries (2); the
+   * attempt cap here is a defensive backstop only.
+   */
+  private async transformValidateAndSubmit(
+    content: string,
+    fileUri: vscode.Uri,
+    sourcePath: string,
+    projectId: string,
+    fileName: string
+  ): Promise<{ response: ProcessResponse; provider: string }> {
+    let structuredError: StructuredError | undefined;
+    let retryCount = 0;
+    let provider = '';
+
+    for (let attempt = 1; attempt <= MAX_CLIENT_CORRECTION_ATTEMPTS; attempt++) {
+      this.notificationService.info(
+        structuredError
+          ? `Correcting and resubmitting (retry ${retryCount}): ${fileName}`
+          : `Transforming with AI: ${fileName}`
+      );
+      const { result: enrichedJson, provider: usedProvider } = await this.transformWithAI(
+        content,
+        fileUri,
+        structuredError
+      );
+      provider = usedProvider;
+
+      this.notificationService.info(`Validating JSON: ${fileName}`);
+      const validated = this.jsonParser.parseAndValidate(
+        typeof enrichedJson === 'string' ? enrichedJson : JSON.stringify(enrichedJson)
+      );
+
+      this.notificationService.info(`Sending to backend: ${fileName}`);
+      const response = await this.backendClient.process({
+        project_id: projectId,
+        source_path: sourcePath,
+        source_markdown: content,
+        enriched_json: validated,
+        retry_count: retryCount
+      });
+
+      if (response.status === 'retry_needed' && response.structured_error) {
+        structuredError = response.structured_error;
+        retryCount += 1;
+        continue;
+      }
+
+      return { response, provider };
+    }
+
+    // Attempt cap reached without a terminal response.
+    return {
+      response: {
+        status: 'retry_needed',
+        structured_error: structuredError,
+        retry_count: retryCount
+      },
+      provider
+    };
   }
 
   /**
@@ -144,42 +239,41 @@ export class TransformPipeline implements ITransformPipeline {
   }
 
   /**
-   * Transform markdown with AI using fallback chain
+   * Transform markdown with AI using fallback chain. If `structuredError` is
+   * set, the currently-active provider is asked to correct only the flagged
+   * items rather than re-transforming from scratch.
    */
-  private async transformWithAI(markdown: string, fileUri: vscode.Uri): Promise<{
+  private async transformWithAI(
+    markdown: string,
+    fileUri: vscode.Uri,
+    structuredError?: StructuredError
+  ): Promise<{
     result: StructuredJSON;
     provider: string;
   }> {
     try {
       const sourcePath = vscode.workspace.asRelativePath(fileUri);
-      return await this.aiFactory.transformWithFallback(markdown, sourcePath);
+      return await this.aiFactory.transformWithFallback(markdown, sourcePath, structuredError);
     } catch (error: any) {
       throw new Error(`AI transformation failed: ${error.message}`);
     }
   }
 
   /**
-   * Check if content is duplicate
+   * Check if content is duplicate of the last successfully-processed version
    */
-  private async isDuplicate(fileUri: vscode.Uri, content: string): Promise<boolean> {
-    const hash = this.calculateHash(content);
+  private isDuplicate(fileUri: vscode.Uri, content: string): boolean {
+    const hash = this.contentHashService.computeHash(content);
     const cachedHash = this.contentCache.get(fileUri.fsPath);
-    return hash === cachedHash;
+    return !!cachedHash && this.contentHashService.compareHashes(hash, cachedHash);
   }
 
   /**
    * Update content cache
    */
   private updateCache(fileUri: vscode.Uri, content: string): void {
-    const hash = this.calculateHash(content);
+    const hash = this.contentHashService.computeHash(content);
     this.contentCache.set(fileUri.fsPath, hash);
-  }
-
-  /**
-   * Calculate SHA-256 hash
-   */
-  private calculateHash(content: string): string {
-    return crypto.createHash('sha256').update(content).digest('hex');
   }
 
   /**
@@ -192,6 +286,15 @@ export class TransformPipeline implements ITransformPipeline {
       // Small delay to prevent tight loop
       await new Promise(resolve => setTimeout(resolve, 100));
     }
+  }
+
+  /**
+   * Extract project ID from source path
+   */
+  private extractProjectId(sourcePath: string): string {
+    const parts = sourcePath.split(/[/\\]/);
+    const projectName = parts.length > 1 ? parts[0] : parts[parts.length - 1].replace('.md', '');
+    return projectName || 'default-project';
   }
 
   /**

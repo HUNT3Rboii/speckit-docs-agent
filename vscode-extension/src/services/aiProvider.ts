@@ -3,13 +3,15 @@
  * Defines common functionality for all AI providers
  */
 
-import { AIProvider, StructuredJSON } from '../types';
+import { AIProvider, StructuredError, StructuredJSON } from '../types';
+import { EnrichmentPromptBuilder } from './enrichmentPromptBuilder';
 
 /**
  * Base implementation with common functionality for all AI providers
  */
 export abstract class BaseAIProvider implements AIProvider {
-  protected timeout: number = 30000; // 30 seconds default timeout
+  protected timeout: number = 15000; // 15 seconds default timeout, per design
+  private promptBuilder = new EnrichmentPromptBuilder();
 
   /**
    * Check if this provider is available in the current environment
@@ -24,45 +26,64 @@ export abstract class BaseAIProvider implements AIProvider {
   /**
    * Transform markdown to structured JSON using AI
    */
-  public abstract transform(markdown: string, sourcePath: string): Promise<StructuredJSON>;
+  public abstract transform(
+    markdown: string,
+    sourcePath: string,
+    structuredError?: StructuredError
+  ): Promise<StructuredJSON>;
 
   /**
-   * Create the standard prompt for markdown transformation
+   * Build the single-call enrichment prompt (title/abstract/sections with all
+   * original headings preserved, evidence-cited diagrams/glossary, summaries).
+   * See EnrichmentPromptBuilder for the full schema/evidence/self-check
+   * instructions included.
    */
-  protected createPrompt(markdown: string): string {
-    return `You are a documentation analysis assistant. Transform the following markdown document into structured JSON format.
+  protected createPrompt(markdown: string, documentType: string = 'document'): string {
+    return this.promptBuilder.buildPrompt(markdown, documentType);
+  }
 
-REQUIRED OUTPUT FORMAT (must be valid JSON):
-{
-  "title": "string - extract from first H1 heading or infer from content",
-  "abstract": "string - 2-3 sentence summary of the document",
-  "sections": [
-    {
-      "heading": "string - section title",
-      "content": "string - full markdown content of section",
-      "type": "string - one of: task, user_story, design_decision, normal"
-    }
-  ]
-}
+  /**
+   * Build a correction prompt for a retry: includes the original enrichment
+   * request plus the backend's structured error, asking the AI to fix only
+   * the flagged items (missing headings / ungrounded evidence / invalid
+   * Mermaid syntax) and resubmit the complete corrected JSON.
+   */
+  protected createCorrectionPrompt(
+    markdown: string,
+    structuredError: StructuredError,
+    documentType: string = 'document'
+  ): string {
+    const basePrompt = this.promptBuilder.buildPrompt(markdown, documentType);
+    return `${basePrompt}
 
-SECTION TYPE CLASSIFICATION RULES:
-- "task": Contains action items, TODOs, implementation steps, checklists
-- "user_story": Describes user needs, requirements, acceptance criteria  
-- "design_decision": Explains architecture, technical choices, design rationale
-- "normal": General documentation, explanations, background information
+## Correction Required (Retry ${structuredError.retry_count})
 
-INSTRUCTIONS:
-1. Extract the title from the first H1 heading (# Title). If no H1 exists, infer a title from the content.
-2. Generate a concise abstract (2-3 sentences) summarizing the document's purpose and key points.
-3. Split the document into logical sections based on headings (H2, H3, etc.).
-4. For each section, classify its type based on the content.
-5. Preserve the original markdown formatting in the content field.
-6. Return ONLY the JSON object, no additional text or explanation.
+Your previous submission failed backend validation. Fix ONLY the items below and
+return the complete, corrected JSON object (all other fields unchanged):
 
-MARKDOWN DOCUMENT:
-${markdown}
+${JSON.stringify(structuredError.errors, null, 2)}
 
-Return the structured JSON now:`;
+Reminders:
+- "missing_headings": add these headings back into sections[], preserving their original text.
+- "ungrounded_diagrams": either find the correct verbatim evidence quote from the source for
+  the named component, or remove that component/diagram if no such text exists.
+- "ungrounded_glossary": either find the correct verbatim evidence quote for the named term,
+  or remove that glossary entry if no such text exists.
+- "mermaid_syntax_errors": fix the named diagram's mermaidCode so it parses correctly.
+
+Return ONLY the corrected JSON object, no explanations.`;
+  }
+
+  /**
+   * Chooses the initial enrichment prompt or, if a prior /api/process call
+   * returned a structured error, the correction prompt for a retry. Shared by
+   * every VS Code Language Model-backed provider (Copilot/Claude/Kiro/Generic)
+   * so each only needs a one-line call instead of duplicating this branch.
+   */
+  protected buildTransformPrompt(markdown: string, structuredError?: StructuredError): string {
+    return structuredError
+      ? this.createCorrectionPrompt(markdown, structuredError)
+      : this.createPrompt(markdown);
   }
 
   /**

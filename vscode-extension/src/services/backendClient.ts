@@ -3,7 +3,14 @@
  * Handles communication with Speckit backend API
  */
 
-import { BackendClient as IBackendClient, StructuredJSON, IngestResponse, IngestRequest } from '../types';
+import {
+  BackendClient as IBackendClient,
+  StructuredJSON,
+  IngestResponse,
+  IngestRequest,
+  ProcessRequest,
+  ProcessResponse
+} from '../types';
 
 /**
  * Client for Speckit backend API with retry logic
@@ -48,6 +55,20 @@ export class BackendClient implements IBackendClient {
     return await this.retryWithBackoff(async () => {
       const response = await this.makeRequest('/api/artifacts/ingest-structured', payload);
       return response as IngestResponse;
+    });
+  }
+
+  /**
+   * Submit an EnrichedJSON document to the agentic pipeline's /api/process
+   * endpoint. Unlike ingest(), the caller (TransformPipeline) is responsible
+   * for interpreting a "retry_needed" response and resubmitting with a
+   * corrected payload and incremented retry_count -- this method only
+   * handles the HTTP round trip and network-level retry/backoff.
+   */
+  public async process(request: ProcessRequest): Promise<ProcessResponse> {
+    return await this.retryWithBackoff(async () => {
+      const response = await this.makeRequest('/api/process', request);
+      return response as ProcessResponse;
     });
   }
 

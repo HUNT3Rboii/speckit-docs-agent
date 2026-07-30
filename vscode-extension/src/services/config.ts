@@ -60,7 +60,8 @@ export class ConfigurationManager {
         '**/.ai-requests/**',
         '**/.ai-responses/**',
         '**/dist/**',
-        '**/out/**'
+        '**/out/**',
+        '**/*.json'
       ]
     );
     const apiKey = config.get<string>('apiKey') ?? '';

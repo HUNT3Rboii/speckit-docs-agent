@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { StructuredJSON } from '../types';
+import { StructuredError, StructuredJSON } from '../types';
 import { BaseAIProvider } from '../services/aiProvider';
 
 /**
@@ -45,13 +45,17 @@ export class CopilotProvider extends BaseAIProvider {
   /**
    * Transform markdown to structured JSON using Copilot
    */
-  public async transform(markdown: string, sourcePath: string): Promise<StructuredJSON> {
+  public async transform(
+    markdown: string,
+    sourcePath: string,
+    structuredError?: StructuredError
+  ): Promise<StructuredJSON> {
     if (!this.model) {
       throw new Error('Copilot model not available. Call isAvailable() first.');
     }
 
     const sanitized = this.sanitizeMarkdown(markdown);
-    const prompt = this.createPrompt(sanitized);
+    const prompt = this.buildTransformPrompt(sanitized, structuredError);
 
     try {
       this.log('Sending request to Copilot...');

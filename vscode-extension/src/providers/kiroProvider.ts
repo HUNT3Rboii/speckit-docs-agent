@@ -1,6 +1,6 @@
 /**
- * Claude AI Provider
- * Uses VS Code Language Model API to access Claude
+ * Kiro AI Provider
+ * Uses VS Code Language Model API to access Kiro
  */
 
 import * as vscode from 'vscode';
@@ -8,29 +8,41 @@ import { StructuredError, StructuredJSON } from '../types';
 import { BaseAIProvider } from '../services/aiProvider';
 
 /**
- * Claude (Anthropic) provider implementation
+ * Kiro provider implementation
+ * Detects Kiro through VSCode Language Model API
  */
-export class ClaudeProvider extends BaseAIProvider {
+export class KiroProvider extends BaseAIProvider {
   private model: vscode.LanguageModelChat | null = null;
 
   /**
-   * Check if Claude is available
+   * Check if Kiro is available
+   * Attempts to detect Kiro by vendor name or model ID patterns
    */
   public async isAvailable(): Promise<boolean> {
     try {
-      const models = await vscode.lm.selectChatModels({
-        vendor: 'anthropic'
+      // First try explicit vendor check for Kiro
+      let models = await vscode.lm.selectChatModels({
+        vendor: 'kiro'
       });
+
+      // If no models found with vendor 'kiro', try model ID pattern matching
+      if (models.length === 0) {
+        const allModels = await vscode.lm.selectChatModels();
+        models = allModels.filter(model => 
+          model.id.toLowerCase().includes('kiro') ||
+          model.name?.toLowerCase().includes('kiro')
+        );
+      }
 
       if (models.length > 0) {
         this.model = models[0];
-        this.log('Claude model detected:', this.model.id);
+        this.log('Kiro model detected:', this.model.id);
         return true;
       }
 
       return false;
     } catch (error) {
-      this.logError('Error detecting Claude:', error);
+      this.logError('Error detecting Kiro:', error);
       return false;
     }
   }
@@ -39,11 +51,11 @@ export class ClaudeProvider extends BaseAIProvider {
    * Get provider name
    */
   public getProviderName(): string {
-    return 'Claude';
+    return 'Kiro';
   }
 
   /**
-   * Transform markdown to structured JSON using Claude
+   * Transform markdown to structured JSON using Kiro
    */
   public async transform(
     markdown: string,
@@ -51,14 +63,14 @@ export class ClaudeProvider extends BaseAIProvider {
     structuredError?: StructuredError
   ): Promise<StructuredJSON> {
     if (!this.model) {
-      throw new Error('Claude model not available. Call isAvailable() first.');
+      throw new Error('Kiro model not available. Call isAvailable() first.');
     }
 
     const sanitized = this.sanitizeMarkdown(markdown);
     const prompt = this.buildTransformPrompt(sanitized, structuredError);
 
     try {
-      this.log('Sending request to Claude...');
+      this.log('Sending request to Kiro...');
 
       // Create chat request
       const messages = [
@@ -69,7 +81,7 @@ export class ClaudeProvider extends BaseAIProvider {
       const responsePromise = this.model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
       const timeoutPromise = this.createTimeoutPromise<vscode.LanguageModelChatResponse>(
         this.timeout,
-        'Claude request timed out'
+        'Kiro request timed out'
       );
 
       const response = await Promise.race([responsePromise, timeoutPromise]);
@@ -80,7 +92,7 @@ export class ClaudeProvider extends BaseAIProvider {
         responseText += fragment;
       }
 
-      this.log('Received response from Claude');
+      this.log('Received response from Kiro');
 
       // Extract and parse JSON
       const jsonStr = this.extractJSON(responseText);
@@ -93,8 +105,18 @@ export class ClaudeProvider extends BaseAIProvider {
 
       return parsed;
     } catch (error: any) {
-      this.logError('Claude transformation failed:', error);
-      throw new Error(`Claude transformation failed: ${error.message}`);
+      // Handle rate limiting
+      if (error.message?.includes('rate limit')) {
+        throw new Error('Kiro rate limit exceeded. Please try again later.');
+      }
+
+      // Handle token limits
+      if (error.message?.includes('token') || error.message?.includes('length')) {
+        throw new Error('Document too large for Kiro. Consider splitting into smaller files.');
+      }
+
+      this.logError('Kiro transformation failed:', error);
+      throw new Error(`Kiro transformation failed: ${error.message}`);
     }
   }
 }

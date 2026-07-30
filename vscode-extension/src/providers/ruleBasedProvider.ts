@@ -27,7 +27,19 @@ export class RuleBasedProvider extends BaseAIProvider {
   /**
    * Transform markdown to structured JSON using rule-based parsing
    */
-  public async transform(markdown: string, sourcePath: string): Promise<StructuredJSON> {
+  public async transform(markdown: string, _sourcePath: string): Promise<StructuredJSON> {
+    return this.fallbackTransform(markdown, _sourcePath);
+  }
+
+  /**
+   * Deterministic, structure-only transformation (Requirement 2.6): used both
+   * as this provider's own transform() and as the AI-failure fallback other
+   * providers can delegate to. Diagrams/glossary are intentionally empty
+   * rather than omitted -- empty arrays satisfy the EnrichedJSON schema and
+   * trivially pass evidence-grounding validation (nothing to ground), so a
+   * structure-only document still renders cleanly with zero retries.
+   */
+  public fallbackTransform(markdown: string, sourcePath: string): StructuredJSON {
     this.log('Using rule-based transformation');
 
     const sanitized = this.sanitizeMarkdown(markdown);
@@ -45,6 +57,9 @@ export class RuleBasedProvider extends BaseAIProvider {
       title,
       abstract,
       sections,
+      diagrams: [],
+      glossary: [],
+      summaries: { executiveSummary: abstract },
       source_path: sourcePath,
       ai_enhanced: false,
       agent_source: this.getProviderName()
@@ -119,7 +134,8 @@ export class RuleBasedProvider extends BaseAIProvider {
       sections.push({
         heading,
         content: markdown,
-        type
+        type,
+        level: 1
       });
       return sections;
     }
@@ -136,7 +152,8 @@ export class RuleBasedProvider extends BaseAIProvider {
       sections.push({
         heading,
         content,
-        type
+        type,
+        level: 2
       });
     }
 

@@ -3,9 +3,10 @@
  * Detects and initializes AI providers with automatic fallback
  */
 
-import { AIProvider } from '../types';
+import { AIProvider, StructuredError } from '../types';
 import { CopilotProvider } from '../providers/copilotProvider';
 import { ClaudeProvider } from '../providers/claudeProvider';
+import { KiroProvider } from '../providers/kiroProvider';
 import { GenericProvider } from '../providers/genericProvider';
 import { RuleBasedProvider } from '../providers/ruleBasedProvider';
 
@@ -19,7 +20,7 @@ export class AIProviderFactory {
 
   /**
    * Detect available AI providers in priority order
-   * Priority: Copilot → Claude → Generic → Rule-based
+   * Priority: Copilot → Claude → Kiro → Generic → Rule-based
    */
   public async detectProviders(): Promise<AIProvider> {
     if (this.isDetected && this.detectedProvider) {
@@ -29,10 +30,11 @@ export class AIProviderFactory {
 
     console.log('[AIProviderFactory] Detecting available AI providers...');
 
-    // Initialize all providers
+    // Initialize all providers in priority order
     this.providers = [
       new CopilotProvider(),
       new ClaudeProvider(),
+      new KiroProvider(),
       new GenericProvider(),
       new RuleBasedProvider()
     ];
@@ -70,6 +72,7 @@ export class AIProviderFactory {
     const allProviders = [
       new CopilotProvider(),
       new ClaudeProvider(),
+      new KiroProvider(),
       new GenericProvider(),
       new RuleBasedProvider()
     ];
@@ -88,9 +91,21 @@ export class AIProviderFactory {
   }
 
   /**
-   * Try transformation with automatic fallback on failure
+   * Try transformation with automatic fallback on failure.
+   *
+   * @param structuredError - If set (a retry after a /api/process
+   *   retry_needed response), passed through to the provider so it can build
+   *   a correction prompt instead of transforming from scratch. Only applies
+   *   to the initial attempt with the already-detected provider: if that
+   *   throws and we fall back to a different provider entirely, the
+   *   correction context no longer applies (a different model has no memory
+   *   of the earlier attempt), so fallback providers get a fresh transform.
    */
-  public async transformWithFallback(markdown: string, sourcePath: string): Promise<{
+  public async transformWithFallback(
+    markdown: string,
+    sourcePath: string,
+    structuredError?: StructuredError
+  ): Promise<{
     result: any;
     provider: string;
   }> {
@@ -102,7 +117,7 @@ export class AIProviderFactory {
     // Try with detected provider first
     if (this.detectedProvider) {
       try {
-        const result = await this.detectedProvider.transform(markdown, sourcePath);
+        const result = await this.detectedProvider.transform(markdown, sourcePath, structuredError);
         return {
           result,
           provider: this.detectedProvider.getProviderName()
@@ -112,7 +127,7 @@ export class AIProviderFactory {
       }
     }
 
-    // Try all providers as fallback
+    // Try all providers as fallback (fresh transform, no correction context)
     for (const provider of this.providers) {
       try {
         if (await provider.isAvailable()) {
