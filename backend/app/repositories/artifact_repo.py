@@ -109,6 +109,16 @@ class ArtifactRepository:
             connection.commit()
         return artifact
 
+    def get_artifact_by_id(self, artifact_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata FROM artifacts WHERE id = ?",
+                (artifact_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_artifact(row)
+
     def get_artifact_by_path(self, project_id: str, source_path: str) -> Optional[Dict[str, Any]]:
         with self._connect() as connection:
             row = connection.execute(
@@ -126,6 +136,17 @@ class ArtifactRepository:
                 (project_id,),
             ).fetchall()
         return [self._row_to_artifact(row) for row in rows]
+
+    def count_all_artifacts(self) -> int:
+        """Global artifact count, across all projects. `id` is a table-wide
+        primary key, not scoped per project, so callers generating a new
+        artifact id must count globally - counting per-project (as
+        list_artifacts() does) causes every project's first artifact to
+        collide on the same id ("artifact-1"), silently overwriting
+        whichever project got there first."""
+        with self._connect() as connection:
+            row = connection.execute("SELECT COUNT(*) as count FROM artifacts").fetchone()
+        return int(row["count"])
 
     def add_doc_version(self, artifact_id: str, version: Dict[str, Any]) -> Dict[str, Any]:
         with self._connect() as connection:

@@ -15,6 +15,7 @@ export function SearchBar({ value, onChange, placeholder = 'Search by title or s
 
   // Sync internal state when external value prop changes
   useEffect(() => {
+    // Always update the input value when prop changes, regardless of first render
     setInputValue(value);
   }, [value]);
 

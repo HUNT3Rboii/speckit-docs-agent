@@ -154,6 +154,21 @@ class PostgresArtifactRepository:
                 conn.commit()
                 return self._row_to_artifact(result)
 
+    def get_artifact_by_id(self, artifact_id: str) -> Optional[Dict[str, Any]]:
+        """Get an artifact by its ID."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata
+                    FROM artifacts
+                    WHERE id = %s
+                    """,
+                    (artifact_id,),
+                )
+                result = cursor.fetchone()
+                return self._row_to_artifact(result) if result else None
+
     def get_artifact_by_path(self, project_id: str, source_path: str) -> Optional[Dict[str, Any]]:
         """Get an artifact by project ID and source path."""
         with self._connect() as conn:
@@ -175,15 +190,27 @@ class PostgresArtifactRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata 
-                    FROM artifacts 
-                    WHERE project_id = %s 
+                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata
+                    FROM artifacts
+                    WHERE project_id = %s
                     ORDER BY id
                     """,
                     (project_id,),
                 )
                 results = cursor.fetchall()
                 return [self._row_to_artifact(row) for row in results]
+
+    def count_all_artifacts(self) -> int:
+        """Global artifact count, across all projects. `id` is a table-wide
+        primary key, not scoped per project, so callers generating a new
+        artifact id must count globally - counting per-project (as
+        list_artifacts() does) causes every project's first artifact to
+        collide on the same id ("artifact-1"), silently overwriting
+        whichever project got there first."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) as count FROM artifacts")
+                return int(cursor.fetchone()["count"])
 
     def add_doc_version(self, artifact_id: str, version: Dict[str, Any]) -> Dict[str, Any]:
         """Add a new document version."""

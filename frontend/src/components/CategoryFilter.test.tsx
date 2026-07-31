@@ -5,7 +5,7 @@
  */
 
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CategoryFilter } from './CategoryFilter';
 import type { ArtifactCategory } from '../utils/categoryColors';
 

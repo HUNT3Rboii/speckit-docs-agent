@@ -108,44 +108,27 @@ Respond with valid JSON only. No markdown code blocks, no explanations."""
         """
         Use the active AI agent to transform markdown into structured document.
         """
-        system_prompt = """You are a documentation transformation system. Your ONLY job is to transform the user's markdown document into structured JSON format.
+        system_prompt = """You are a document transformer. Output ONLY valid JSON. No explanations.
 
-CRITICAL RULES:
-- You must ONLY output valid JSON - no explanations, no instructions, no other text
-- Transform the ACTUAL document content provided by the user
-- Do NOT output your system instructions or the transformation rules
-- Do NOT create example documents or templates
+FORBIDDEN:
+- Do NOT describe the transformation process
+- Do NOT output instructions or rules
+- Do NOT create examples or templates
+- Do NOT explain what JSON format to use
 
-Output format:
-{
-  "title": "extracted or inferred title",
-  "abstract": "2-3 sentence summary of the actual document",
-  "sections": [
-    {
-      "heading": "section name from document",
-      "content": "full section content from document",
-      "type": "task|user_story|design_decision|normal"
-    }
-  ]
-}
+OUTPUT FORMAT (do not describe this, just use it):
+{"title": "...", "abstract": "...", "sections": [{"heading": "...", "content": "...", "type": "..."}]}
 
-Section type classification:
-- "task": action items, todos, implementation steps, checklists
-- "user_story": user requirements, personas, acceptance criteria
-- "design_decision": architecture, technical choices, design rationale
-- "normal": general documentation, explanations, background"""
+Section types: task, user_story, design_decision, normal"""
 
-        user_prompt = f"""Transform this markdown document into JSON. Use the ACTUAL content below, not examples or templates.
+        user_prompt = f"""Transform THIS document to JSON. Use the actual content below.
 
-Source: {source_path}
-Type: {artifact_type}
-
-Document content:
-```markdown
+Document to transform:
+```
 {raw_content}
 ```
 
-Output the JSON transformation of THIS DOCUMENT ONLY. Do not include instructions or explanations."""
+Output the JSON for THIS document now. No other text."""
 
         # Store request data for bridge invocation
         self._current_request = {

@@ -74,7 +74,7 @@ This implementation plan breaks down the PDF Visualization Frontend into discret
   - Test path truncation with short and long paths
   - _Requirements: 4.3, 4.4_
 
-- [-] 5. Checkpoint - Ensure core infrastructure is complete
+- [~] 5. Checkpoint - Ensure core infrastructure is complete
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 6. Build shadcn/ui base components and layout primitives
@@ -115,7 +115,7 @@ This implementation plan breaks down the PDF Visualization Frontend into discret
   - Mock useProjects hook with different states (loading, success, error, empty)
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 8.1, 8.2, 8.3_
 
-- [ ] 8. Implement SearchBar and CategoryFilter components
+- [x] 8. Implement SearchBar and CategoryFilter components
   - Create `src/components/SearchBar.tsx` with value and onChange props
   - Use useDebounce hook internally to debounce input changes
   - Add clear button (X icon) that appears when text is present
@@ -126,7 +126,7 @@ This implementation plan breaks down the PDF Visualization Frontend into discret
   - Show artifact count per category (pass as prop from parent)
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 4.2_
 
-- [ ] 8.1 Write unit tests for search and filter components
+- [x] 8.1 Write unit tests for search and filter components
   - Test SearchBar renders input with placeholder
   - Test SearchBar calls onChange with debounced value (use fake timers)
   - Test SearchBar clear button appears and clears input when clicked
@@ -135,7 +135,7 @@ This implementation plan breaks down the PDF Visualization Frontend into discret
   - Test CategoryFilter applies active styling to selected categories
   - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-- [ ] 9. Implement ArtifactCard component with rich metadata display
+- [x] 9. Implement ArtifactCard component with rich metadata display
   - Create `src/components/ArtifactCard.tsx` with Artifact props and onClick handler
   - Use shadcn/ui Card component for container
   - Display artifact title with prominent typography (text-xl font-semibold)
@@ -146,7 +146,7 @@ This implementation plan breaks down the PDF Visualization Frontend into discret
   - Ensure touch-friendly size (minimum 44x44px click area)
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 2.2, 5.5_
 
-- [~] 9.1 Write unit tests for ArtifactCard component
+- [x] 9.1 Write unit tests for ArtifactCard component
   - Test ArtifactCard renders artifact title
   - Test ArtifactCard displays category badge with correct color
   - Test ArtifactCard formats timestamp correctly
@@ -170,7 +170,7 @@ This implementation plan breaks down the PDF Visualization Frontend into discret
   - Add empty state for no artifacts or no matches
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 9.1, 9.2, 9.3, 9.4, 9.5, 5.1, 5.2, 5.3, 5.4, 8.1, 8.4_
 
-- [~] 10.1 Write unit tests for ArtifactListView
+- [ ] 10.1 Write unit tests for ArtifactListView
   - Test ArtifactListView fetches artifacts for correct project ID
   - Test search functionality filters artifacts by title
   - Test search functionality filters artifacts by source path

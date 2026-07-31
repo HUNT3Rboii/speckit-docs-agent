@@ -213,11 +213,21 @@ export class NotificationService implements INotificationService {
    * not a path relative to the VS Code workspace. Joining an absolute path
    * onto the workspace root URI silently produces a nonexistent path, which
    * is why "PDF file not found" showed up even though the PDF was created.
+   *
+   * On Windows, pdf_location can be a driveless absolute path (e.g.
+   * "/tmp/doc-output/x.pdf", from a Linux-style DOC_OUTPUT_DIR bind-mounted
+   * from Docker). path.resolve() and Node's fs APIs quietly resolve that
+   * against the current drive, so vscode.workspace.fs.stat() below succeeds
+   * - but vscode.env.openExternal() hands the path to the OS shell
+   * (ShellExecute), which does NOT do that same implicit drive resolution
+   * and fails with a generic "error opening external program" even though
+   * the file genuinely exists. path.resolve() first to force in the drive
+   * letter so both APIs agree on the same real path.
    */
   private async openPDF(pdfPath: string): Promise<void> {
     try {
       const fullPath = path.isAbsolute(pdfPath)
-        ? vscode.Uri.file(pdfPath)
+        ? vscode.Uri.file(path.resolve(pdfPath))
         : this.resolveRelativeToWorkspace(pdfPath);
 
       if (!fullPath) {

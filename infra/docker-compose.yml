@@ -22,7 +22,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       SPECKIT_EXT_API_KEY: dev-key
-      DOC_OUTPUT_DIR: /app/pdf-output
+      DOC_OUTPUT_DIR: /tmp/doc-output
       USE_POSTGRES: "true"
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
@@ -40,11 +40,10 @@ services:
       - "8000:8000"
     volumes:
       - ../backend:/app
-      - pdf_output:/app/pdf-output
+      - C:/tmp/doc-output:/tmp/doc-output
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   postgres_data:
-  pdf_output:

@@ -168,19 +168,26 @@ describe('SearchBar', () => {
       expect(screen.getByDisplayValue('updated')).toBeInTheDocument();
     });
 
-    it('syncs internal state with external value changes', async () => {
-      const { rerender } = render(<SearchBar value="" onChange={mockOnChange} />);
+    it('maintains user input while debouncing onChange calls', async () => {
+      render(<SearchBar value="" onChange={mockOnChange} />);
       
       const input = screen.getByRole('textbox');
       
-      // User types
-      fireEvent.change(input, { target: { value: 'user input' } });
-      expect(input).toHaveValue('user input');
+      // User types multiple characters
+      fireEvent.change(input, { target: { value: 'a' } });
+      fireEvent.change(input, { target: { value: 'ab' } });
+      fireEvent.change(input, { target: { value: 'abc' } });
       
-      // Parent resets value
-      rerender(<SearchBar value="" onChange={mockOnChange} />);
+      // Input should reflect all typed characters immediately
+      expect(input).toHaveValue('abc');
       
-      expect(input).toHaveValue('');
+      // onChange not called yet due to debouncing
+      expect(mockOnChange).not.toHaveBeenCalled();
+      
+      // After debounce completes, onChange is called once with final value
+      await waitFor(() => {
+        expect(mockOnChange).toHaveBeenCalledWith('abc');
+      }, { timeout: 500 });
     });
   });
 

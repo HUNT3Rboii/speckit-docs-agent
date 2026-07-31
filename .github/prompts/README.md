@@ -56,22 +56,6 @@ Force regenerate a PDF, bypassing deduplication.
 
 ---
 
-### `/speckit.ext.watch`
-Start automatic file watcher for markdown files.
-
-**Usage:** Type `/speckit.ext.watch` in Copilot chat
-
-**What it does:**
-- Starts a background process that monitors your workspace
-- Automatically detects new `.md` files and processes them
-- Automatically detects changes to existing `.md` files and re-processes them
-- Polls every 2 seconds for changes
-- Ignores common directories (`.git`, `node_modules`, etc.)
-
-**Important:** The watcher runs in the foreground and blocks the terminal. Recommend running in a separate terminal window or as a background process.
-
----
-
 ## Prerequisites
 
 Before using these commands:
@@ -101,8 +85,7 @@ Before using these commands:
 ├── speckit-ext-setup.prompt.md        # Setup command
 ├── speckit-ext-docgen.prompt.md       # Generate PDF command
 ├── speckit-ext-status.prompt.md       # Status command
-├── speckit-ext-regenerate.prompt.md   # Force regenerate command
-└── speckit-ext-watch.prompt.md        # Start file watcher command
+└── speckit-ext-regenerate.prompt.md   # Force regenerate command
 ```
 
 ---

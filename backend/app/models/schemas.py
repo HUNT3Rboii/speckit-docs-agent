@@ -92,3 +92,21 @@ class ConfigStatusResponse(BaseModel):
     transformation_mode: dict[str, Any]
     backend_version: str
     features: dict[str, bool]
+
+
+class ProcessRequest(BaseModel):
+    """
+    Request for the agentic pipeline's /api/process endpoint.
+
+    Carries the AI-produced EnrichedJSON alongside the original source
+    markdown (needed for evidence-grounding validation) and a client-tracked
+    retry_count, since the validate-correct-resubmit loop is driven by the
+    caller across separate HTTP requests rather than a synchronous callback.
+    """
+    project_id: str
+    source_path: str
+    source_markdown: str
+    enriched_json: dict[str, Any]
+    artifact_type: Optional[str] = None
+    commit_hash: Optional[str] = None
+    retry_count: int = 0

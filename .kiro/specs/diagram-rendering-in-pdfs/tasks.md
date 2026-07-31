@@ -120,7 +120,7 @@
     - _Preservation: When diagrams list is empty, no Image flowables added (identical to before)_
     - _Requirements: 2.1, 2.3, 2.4, 2.6_
 
-  - [~] 3.6 Update WeasyPrint rendering to embed diagrams
+  - [ ] 3.6 Update WeasyPrint rendering to embed diagrams
     - Open `backend/app/services/rendering.py`
     - Locate `_build_html()` method
     - At start of method, extract diagrams: `diagrams = structured_json.get("diagrams", [])`
@@ -139,7 +139,7 @@
     - _Preservation: When diagrams list is empty, no img tags added (HTML unchanged)_
     - _Requirements: 2.1, 2.3, 2.5, 2.6_
 
-  - [~] 3.7 Verify bug condition exploration test now passes
+  - [ ] 3.7 Verify bug condition exploration test now passes
     - **Property 1: Expected Behavior** - Diagrams Rendered in PDFs
     - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
     - The test from task 1 encodes the expected behavior (diagrams should appear in PDFs)
@@ -153,7 +153,7 @@
     - If test fails, investigate: Are images being generated? Are they being embedded? Check logs for errors
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
-  - [~] 3.8 Verify preservation tests still pass
+  - [ ] 3.8 Verify preservation tests still pass
     - **Property 2: Preservation** - Text-Only PDF Rendering Unchanged
     - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
     - Run preservation property tests from step 2 on FIXED code
@@ -167,7 +167,7 @@
 
 - [ ] 4. Enhance diagram generation quality and patterns
 
-  - [~] 4.1 Improve component extraction and relationship detection
+  - [ ] 4.1 Improve component extraction and relationship detection
     - Open `backend/app/services/diagram_generation.py`
     - Locate `_extract_components()` method
     - Add more sophisticated pattern matching for component detection: regex patterns for "service", "database", "queue", "cache", "API", "frontend", "backend"
@@ -177,7 +177,7 @@
     - Add unit tests for various component patterns in text
     - _Requirements: Enhancement for better diagram quality_
 
-  - [~] 4.2 Enhance architecture diagram generation
+  - [ ] 4.2 Enhance architecture diagram generation
     - Locate `_generate_architecture_mermaid()` method
     - Use different Mermaid node shapes for different component types:
       - Services: `A[AuthService]` (rectangle)
@@ -191,7 +191,7 @@
     - Test with real architecture descriptions from specs
     - _Requirements: Enhancement for better diagram quality_
 
-  - [~] 4.3 Enhance API endpoint diagram generation
+  - [ ] 4.3 Enhance API endpoint diagram generation
     - Locate `_generate_api_mermaid()` method
     - Group endpoints by resource: all `/users` endpoints together, all `/posts` endpoints together
     - Use sequence diagrams or flowcharts to show request/response flow
@@ -202,7 +202,7 @@
     - Test with various API endpoint patterns
     - _Requirements: Enhancement for better diagram quality_
 
-  - [~] 4.4 Enhance data model diagram generation
+  - [ ] 4.4 Enhance data model diagram generation
     - Locate `_generate_data_model_mermaid()` method
     - Extract field types from content: look for "string", "integer", "boolean", "date", "timestamp", "UUID", etc.
     - Detect relationships between entities: "one-to-many", "many-to-many", "one-to-one"
@@ -213,7 +213,7 @@
     - Test with database schema descriptions
     - _Requirements: Enhancement for better diagram quality_
 
-  - [~] 4.5 Add diagram style configuration
+  - [ ] 4.5 Add diagram style configuration
     - Create configuration section in application settings or environment variables
     - Add `MERMAID_THEME` option: "default", "dark", "forest", "neutral" (default: "default")
     - Add `MERMAID_BACKGROUND_COLOR` option (default: "transparent")
@@ -227,7 +227,7 @@
 
 - [ ] 5. Add comprehensive testing and validation
 
-  - [~] 5.1 Write unit tests for Mermaid conversion
+  - [ ] 5.1 Write unit tests for Mermaid conversion
     - Create test file: `backend/tests/test_mermaid_conversion.py`
     - Test `_convert_mermaid_to_image()` with valid Mermaid code: assert returns Path to image file
     - Test with invalid Mermaid syntax: assert returns None and logs error
@@ -238,7 +238,7 @@
     - Use `pytest` with `requests-mock` library for HTTP mocking
     - _Requirements: Test coverage for 2.2, 2.6_
 
-  - [~] 5.2 Write unit tests for diagram processing pipeline
+  - [ ] 5.2 Write unit tests for diagram processing pipeline
     - Create test for `_process_diagrams()` with empty diagram list: assert returns empty dict
     - Test with single valid diagram: assert returns dict with one entry mapping diagram_id to image_path
     - Test with multiple diagrams: assert all diagrams processed and returned
@@ -248,7 +248,7 @@
     - Mock `_convert_mermaid_to_image()` to control success/failure scenarios
     - _Requirements: Test coverage for 2.1, 2.6_
 
-  - [~] 5.3 Write unit tests for diagram caching
+  - [ ] 5.3 Write unit tests for diagram caching
     - Test `_get_cached_diagram()` with non-existent cache: assert returns None
     - Test with existing cached image: assert returns Path to cached file
     - Test cache key generation: verify MD5 hash consistency for same Mermaid code
@@ -257,7 +257,7 @@
     - Test cache hit reduces API calls: verify `_convert_mermaid_to_image()` not called for cached diagrams
     - _Requirements: Test coverage for enhancement_
 
-  - [~] 5.4 Write integration tests for full PDF generation
+  - [ ] 5.4 Write integration tests for full PDF generation
     - Create test: ingest markdown with architecture section → generate enhanced document with diagram → render PDF → verify diagram appears
     - Test multiple diagram types in one document: architecture + API + data model
     - Test diagram placement: verify diagrams appear near their referenced sections
@@ -267,7 +267,7 @@
     - Use real markdown samples from `backend/tests/fixtures/` or create new test fixtures
     - _Requirements: End-to-end validation of 2.1-2.6_
 
-  - [~] 5.5 Write property-based tests for diagram quality
+  - [ ] 5.5 Write property-based tests for diagram quality
     - Use `hypothesis` library for property-based testing
     - Generate random Mermaid code for different diagram types (architecture, API, data model)
     - Property: For any valid Mermaid code, `_convert_mermaid_to_image()` produces valid image file
@@ -278,7 +278,7 @@
 
 - [ ] 6. Add configuration and documentation
 
-  - [~] 6.1 Add configuration options to application
+  - [ ] 6.1 Add configuration options to application
     - Open application configuration file or environment variables file
     - Add diagram rendering configuration options:
       - `DIAGRAM_CACHE_ENABLED = True` (enable/disable caching)
@@ -304,7 +304,7 @@
     - Document each option with comments explaining purpose and valid values
     - _Requirements: Enhancement for customization_
 
-  - [~] 6.2 Update documentation
+  - [ ] 6.2 Update documentation
     - Create or update `docs/diagram-rendering.md` documentation file
     - Document diagram rendering feature: what it does, how it works, what diagram types are supported
     - Explain Mermaid code generation for architecture, API, data model, sequence, and state diagrams
@@ -316,7 +316,7 @@
     - Document how to disable diagram rendering if needed
     - _Requirements: Documentation for maintainability_
 
-  - [~] 6.3 Add logging and monitoring
+  - [ ] 6.3 Add logging and monitoring
     - Add INFO-level logging for diagram processing: "Processing 3 diagrams for document..."
     - Add DEBUG-level logging for cache hits: "Using cached diagram for {diagram_id}"
     - Add WARNING-level logging for diagram failures: "Failed to convert diagram {diagram_id}: {error}"
@@ -326,7 +326,7 @@
     - Ensure logs include diagram_id and diagram_type for debugging
     - _Requirements: Operational visibility for 2.6_
 
-- [~] 7. Checkpoint - Ensure all tests pass and diagrams render correctly
+- [ ] 7. Checkpoint - Ensure all tests pass and diagrams render correctly
   - Run all unit tests: `pytest backend/tests/test_mermaid_conversion.py backend/tests/test_diagram_processing.py`
   - Run all integration tests: `pytest backend/tests/test_pdf_generation_integration.py`
   - Run property-based tests: verify all properties hold for generated test cases

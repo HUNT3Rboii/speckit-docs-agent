@@ -179,10 +179,16 @@ Your output will be validated using fuzzy string matching (≥85% similarity). I
 
 ### When to Create Diagrams:
 
-Create diagrams ONLY when content has genuinely diagrammable structure:
+The following content types are diagrammable structure. If a section contains
+ANY of these, you MUST generate the corresponding diagram for it - do not skip
+one because a similar diagram already exists elsewhere in the document, and do
+not treat this list as optional inspiration:
 - **Architecture diagrams**: System components, services, modules with relationships
 - **Sequence diagrams**: Process flows, API calls, interaction sequences
-- **State diagrams**: State machines, status transitions, workflow states
+- **State diagrams**: State machines, status transitions, workflow states (e.g.
+  a section listing states like "pending", "confirmed", "cancelled" and the
+  transitions between them REQUIRES a stateDiagram-v2, even if a different
+  diagram type already covers a different section)
 - **Data models**: Entity relationships, database schemas
 - **Flowcharts**: Decision logic, algorithms, branching processes
 
@@ -195,8 +201,9 @@ Create diagrams ONLY when content has genuinely diagrammable structure:
 ### Diagram Limits:
 
 - Generate 0-10 diagrams per document
-- Only create diagrams where they add genuine value
-- Quality over quantity
+- Every section matching a category above gets its own diagram - "quality over
+  quantity" means keep each diagram focused and don't pad in unrelated
+  sections, NOT skipping sections that clearly qualify
 
 ### Component Evidence:
 

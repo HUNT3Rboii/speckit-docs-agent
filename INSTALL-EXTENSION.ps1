@@ -1,5 +1,8 @@
 # Speckit Auto-AI Extension Installer
-# Installs the VS Code extension locally
+# Uninstalls any existing copy, rebuilds, tests, packages, and reinstalls the
+# VS Code extension locally.
+
+$ExtensionId = "speckit.speckit-auto-ai"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Speckit Auto-AI Extension Installer" -ForegroundColor Cyan
@@ -10,34 +13,56 @@ Write-Host ""
 try {
     $null = Get-Command code -ErrorAction Stop
 } catch {
-    Write-Host "❌ VS Code 'code' command not found" -ForegroundColor Red
+    Write-Host "[FAIL] VS Code 'code' command not found" -ForegroundColor Red
     Write-Host ""
     Write-Host "Please ensure VS Code is installed and 'code' is in your PATH" -ForegroundColor Yellow
-    Write-Host "In VS Code: Ctrl+Shift+P → 'Shell Command: Install code command in PATH'" -ForegroundColor Yellow
+    Write-Host "In VS Code: Ctrl+Shift+P -> 'Shell Command: Install code command in PATH'" -ForegroundColor Yellow
     exit 1
 }
 
 # Navigate to extension directory
 Set-Location vscode-extension
 
-Write-Host "📦 Installing dependencies..." -ForegroundColor Yellow
+# Step 0: Uninstall any existing copy first (ignore failure if not installed)
+Write-Host "[1/6] Uninstalling any existing copy..." -ForegroundColor Yellow
+code --uninstall-extension $ExtensionId 2>$null
+Write-Host "[OK] Uninstall step complete (no-op if it wasn't installed)" -ForegroundColor Green
+Write-Host ""
+
+Write-Host "[2/6] Installing dependencies..." -ForegroundColor Yellow
 npm install
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ npm install failed" -ForegroundColor Red
+    Write-Host "[FAIL] npm install failed" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "🔨 Compiling TypeScript..." -ForegroundColor Yellow
+Write-Host "[3/6] Compiling TypeScript..." -ForegroundColor Yellow
 npm run compile
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ Compilation failed" -ForegroundColor Red
+    Write-Host "[FAIL] Compilation failed" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "📦 Packaging extension..." -ForegroundColor Yellow
+Write-Host "[4/6] Running unit tests..." -ForegroundColor Yellow
+npm run test:unit
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] Unit tests failed - fix before installing" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "[5/6] Linting..." -ForegroundColor Yellow
+npm run lint
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] Lint failed" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "[6/6] Packaging and installing extension..." -ForegroundColor Yellow
+# Remove old .vsix files first so we don't accidentally install a stale one.
+Get-ChildItem -Filter "*.vsix" | Remove-Item -Force -ErrorAction SilentlyContinue
 npx vsce package
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ Packaging failed" -ForegroundColor Red
+    Write-Host "[FAIL] Packaging failed" -ForegroundColor Red
     exit 1
 }
 
@@ -45,24 +70,25 @@ if ($LASTEXITCODE -ne 0) {
 $vsixFile = Get-ChildItem -Filter "*.vsix" | Select-Object -First 1
 
 if (-not $vsixFile) {
-    Write-Host "❌ VSIX file not found" -ForegroundColor Red
+    Write-Host "[FAIL] VSIX file not found" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "📥 Installing extension..." -ForegroundColor Yellow
-code --install-extension $vsixFile.Name
+Write-Host "Installing extension ($($vsixFile.Name))..." -ForegroundColor Yellow
+code --install-extension $vsixFile.Name --force
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ Installation failed" -ForegroundColor Red
+    Write-Host "[FAIL] Installation failed" -ForegroundColor Red
     exit 1
 }
 
 Write-Host ""
-Write-Host "✅ Installation Complete!" -ForegroundColor Green
+Write-Host "[OK] Reinstall Complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "1. Reload VS Code (Ctrl+Shift+P → 'Developer: Reload Window')" -ForegroundColor White
+Write-Host "1. Reload VS Code (Ctrl+Shift+P -> 'Developer: Reload Window')" -ForegroundColor White
+Write-Host "   or fully restart VS Code so the new build is loaded." -ForegroundColor White
 Write-Host "2. Ensure backend is running: .\START-EVERYTHING.ps1" -ForegroundColor White
 Write-Host "3. Open a markdown file and save it to test!" -ForegroundColor White
 Write-Host ""
-Write-Host "View logs: Ctrl+Shift+P → 'Speckit: Show Extension Logs'" -ForegroundColor Gray
+Write-Host "View logs: Ctrl+Shift+P -> 'Speckit: Show Extension Logs'" -ForegroundColor Gray
 Write-Host ""
