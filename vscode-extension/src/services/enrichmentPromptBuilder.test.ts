@@ -189,6 +189,31 @@ describe('EnrichmentPromptBuilder', () => {
       expect(prompt).toContain('Do NOT reword');
     });
 
+    it('should warn against dropping a clause from the middle of evidence', () => {
+      // Regression coverage for a real live-testing failure: the AI
+      // shortened a sentence by silently dropping a middle clause (e.g.
+      // "validates the request and"), which reads as a harmless edit but
+      // fails verbatim-matching just like a full paraphrase would.
+      const markdown = '# Test';
+      const prompt = builder.buildPrompt(markdown);
+
+      expect(prompt).toContain('MIDDLE');
+      expect(prompt.toLowerCase()).toContain('trim from the start or end');
+    });
+
+    it('should warn against extracting a single branch from an "X, or Y" alternative', () => {
+      // Regression coverage for a second real live-testing failure: the AI
+      // compressed a compound "moves to fulfilled ... or to backordered"
+      // sentence down to just the branch it cared about, which is the same
+      // middle-deletion problem as above but easy to miss since it reads as
+      // reasonable branch-selection rather than an arbitrary cut.
+      const markdown = '# Test';
+      const prompt = builder.buildPrompt(markdown);
+
+      expect(prompt.toLowerCase()).toContain('alternative or parallel outcomes');
+      expect(prompt.toLowerCase()).toContain('quote the full sentence');
+    });
+
     it('should instruct to return only JSON without markdown fences', () => {
       const markdown = '# Test';
       const prompt = builder.buildPrompt(markdown);

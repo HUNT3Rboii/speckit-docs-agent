@@ -36,10 +36,12 @@ export class CopilotProvider extends BaseAIProvider {
   }
 
   /**
-   * Get provider name
+   * Get provider name. Includes the specific backing model's human-readable
+   * name (e.g. "Claude Sonnet 5") once a model has been selected, since
+   * Copilot Chat can be backed by several different model families.
    */
   public getProviderName(): string {
-    return 'GitHub Copilot';
+    return this.model ? `GitHub Copilot Chat — ${this.model.name}` : 'GitHub Copilot';
   }
 
   /**

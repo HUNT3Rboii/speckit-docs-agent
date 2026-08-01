@@ -35,10 +35,11 @@ export class GenericProvider extends BaseAIProvider {
   }
 
   /**
-   * Get provider name
+   * Get provider name, preferring the model's human-readable name over its
+   * opaque id once a model has been selected.
    */
   public getProviderName(): string {
-    return this.model ? `Generic (${this.model.id})` : 'Generic AI';
+    return this.model ? `Generic — ${this.model.name}` : 'Generic AI';
   }
 
   /**

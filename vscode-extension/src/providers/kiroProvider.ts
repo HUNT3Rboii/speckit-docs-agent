@@ -48,10 +48,11 @@ export class KiroProvider extends BaseAIProvider {
   }
 
   /**
-   * Get provider name
+   * Get provider name, including the specific model's human-readable name
+   * once selected.
    */
   public getProviderName(): string {
-    return 'Kiro';
+    return this.model ? `Kiro — ${this.model.name}` : 'Kiro';
   }
 
   /**

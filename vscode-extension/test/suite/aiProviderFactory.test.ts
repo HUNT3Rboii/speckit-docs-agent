@@ -39,17 +39,19 @@ suite('AIProviderFactory', () => {
       const provider = await factory.detectProviders();
       const providerName = provider.getProviderName();
 
-      // Provider should be one of the expected types
-      const validProviders = [
+      // Provider should be one of the expected types. getProviderName()
+      // appends " — <model.name>" once a model is selected (e.g. "GitHub
+      // Copilot Chat — Claude Sonnet 5"), so match by prefix, not equality.
+      const validProviderPrefixes = [
         'GitHub Copilot',
+        'Anthropic',
         'Claude',
         'Kiro',
+        'Generic',
         'Rule-Based (Fallback)'
       ];
 
-      // Check if it's a generic provider (starts with "Generic")
-      const isValid = validProviders.includes(providerName) || 
-                     providerName.startsWith('Generic');
+      const isValid = validProviderPrefixes.some(prefix => providerName.startsWith(prefix));
 
       assert.ok(
         isValid,
@@ -362,7 +364,7 @@ suite('AIProviderFactory', () => {
   suite('Provider-Specific Detection', () => {
     test('should detect Copilot if available', async () => {
       const providers = await factory.getAllAvailableProviders();
-      const copilot = providers.find(p => p.getProviderName() === 'GitHub Copilot');
+      const copilot = providers.find(p => p.getProviderName().startsWith('GitHub Copilot'));
 
       if (copilot) {
         const available = await copilot.isAvailable();
@@ -373,7 +375,9 @@ suite('AIProviderFactory', () => {
 
     test('should detect Claude if available', async () => {
       const providers = await factory.getAllAvailableProviders();
-      const claude = providers.find(p => p.getProviderName() === 'Claude');
+      const claude = providers.find(
+        p => p.getProviderName() === 'Claude' || p.getProviderName().startsWith('Anthropic')
+      );
 
       if (claude) {
         const available = await claude.isAvailable();
@@ -384,7 +388,7 @@ suite('AIProviderFactory', () => {
 
     test('should detect Kiro if available', async () => {
       const providers = await factory.getAllAvailableProviders();
-      const kiro = providers.find(p => p.getProviderName() === 'Kiro');
+      const kiro = providers.find(p => p.getProviderName().startsWith('Kiro'));
 
       if (kiro) {
         const available = await kiro.isAvailable();

@@ -175,6 +175,11 @@ export interface StructuredError {
     ungrounded_diagrams?: string[];
     ungrounded_glossary?: string[];
     mermaid_syntax_errors?: string[];
+    /** Client-only correction reason, never sent by the backend: sections
+     * that DiagramCoverageChecker flagged as diagrammable-by-heading but
+     * with no diagram covering them, used to trigger one targeted
+     * follow-up AI pass before the first backend submission. */
+    missing_diagrams?: string[];
   };
   warnings: string[];
 }
@@ -192,6 +197,16 @@ export interface ProcessRequest {
   artifact_type?: string;
   commit_hash?: string;
   retry_count: number;
+  /** Workspace/project root folder name, detected client-side (the backend
+   * has no filesystem visibility into the caller's workspace). */
+  project_root?: string;
+  /** Detected authoring framework(s) for the source .md, e.g. "speckit",
+   * "kiro", "claude-code", "manual", or a comma-joined combination if more
+   * than one marker is present. */
+  authoring_framework?: string;
+  /** Human-readable label for the AI model/provider that produced
+   * enriched_json, e.g. "GitHub Copilot Chat — Claude Sonnet 5". */
+  model_used?: string;
 }
 
 /**

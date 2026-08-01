@@ -164,11 +164,35 @@ Your output will be validated using fuzzy string matching (≥85% similarity). I
 - ❌ "The system handles authentication" (paraphrased, not actual source text)
 - ❌ "This component manages user data" (summary, not verbatim)
 - ❌ "Described in section 2" (reference, not excerpt)
+- ❌ "The Order Service publishes an OrderCreated event to the Event Bus" when
+  the source actually says "The Order Service validates the request and
+  publishes an OrderCreated event to the Event Bus" - silently dropping
+  "validates the request and" from the MIDDLE of the sentence looks like a
+  harmless shortening but breaks verbatim matching just as much as a full
+  paraphrase does
+- ❌ "From \`confirmed\`, the order moves to \`backordered\` if stock is
+  unavailable" when the source actually says "From \`confirmed\`, the order
+  moves to \`fulfilled\` once the Inventory Service reserves stock and ships
+  the item, or to \`backordered\` if stock is unavailable" - when a sentence
+  describes MULTIPLE alternative outcomes joined by "or"/"and", do not
+  surgically cut out just the one branch you care about; that requires
+  deleting words from the middle exactly like the example above. Quote the
+  ENTIRE sentence (all branches) even if only one branch is relevant to the
+  component you're citing evidence for
 
 ### Good Evidence Examples (Will Pass):
 
 - ✓ "The authentication service validates user credentials against the database and issues JWT tokens upon successful login."
-- ✓ "User data is stored in a PostgreSQL database with the following schema: users table containing id, email, hashed_password, and created_at columns."`;
+- ✓ "User data is stored in a PostgreSQL database with the following schema: users table containing id, email, hashed_password, and created_at columns."
+
+### If You Need Shorter Evidence:
+
+Only trim from the START or the END of a sentence/passage - never remove
+words from the middle. "The Order Service validates the request and
+publishes an OrderCreated event to the Event Bus" can be safely shortened to
+"validates the request and publishes an OrderCreated event to the Event
+Bus" (trimmed from the start) but NOT to "The Order Service publishes an
+OrderCreated event to the Event Bus" (a clause carved out of the middle).`;
   }
 
   /**
@@ -378,6 +402,17 @@ Before returning your JSON output, verify the following:
 ✓ For EVERY diagram component, verify the evidence is actual source text
 ✓ For EVERY glossary entry, verify the evidence is actual source text
 ✓ Open the source document mentally and find the exact or near-exact text
+✓ Confirm your evidence is a SINGLE CONTIGUOUS SPAN of the source - read it
+  side-by-side against the source sentence and check no words were skipped
+  from the middle. If you shortened a sentence, the cut must be from the
+  start or end only, never carved out of the middle (see "If You Need
+  Shorter Evidence" above) - this is the single most common way evidence
+  fails validation even when it "looks basically right"
+✓ Specifically watch for "X, or Y" / "X, and Y" sentences describing
+  multiple alternative or parallel outcomes: if you're citing evidence for
+  only one outcome, you must still quote the FULL sentence (all outcomes),
+  not just your outcome's clause - cutting out only "your" branch is the
+  same as deleting words from the middle
 ✓ If you cannot find matching text, either:
   - Find the correct evidence quote, OR
   - Remove that component/term
@@ -398,6 +433,8 @@ Before returning your JSON output, verify the following:
 ### 5. Common Mistakes to Avoid
 
 ❌ Paraphrasing evidence instead of copying verbatim
+❌ Dropping a clause from the MIDDLE of an otherwise-verbatim sentence to
+   shorten it (trim from the start or end only, never the middle)
 ❌ Missing original headings from sections[]
 ❌ Creating diagram components without evidence
 ❌ Creating glossary entries without evidence

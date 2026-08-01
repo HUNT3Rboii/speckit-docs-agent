@@ -13,11 +13,14 @@ import {
   StructuredError,
   ProcessResponse
 } from '../types';
+import * as path from 'path';
 import { AIProviderFactory } from './aiProviderFactory';
 import { JSONParser } from './jsonParser';
 import { BackendClient } from './backendClient';
 import { NotificationService } from './notificationService';
 import { ContentHashService } from './contentHashService';
+import { ProjectFrameworkDetector } from './projectFrameworkDetector';
+import { DiagramCoverageChecker } from './diagramCoverageChecker';
 
 /**
  * Safety cap on client-side correction attempts. The backend's own
@@ -36,6 +39,8 @@ export class TransformPipeline implements ITransformPipeline {
   private backendClient: BackendClient;
   private notificationService: NotificationService;
   private contentHashService: ContentHashService;
+  private projectFrameworkDetector: ProjectFrameworkDetector;
+  private diagramCoverageChecker: DiagramCoverageChecker;
   private processingQueue: Map<string, Promise<ProcessResult>>;
   private contentCache: Map<string, string>;
   private maxConcurrent: number;
@@ -46,13 +51,17 @@ export class TransformPipeline implements ITransformPipeline {
     backendClient: BackendClient,
     notificationService: NotificationService,
     maxConcurrent: number = 3,
-    contentHashService: ContentHashService = new ContentHashService()
+    contentHashService: ContentHashService = new ContentHashService(),
+    projectFrameworkDetector: ProjectFrameworkDetector = new ProjectFrameworkDetector(),
+    diagramCoverageChecker: DiagramCoverageChecker = new DiagramCoverageChecker()
   ) {
     this.aiFactory = aiFactory;
     this.jsonParser = jsonParser;
     this.backendClient = backendClient;
     this.notificationService = notificationService;
     this.contentHashService = contentHashService;
+    this.projectFrameworkDetector = projectFrameworkDetector;
+    this.diagramCoverageChecker = diagramCoverageChecker;
     this.processingQueue = new Map();
     this.contentCache = new Map();
     this.maxConcurrent = maxConcurrent;
@@ -110,13 +119,16 @@ export class TransformPipeline implements ITransformPipeline {
 
       const sourcePath = vscode.workspace.asRelativePath(fileUri);
       const projectId = this.extractProjectId(sourcePath);
+      const { projectRoot, authoringFramework } = await this.detectProvenance(fileUri);
 
       const { response, provider } = await this.transformValidateAndSubmit(
         content,
         fileUri,
         sourcePath,
         projectId,
-        fileName
+        fileName,
+        projectRoot,
+        authoringFramework
       );
 
       if (response.status === 'retry_needed') {
@@ -173,11 +185,14 @@ export class TransformPipeline implements ITransformPipeline {
     fileUri: vscode.Uri,
     sourcePath: string,
     projectId: string,
-    fileName: string
+    fileName: string,
+    projectRoot: string,
+    authoringFramework: string
   ): Promise<{ response: ProcessResponse; provider: string }> {
     let structuredError: StructuredError | undefined;
     let retryCount = 0;
     let provider = '';
+    let triedDiagramGapFill = false;
 
     for (let attempt = 1; attempt <= MAX_CLIENT_CORRECTION_ATTEMPTS; attempt++) {
       this.notificationService.info(
@@ -193,9 +208,39 @@ export class TransformPipeline implements ITransformPipeline {
       provider = usedProvider;
 
       this.notificationService.info(`Validating JSON: ${fileName}`);
-      const validated = this.jsonParser.parseAndValidate(
+      let validated = this.jsonParser.parseAndValidate(
         typeof enrichedJson === 'string' ? enrichedJson : JSON.stringify(enrichedJson)
       );
+
+      // AI generation is non-deterministic: a section that clearly warrants
+      // a diagram (per heading alone) sometimes gets skipped anyway,
+      // especially with smaller models. This is orthogonal to the backend's
+      // own evidence-grounding retry loop below, so it's checked once,
+      // before ever hitting the backend, rather than folded into that loop.
+      if (!triedDiagramGapFill) {
+        triedDiagramGapFill = true;
+        const gaps = this.diagramCoverageChecker.findGaps(validated.sections, validated.diagrams);
+        if (gaps.length > 0) {
+          this.notificationService.info(
+            `Filling ${gaps.length} missing diagram(s) (${gaps.map(g => g.heading).join(', ')}): ${fileName}`
+          );
+          const gapFillError: StructuredError = {
+            valid: false,
+            retry_count: 0,
+            errors: { missing_diagrams: gaps.map(g => g.heading) },
+            warnings: []
+          };
+          const { result: filledJson, provider: filledProvider } = await this.transformWithAI(
+            content,
+            fileUri,
+            gapFillError
+          );
+          provider = filledProvider;
+          validated = this.jsonParser.parseAndValidate(
+            typeof filledJson === 'string' ? filledJson : JSON.stringify(filledJson)
+          );
+        }
+      }
 
       this.notificationService.info(`Sending to backend: ${fileName}`);
       const response = await this.backendClient.process({
@@ -203,7 +248,10 @@ export class TransformPipeline implements ITransformPipeline {
         source_path: sourcePath,
         source_markdown: content,
         enriched_json: validated,
-        retry_count: retryCount
+        retry_count: retryCount,
+        project_root: projectRoot,
+        authoring_framework: authoringFramework,
+        model_used: provider
       });
 
       if (response.status === 'retry_needed' && response.structured_error) {
@@ -286,6 +334,27 @@ export class TransformPipeline implements ITransformPipeline {
       // Small delay to prevent tight loop
       await new Promise(resolve => setTimeout(resolve, 100));
     }
+  }
+
+  /**
+   * Detect the workspace root folder name and authoring framework for a
+   * file, for provenance metadata on the generated PDF. Uses
+   * getWorkspaceFolder() (not workspaceFolders[0]) so this resolves
+   * correctly in multi-root workspaces.
+   */
+  private async detectProvenance(
+    fileUri: vscode.Uri
+  ): Promise<{ projectRoot: string; authoringFramework: string }> {
+    const folder = vscode.workspace.getWorkspaceFolder(fileUri);
+    if (!folder) {
+      return { projectRoot: 'default-project', authoringFramework: 'manual' };
+    }
+
+    const projectRoot = path.basename(folder.uri.fsPath);
+    const frameworks = await this.projectFrameworkDetector.detect(folder.uri.fsPath);
+    const authoringFramework = this.projectFrameworkDetector.formatLabel(frameworks);
+
+    return { projectRoot, authoringFramework };
   }
 
   /**

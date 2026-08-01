@@ -36,10 +36,11 @@ export class ClaudeProvider extends BaseAIProvider {
   }
 
   /**
-   * Get provider name
+   * Get provider name, including the specific model's human-readable name
+   * once selected (e.g. "Anthropic — Claude Sonnet 5").
    */
   public getProviderName(): string {
-    return 'Claude';
+    return this.model ? `Anthropic — ${this.model.name}` : 'Claude';
   }
 
   /**

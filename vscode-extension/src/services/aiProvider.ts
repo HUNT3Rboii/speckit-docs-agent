@@ -70,6 +70,11 @@ Reminders:
 - "ungrounded_glossary": either find the correct verbatim evidence quote for the named term,
   or remove that glossary entry if no such text exists.
 - "mermaid_syntax_errors": fix the named diagram's mermaidCode so it parses correctly.
+- "missing_diagrams": these named sections clearly warrant a diagram per the Diagram Generation
+  Guidance above (architecture/sequence/state/data-model/flowchart content) but your previous
+  response didn't include one for them. Add a diagram for EACH named section now, following the
+  same evidence rules as every other diagram (every component needs a verbatim evidence quote).
+  Do not remove or change any diagram that was already present.
 
 Return ONLY the corrected JSON object, no explanations.`;
   }
