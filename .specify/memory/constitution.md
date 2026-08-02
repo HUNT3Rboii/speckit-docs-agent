@@ -1,33 +1,55 @@
-# Documentation Agent Constitution
+# Shopping Website Constitution
 
 <!--
 Sync Impact Report
-- Version change: 0.0.0 -> 1.0.0
-- Modified principles: none (new constitution)
-- Added sections: Scope and Deliverables, Review and Validation
-- Removed sections: none
+- Version change: 1.0.0 -> 2.0.0
+- Modified principles: Replaced Spec Kit-focused principles with Shopping Website governance
+- Added sections: Privacy, Payments, Availability, Accessibility, Product Integrity
+- Removed sections: Spec Kit Scope Discipline, Zero-Config Agent-Native Execution, Non-Goal Boundary Enforcement
 - Templates requiring updates: ✅ .specify/templates/plan-template.md, ✅ .specify/templates/spec-template.md, ✅ .specify/templates/tasks-template.md
-- Follow-up TODOs: none
+- Follow-up TODOs: ⚠ Update any project automation that enforces "Spec Kit" constraints to reference the new constitution
 -->
 
 ## Core Principles
 
-### I. Spec Kit Scope Discipline
-This project MUST remain within the Spec Kit-side Documentation Agent scope defined in the feature spec. Work MUST target the extension package, backend/API, markdown-to-PDF pipeline, and Docker/Postgres setup; it MUST NOT scaffold frontend code, add unrelated product features, or expand into ticket-board/Kanban functionality. Rationale: This feature is explicitly a two-phase effort with a separate handoff, and scope drift would break the intended architecture and delivery plan.
+### I. Customer Privacy & Data Protection
+The project MUST treat customer personal data as sensitive. The system MUST collect the minimal personal data required for an explicit business purpose, store it encrypted at rest where applicable, and transmit it only over encrypted channels. Data access controls MUST restrict production data access to authorized roles and MUST be auditable. Rationale: Protecting customer privacy is foundational to trust and legal compliance.
 
-### II. Zero-Config Agent-Native Execution
-The primary documentation-generation path MUST use the existing agent session that is already driving the developer's Spec Kit workflow. The extension MUST NOT require a separate AI provider, model selection, or API key for that path; it may only rely on the current agent context and the configured backend URL. Rationale: The zero-config requirement is a product promise and a core compatibility constraint.
+### II. Secure Payments & Compliance
+Any payment processing path MUST use a PCI-compliant provider or integration and MUST NOT store raw card data on our systems. Payment flows MUST validate transactions server-side, log payment events for reconciliation, and provide robust retry and refund handling. Rationale: Financial transactions demand strong security and traceability.
 
-### III. Non-Goal Boundary Enforcement
-The implementation MUST NOT violate the explicit non-goals from the feature spec. That means no support for Markdown sources outside the repository's Spec Kit artifact directories, no modification of core Spec Kit command templates or prompt files, no multi-user authentication system beyond a single shared extension-to-backend API key, and no addition of separate AI-provider configuration for the primary path. Rationale: These exclusions protect compatibility, reduce implementation risk, and keep the feature focused on its intended purpose.
+### III. Availability & Performance
+The shopping website MUST aim for high availability and responsive user experience. Critical purchase flows (browse → add-to-cart → checkout) MUST meet defined SLOs (e.g., 99.9% availability, 500ms median page/API response) and MUST include graceful degradation strategies when dependencies fail. Rationale: Reliability directly impacts revenue and customer satisfaction.
+
+### IV. Accurate Product Data & Inventory Integrity
+Product information, pricing, and inventory MUST be the single source of truth and MUST be kept consistent across channels. Inventory updates and price changes MUST be atomic and idempotent to prevent oversell or price mismatch. Rationale: Business-critical correctness prevents customer harm and financial loss.
+
+### V. Accessibility & Inclusive UX
+The website MUST follow WCAG 2.1 AA accessibility standards for customer-facing pages and flows. Accessibility considerations MUST be included in design and verified in QA. Rationale: Inclusive design broadens reach and reduces legal risk.
+
+### VI. Security-First Development
+All code and infrastructure changes MUST undergo threat modeling for new attack surfaces, automated static analysis, and dependency vulnerability scans. Authentication, authorization, and input validation MUST follow least-privilege and fail-safe defaults. Rationale: Proactive security reduces post-release incidents.
+
+### VII. Observability, Monitoring & Rollback Safety
+Services MUST emit structured logs and metrics for key business events (cart events, payment attempts, inventory changes). Monitoring MUST include alerts for SLO breaches and critical errors. Releases MUST be reversible and use feature flags for high-risk changes. Rationale: Observability enables rapid detection and safe remediation.
 
 ## Scope and Deliverables
-All implementation work for this repository MUST produce or support the Spec Kit extension, the backend ingestion/rendering flow, and the documentation pipeline artifacts needed for PDF generation and storage. The work MUST preserve the agent-native trigger and the fallback path defined by the feature spec, and it MUST keep frontend implementation and unrelated product features out of this session's scope. Any proposal that broadens the feature beyond the Spec Kit-side backend and pipeline work is a constitution violation unless the constitution is amended first.
+This constitution governs all work labeled for the `shopping-website` product within this repository. Deliverables that fall under this constitution include backend services that manage catalog, cart, checkout, payments, and order management; frontend customer-facing pages and APIs; deployment configuration for production and staging; and automated tests and monitoring. Integrations with third-party payment, fulfillment, or analytics providers are permitted provided they meet the principles above.
 
 ## Review and Validation
-Every plan, spec, and task list MUST explicitly confirm that it respects the three principles above before implementation begins. Reviews MUST check for scope creep, provider-configuration drift, and violations of the explicit non-goals. If a requirement cannot be satisfied within these constraints, the implementation plan MUST document the tradeoff and seek a constitution change rather than silently expanding scope.
+Every plan, spec, and task list MUST include a short "Constitution Check" section that states which principles are relevant and how the proposed work complies. Reviews MUST verify: privacy impact, payment integration compliance, SLO definitions, inventory consistency strategy, accessibility considerations, threat-model outcomes, and rollback plans. If work cannot comply, the plan MUST document the deviation and escalate for an amendment.
 
 ## Governance
-This constitution supersedes ad-hoc scope expansion and convenience-driven shortcuts. Amendments require a documented change to this file, a version bump, and a review that confirms the new rule still fits the project's Spec Kit-only scope. Compliance is reviewed at the plan, spec, and task-generation stages; violations MUST be corrected or explicitly accepted as a documented exception before work proceeds.
+Amendments to this constitution require a documented change to this file, a semantic version bump, and a recorded rationale in the Sync Impact Report. Versioning rules:
+- MAJOR: Removing or renaming principles, or making incompatible governance changes.
+- MINOR: Adding principles or materially new governance guidance.
+- PATCH: Clarifications, typos, or non-substantive wording changes.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-16 | **Last Amended**: 2026-07-16
+Amendment procedure:
+1. Proposer opens a spec or pull request describing the desired change and the rationale.
+2. Two maintainers must review and approve the change, confirming tests and follow-up actions.
+3. Update this file with a Sync Impact Report and set `Last Amended` to the amendment date.
+
+Compliance audits: Quarterly reviews MUST verify adherence to at least one security, privacy, and accessibility principle.
+
+**Version**: 2.0.0 | **Ratified**: 2026-07-16 | **Last Amended**: 2026-08-02

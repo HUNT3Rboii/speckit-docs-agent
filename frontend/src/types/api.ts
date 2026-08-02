@@ -89,6 +89,25 @@ export interface VersionsResponse {
 }
 
 /**
+ * A source_path (exact file) or folder prefix (e.g. ".specify/templates")
+ * excluded from processing for a project - managed entirely server-side so
+ * it takes effect immediately with no VS Code extension changes needed.
+ */
+export interface ProcessingException {
+  id: number;
+  project_id: string;
+  source_path: string;
+  created_at: string;
+}
+
+/**
+ * API response for the exceptions list endpoint
+ */
+export interface ExceptionsResponse {
+  exceptions: ProcessingException[];
+}
+
+/**
  * Error response structure from the backend API
  */
 export interface ErrorResponse {

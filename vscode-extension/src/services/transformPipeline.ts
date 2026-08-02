@@ -118,8 +118,30 @@ export class TransformPipeline implements ITransformPipeline {
       }
 
       const sourcePath = vscode.workspace.asRelativePath(fileUri);
-      const projectId = this.extractProjectId(sourcePath);
       const { projectRoot, authoringFramework } = await this.detectProvenance(fileUri);
+      // The project a document belongs to is its actual workspace/repo root
+      // (projectRoot), not a guess derived from the file's own relative path -
+      // deriving it from sourcePath's first segment meant every subfolder
+      // (or, for a root-level file, the filename itself) became its own
+      // bogus "project".
+      const projectId = projectRoot;
+
+      // Check the exceptions list *before* calling the AI - without this,
+      // an excluded file still burns a real AI call and shows a full
+      // "Transforming with AI" / "Sending to backend" notification cycle
+      // for work the backend was always going to reject, which reads as
+      // "it processed" even though nothing gets saved.
+      const { excluded } = await this.backendClient.reportStep(
+        projectId,
+        sourcePath,
+        'transforming_with_ai',
+        1,
+        MAX_CLIENT_CORRECTION_ATTEMPTS
+      );
+      if (excluded) {
+        this.notificationService.info(`Excluded from processing: ${fileName}`);
+        return { success: true, skipped: true };
+      }
 
       const { response, provider } = await this.transformValidateAndSubmit(
         content,
@@ -200,6 +222,29 @@ export class TransformPipeline implements ITransformPipeline {
           ? `Correcting and resubmitting (retry ${retryCount}): ${fileName}`
           : `Transforming with AI: ${fileName}`
       );
+      // Best-effort dashboard visibility: this AI call (and the resubmit
+      // loop around it) is often the slowest part of the whole pipeline,
+      // especially with a real LLM - without reporting it, nothing shows
+      // up on the dashboard until /api/process is finally called below.
+      // Awaited (not fire-and-forget) despite being best-effort: this ping
+      // and the process() call below are two independent HTTP requests to
+      // the same backend, so without waiting for this one to land first,
+      // the server could process them out of order and have process()'s
+      // own final status write (retry_needed/rendered) get silently
+      // clobbered by this "submitting"/"transforming" ping arriving late -
+      // leaving the dashboard stuck on a stale step forever. reportStep()
+      // itself never throws, so this adds latency, not a new failure mode.
+      // Skipped on attempt 1: executeProcess() already reported this same
+      // step as part of its exclusion check before entering this loop.
+      if (attempt > 1) {
+        await this.backendClient.reportStep(
+          projectId,
+          sourcePath,
+          structuredError ? 'correcting' : 'transforming_with_ai',
+          attempt,
+          MAX_CLIENT_CORRECTION_ATTEMPTS
+        );
+      }
       const { result: enrichedJson, provider: usedProvider } = await this.transformWithAI(
         content,
         fileUri,
@@ -243,6 +288,16 @@ export class TransformPipeline implements ITransformPipeline {
       }
 
       this.notificationService.info(`Sending to backend: ${fileName}`);
+      // Awaited for the same reason as the reportStep call above: must land
+      // before process() starts, or its "submitting" write can race ahead
+      // of process()'s own final status and get stuck showing forever.
+      await this.backendClient.reportStep(
+        projectId,
+        sourcePath,
+        'submitting',
+        attempt,
+        MAX_CLIENT_CORRECTION_ATTEMPTS
+      );
       const response = await this.backendClient.process({
         project_id: projectId,
         source_path: sourcePath,
@@ -355,15 +410,6 @@ export class TransformPipeline implements ITransformPipeline {
     const authoringFramework = this.projectFrameworkDetector.formatLabel(frameworks);
 
     return { projectRoot, authoringFramework };
-  }
-
-  /**
-   * Extract project ID from source path
-   */
-  private extractProjectId(sourcePath: string): string {
-    const parts = sourcePath.split(/[/\\]/);
-    const projectName = parts.length > 1 ? parts[0] : parts[parts.length - 1].replace('.md', '');
-    return projectName || 'default-project';
   }
 
   /**

@@ -6,7 +6,8 @@ Uses token-sort ratio algorithm for similarity comparison.
 """
 
 import difflib
-from typing import List, Optional
+import re
+from typing import List, Optional, Tuple
 from rapidfuzz import fuzz
 
 
@@ -211,5 +212,104 @@ class FuzzyMatchService:
             if score > best_score and score >= threshold:
                 best_score = score
                 best_match = candidate
-        
+
         return best_match
+
+    def sentence_scoped_containment(self, needle: str, haystack: str) -> Tuple[float, float]:
+        """
+        Coverage and density of `needle` against whichever SINGLE sentence
+        of `haystack` gives it the best coverage.
+
+        This exists for evidence that compresses a compound "X, or Y" /
+        "X, and Y" sentence down to just one branch (e.g. citing only the
+        "backordered" outcome of "the order moves to fulfilled ... or to
+        backordered ..."), which gapped_containment_score's whole-document
+        coverage*density can't safely accept: for large deletions, a
+        multiplicative combined score lets a low-coverage cross-sentence
+        fabrication "buy" a passing score with high local density,
+        indistinguishable in practice from a genuine same-sentence
+        compression (verified empirically - adversarial constructions that
+        combine two real but unrelated phrases scored *higher* than the
+        genuine compression on some inputs).
+
+        Scoping to one sentence at a time and treating coverage as a
+        near-hard requirement closes that gap: a genuine compression's
+        matched fragments cover the ENTIRE evidence string (coverage ~1.0)
+        because both fragments come from the one sentence being compressed,
+        while a fabrication stitching together two different sentences can
+        get high coverage in at most one of them - the corresponding
+        phrase from the OTHER sentence simply isn't there, capping its
+        best-sentence coverage well below 1.0 (observed ceiling ~0.85 across
+        several adversarial constructions, vs. 1.0 for every genuine case
+        tested).
+
+        Args:
+            needle: The (typically short) evidence text to search for
+            haystack: The (typically much longer) source text to search within
+
+        Returns:
+            (coverage, density) for the best-matching sentence, or (0.0, 0.0)
+            if haystack has no sentences / no match at all
+        """
+        if not needle or not haystack:
+            return 0.0, 0.0
+
+        normalized_needle = " ".join(needle.lower().split())
+        sentences = re.split(r"(?<=[.!?])\s+", haystack)
+
+        best_coverage = 0.0
+        best_density = 0.0
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            normalized_sentence = " ".join(sentence.lower().split())
+            matcher = difflib.SequenceMatcher(None, normalized_needle, normalized_sentence, autojunk=False)
+            blocks = [b for b in matcher.get_matching_blocks() if b.size > 0]
+            if not blocks:
+                continue
+
+            matched = sum(b.size for b in blocks)
+            span = (blocks[-1].b + blocks[-1].size) - blocks[0].b
+            coverage = matched / len(normalized_needle)
+            density = matched / span if span else 0.0
+
+            if coverage > best_coverage or (coverage == best_coverage and density > best_density):
+                best_coverage, best_density = coverage, density
+
+        return best_coverage, best_density
+
+    def sentence_scoped_match(
+        self,
+        needle: str,
+        haystack: str,
+        coverage_threshold: float = 0.95,
+        density_threshold: float = 0.3,
+    ) -> bool:
+        """
+        True if `needle` is (near-)fully covered by a contiguous-enough span
+        of a SINGLE sentence in `haystack`. See sentence_scoped_containment
+        for why this two-gate (coverage AND density) design, scoped to one
+        sentence at a time, is safe against fabrication in a way a single
+        combined-score threshold over the whole document is not.
+
+        coverage_threshold defaults high (0.95) because coverage is the
+        primary safety signal here: genuine same-sentence compressions
+        scored exactly 1.0 in every case tested, while the best adversarial
+        construction found reached ~0.85 - the gap between those two
+        numbers, not the exact threshold value, is what makes this safe.
+        density_threshold is a lower-priority sanity floor (0.3, comfortably
+        below the lowest genuine case observed, ~0.47).
+
+        Args:
+            needle: The (typically short) evidence text to search for
+            haystack: The (typically much longer) source text to search within
+            coverage_threshold: Minimum fraction of needle that must be
+                covered by matching blocks within the best single sentence
+            density_threshold: Minimum matched/span ratio within that sentence
+
+        Returns:
+            True if both gates are met for at least one sentence
+        """
+        coverage, density = self.sentence_scoped_containment(needle, haystack)
+        return coverage >= coverage_threshold and density >= density_threshold

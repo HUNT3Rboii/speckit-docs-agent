@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_api_key, get_output_dir, get_project_name, get_repository
-from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ProjectCreate, ProjectResponse
+from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ExceptionCreate, ProjectCreate, ProjectResponse
 from app.services.agent_transform import AgentTransformService
 from app.services.ingestion import IngestionService
+from app.services.path_matching import path_matches_exception
 from app.services.persistence import PersistenceService
 from app.services.rendering import RenderingService
 from app.services.validation import ValidationError, ValidationService
@@ -153,13 +155,73 @@ def list_projects(_=Depends(require_api_key)) -> Dict[str, Any]:
 @router.get("/api/projects/{project_id}/artifacts")
 def list_artifacts(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
     repo, _, _, _, _, _ = get_services()
-    return {"artifacts": repo.list_artifacts(project_id)}
+    artifacts = repo.list_artifacts(project_id)
+    visible = [a for a in artifacts if not (a.get("metadata") or {}).get("hidden")]
+    return {"artifacts": visible}
 
 
 @router.get("/api/artifacts/{artifact_id}/versions")
 def list_versions(artifact_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
     repo, _, _, _, _, _ = get_services()
     return {"versions": repo.list_versions(artifact_id)}
+
+
+@router.get("/api/projects/{project_id}/exceptions")
+def list_exceptions(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Source paths (exact files or folder prefixes, e.g.
+    ".specify/templates") excluded from processing for this project."""
+    repo, _, _, _, _, _ = get_services()
+    return {"exceptions": repo.list_exceptions(project_id)}
+
+
+@router.post("/api/projects/{project_id}/exceptions")
+def add_exception(project_id: str, payload: ExceptionCreate, _=Depends(require_api_key)) -> Dict[str, Any]:
+    repo, _, _, _, _, _ = get_services()
+    created_at = datetime.now(timezone.utc).isoformat()
+    exception = repo.add_exception(project_id, payload.source_path, created_at)
+
+    # Excluding a path hides any artifact(s) that already exist under it
+    # from the dashboard immediately - hidden, not deleted, so removing the
+    # exception later can bring them straight back (same PDF, no
+    # reprocessing needed) rather than losing them for good.
+    hidden_artifact_ids = []
+    for artifact in repo.list_artifacts(project_id):
+        metadata = dict(artifact.get("metadata") or {})
+        if metadata.get("hidden"):
+            continue
+        if path_matches_exception(artifact["source_path"], payload.source_path):
+            metadata["hidden"] = True
+            repo.upsert_artifact({**artifact, "metadata": metadata})
+            hidden_artifact_ids.append(artifact["id"])
+
+    return {"exception": exception, "hidden_artifact_ids": hidden_artifact_ids}
+
+
+@router.delete("/api/projects/{project_id}/exceptions/{exception_id}")
+def remove_exception(project_id: str, exception_id: int, _=Depends(require_api_key)) -> Dict[str, Any]:
+    repo, _, _, _, _, _ = get_services()
+    repo.remove_exception(project_id, exception_id)
+
+    # Un-hide any artifact that was hidden by this exception and isn't
+    # covered by any *other* remaining exception - e.g. two overlapping
+    # exceptions (".specify" and ".specify/templates") both hiding the same
+    # file must not un-hide it just because one of the two was removed.
+    remaining_exceptions = repo.list_exceptions(project_id)
+    unhidden_artifact_ids = []
+    for artifact in repo.list_artifacts(project_id):
+        metadata = dict(artifact.get("metadata") or {})
+        if not metadata.get("hidden"):
+            continue
+        still_excluded = any(
+            path_matches_exception(artifact["source_path"], exc["source_path"])
+            for exc in remaining_exceptions
+        )
+        if not still_excluded:
+            metadata["hidden"] = False
+            repo.upsert_artifact({**artifact, "metadata": metadata})
+            unhidden_artifact_ids.append(artifact["id"])
+
+    return {"status": "ok", "unhidden_artifact_ids": unhidden_artifact_ids}
 
 
 @router.get("/api/doc-versions/{version_id}/pdf")
@@ -206,9 +268,18 @@ def download_pdf(
     if not os.path.exists(pdf_path):
         raise HTTPException(status_code=404, detail=f"PDF file not found at path: {pdf_path}")
     
-    # Return PDF file
+    # Return PDF file. content_disposition_type="inline" (FileResponse
+    # defaults to "attachment" whenever filename= is passed) is required for
+    # the frontend's <object data="..."> embed to render the PDF in place -
+    # "attachment" tells the browser to hand the response to a download
+    # instead of the PDF viewer, so the <object> renders nothing at all
+    # (not even its own fallback content, since the browser's PDF plugin
+    # never got the bytes to begin with). The explicit "Download PDF" button
+    # in the UI is unaffected: its <a download> attribute forces a save
+    # regardless of this header.
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
-        filename=os.path.basename(pdf_path)
+        filename=os.path.basename(pdf_path),
+        content_disposition_type="inline"
     )

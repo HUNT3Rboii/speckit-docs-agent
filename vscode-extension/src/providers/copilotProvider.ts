@@ -59,6 +59,12 @@ export class CopilotProvider extends BaseAIProvider {
     const sanitized = this.sanitizeMarkdown(markdown);
     const prompt = this.buildTransformPrompt(sanitized, structuredError);
 
+    // Owned by this call (not a throwaway token) so it can be cancelled in
+    // `finally` if we bail out via the timeout race below - otherwise the
+    // streaming request keeps running in the background even after this
+    // function has already thrown a timeout error.
+    const cancellationSource = new vscode.CancellationTokenSource();
+
     try {
       this.log('Sending request to Copilot...');
 
@@ -67,20 +73,28 @@ export class CopilotProvider extends BaseAIProvider {
         vscode.LanguageModelChatMessage.User(prompt)
       ];
 
-      // Send request with timeout
-      const responsePromise = this.model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
-      const timeoutPromise = this.createTimeoutPromise<vscode.LanguageModelChatResponse>(
+      // Bound the *entire* exchange - connecting AND streaming the
+      // response - not just the initial sendRequest() call. A stalled
+      // stream (a real, known LM API failure mode: the request resolves
+      // fine but the `for await` over response.text never yields a final
+      // chunk) previously hung here forever with no timeout, no thrown
+      // error, and nothing ever surfacing to the user - indistinguishable
+      // from the extension simply being frozen.
+      const sendAndCollect = async (): Promise<string> => {
+        const response = await this.model!.sendRequest(messages, {}, cancellationSource.token);
+        let responseText = '';
+        for await (const fragment of response.text) {
+          responseText += fragment;
+        }
+        return responseText;
+      };
+
+      const timeoutPromise = this.createTimeoutPromise<string>(
         this.timeout,
         'Copilot request timed out'
       );
 
-      const response = await Promise.race([responsePromise, timeoutPromise]);
-
-      // Collect response text
-      let responseText = '';
-      for await (const fragment of response.text) {
-        responseText += fragment;
-      }
+      const responseText = await Promise.race([sendAndCollect(), timeoutPromise]);
 
       this.log('Received response from Copilot');
 
@@ -107,6 +121,9 @@ export class CopilotProvider extends BaseAIProvider {
 
       this.logError('Copilot transformation failed:', error);
       throw new Error(`Copilot transformation failed: ${error.message}`);
+    } finally {
+      cancellationSource.cancel();
+      cancellationSource.dispose();
     }
   }
 }

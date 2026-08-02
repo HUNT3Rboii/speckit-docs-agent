@@ -349,6 +349,24 @@ export interface BackendClient {
   ingest(data: StructuredJSON): Promise<IngestResponse>;
   /** Submit an EnrichedJSON document to the agentic pipeline's /api/process endpoint */
   process(request: ProcessRequest): Promise<ProcessResponse>;
+  /**
+   * Report a client-side pipeline step (reading the file, calling the AI
+   * provider, etc.) that happens before enough is known to call process() -
+   * without this, those steps are invisible on the dashboard until they're
+   * already done. Best-effort: implementations must never throw, since a
+   * status ping failing should never block the actual pipeline. Returns
+   * whether sourcePath is on the project's exceptions list, so the caller
+   * can skip the AI call entirely for an excluded file (a failed ping
+   * reports excluded: false - the authoritative check still happens
+   * server-side in process() regardless).
+   */
+  reportStep(
+    projectId: string,
+    sourcePath: string,
+    step: string,
+    attempt?: number,
+    maxAttempts?: number
+  ): Promise<{ excluded: boolean }>;
   /** Check backend health/availability */
   checkHealth(): Promise<boolean>;
 }

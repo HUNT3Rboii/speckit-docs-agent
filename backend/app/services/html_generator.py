@@ -9,6 +9,7 @@ Requirements: 12.1, 12.2, 12.4
 
 import re
 import html as html_stdlib
+import markdown as markdown_lib
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -410,6 +411,9 @@ class HTMLGeneratorService:
         artifact_type: str = "document",
         source_path: str = "",
         commit_hash: Optional[str] = None,
+        project_root: Optional[str] = None,
+        authoring_framework: Optional[str] = None,
+        model_used: Optional[str] = None,
     ) -> str:
         """
         Generate complete HTML document from enriched JSON.
@@ -421,6 +425,13 @@ class HTMLGeneratorService:
             artifact_type: Type of artifact (document, specification, guide, etc.)
             source_path: Path to source markdown file
             commit_hash: Optional git commit hash for version tracking
+            project_root: Optional project/workspace folder name, detected
+                client-side (the backend has no filesystem visibility into the
+                caller's workspace)
+            authoring_framework: Optional detected authoring framework for the
+                source .md (e.g. "speckit", "kiro", "claude-code", "manual")
+            model_used: Optional human-readable label for the AI model/provider
+                that produced the enriched JSON
 
         Returns:
             Complete HTML string ready for PDF rendering
@@ -439,6 +450,9 @@ class HTMLGeneratorService:
             "source": source_path,
             "commit": commit_hash or "N/A",
             "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "project": project_root,
+            "framework": authoring_framework,
+            "model": model_used,
         }
 
         # Executive summary takes precedence over the raw abstract on the
@@ -488,19 +502,25 @@ class HTMLGeneratorService:
         Args:
             title: Document title
             summary: Executive summary or abstract to display
-            metadata: Dict with optional "type", "source", "commit", "generated" keys
+            metadata: Dict with optional "project", "framework", "model", "type",
+                "source", "commit", "generated" keys - any falsy/absent value is
+                simply omitted from the rendered metadata block (keeps this
+                backward compatible with callers that don't pass the newer keys)
 
         Returns:
             HTML string for the cover page section
         """
         labels = {
+            "project": "Project",
+            "framework": "Authored With",
+            "model": "Enriched By",
             "type": "Type",
             "source": "Source",
             "commit": "Commit",
             "generated": "Generated",
         }
         meta_items = []
-        for key in ("type", "source", "commit", "generated"):
+        for key in ("project", "framework", "model", "type", "source", "commit", "generated"):
             value = metadata.get(key)
             if value:
                 meta_items.append(
@@ -509,7 +529,7 @@ class HTMLGeneratorService:
 
         return f"""<div class="cover-page">
     <div class="cover-title">{self._escape_html(title)}</div>
-    <div class="cover-abstract">{self._escape_html(summary)}</div>
+    <div class="cover-abstract">{self._render_inline_markdown(summary)}</div>
     <div class="cover-metadata">
         {''.join(meta_items)}
     </div>
@@ -637,7 +657,7 @@ class HTMLGeneratorService:
                 per_section_summary = per_section_summaries.get(heading)
                 if per_section_summary:
                     summary_html = (
-                        f'<div class="section-summary">{self._escape_html(per_section_summary)}</div>'
+                        f'<div class="section-summary">{self._render_inline_markdown(per_section_summary)}</div>'
                     )
 
             inner = f'<{tag} id="{anchor}">{self._escape_html(heading)}</{tag}>{summary_html}{body_html}'
@@ -666,12 +686,11 @@ class HTMLGeneratorService:
 
         paragraphs = [p for p in re.split(r"\n\s*\n", content.strip()) if p.strip()]
         if not paragraphs:
-            return f"<p>{self._escape_html(content)}</p>" if content.strip() else ""
+            return self._render_markdown(content)
 
         rendered_paragraphs = []
         for p_idx, paragraph in enumerate(paragraphs, start=1):
-            escaped = self._escape_html(paragraph).replace("\n", "<br>")
-            rendered_paragraphs.append(f"<p>{escaped}</p>")
+            rendered_paragraphs.append(self._render_markdown(paragraph))
             for diagram_idx, diagram in enumerate(diagrams):
                 location = diagram.get("location", "")
                 if location == f"inline-section-{section_number}-paragraph-{p_idx}":
@@ -746,7 +765,7 @@ class HTMLGeneratorService:
             items.append(
                 f'<div class="glossary-term" id="{anchor}">'
                 f'<div class="glossary-term-title">{self._escape_html(term)}</div>'
-                f'<div class="glossary-term-definition">{self._escape_html(definition)}</div>'
+                f'<div class="glossary-term-definition">{self._render_inline_markdown(definition)}</div>'
                 f"</div>"
             )
 
@@ -794,3 +813,60 @@ class HTMLGeneratorService:
     def _escape_html(self, text: Any) -> str:
         """HTML-escape arbitrary text for safe embedding."""
         return html_stdlib.escape(str(text), quote=True)
+
+    def _render_markdown(self, text: str) -> str:
+        """
+        Convert AI-generated markdown-flavored text to HTML (headings,
+        bold/italic, inline/fenced code, lists).
+
+        The enrichment prompt documents section `content` as markdown, but
+        this was previously only HTML-escaped and dumped as plain text, so
+        any formatting the AI included (**bold**, `code`, even nested ##
+        sub-headings) leaked through as literal characters in the rendered
+        PDF instead of being interpreted - this is the actual fix.
+
+        HTML-escapes the input BEFORE running the markdown parser, rather
+        than trusting python-markdown's own raw-HTML passthrough: markdown
+        syntax (**, `, #, -) doesn't involve angle brackets, so it's still
+        recognized and converted normally, but any literal HTML the AI's
+        output happens to contain - or that a prompt-injection attempt in
+        the source document tries to smuggle through - renders as inert
+        visible text (e.g. "&lt;script&gt;") instead of being interpreted
+        as markup.
+
+        Args:
+            text: Raw markdown-flavored text
+
+        Returns:
+            HTML string (may contain block-level tags: <p>, <h1-6>, <ul>, <pre>)
+        """
+        if not text or not text.strip():
+            return ""
+        escaped = self._escape_html(text)
+        return markdown_lib.markdown(escaped, extensions=["fenced_code", "tables", "nl2br"])
+
+    def _render_inline_markdown(self, text: str) -> str:
+        """
+        Convert inline-only markdown (bold, inline code) to HTML, without
+        the block-level <p>/<h1-6>/<ul> wrapping _render_markdown adds.
+
+        Used for text that's placed directly inside an existing styled
+        container (cover abstract, section summaries, glossary
+        definitions) that was never a <p> itself - wrapping it in
+        _render_markdown's own <p> there would add that tag's default
+        margin as unwanted extra spacing. Same HTML-escape-first safety
+        rationale as _render_markdown.
+
+        Args:
+            text: Raw markdown-flavored text (expected to be a single
+                short passage, not multi-paragraph content)
+
+        Returns:
+            HTML string with no block-level wrapping
+        """
+        if not text:
+            return ""
+        escaped = self._escape_html(text)
+        escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+        escaped = re.sub(r"`(.+?)`", r"<code>\1</code>", escaped)
+        return escaped

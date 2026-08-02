@@ -9,8 +9,8 @@
 ## Summary
 
 [Extract from feature spec: primary requirement + technical approach from research]
-
-## Technical Context
+  
+## Technical Context  
 
 <!--
   ACTION REQUIRED: Replace the content in this section with the technical details
@@ -40,10 +40,7 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- The plan MUST stay within the Spec Kit-side extension, backend/API, pipeline, and Docker/Postgres scope for this feature.
-- The plan MUST preserve the zero-config agent-native path; no separate AI provider configuration is allowed for the primary flow.
-- The plan MUST NOT introduce frontend work, ticket-board/Kanban functionality, or other non-goal scope.
-- Any proposed work outside these bounds requires a constitution amendment before implementation begins.
+- All plans MUST include a "Constitution Check" that references `.specify/memory/constitution.md` and states which principles apply and how the plan complies. Any deviation from the constitution requires a documented amendment before implementation.
 
 ## Project Structure
 

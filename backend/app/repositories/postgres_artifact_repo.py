@@ -84,16 +84,113 @@ class PostgresArtifactRepository:
                     )
                     """
                 )
+                # Server-side exclusion list: a source_path (exact file) or
+                # folder prefix (e.g. ".specify/templates") that should
+                # never be processed into a PDF. Enforced here rather than
+                # client-side in the VS Code extension's file watcher,
+                # since that requires a repackage+reinstall+reload for
+                # every change and proved unreliable in practice; a backend
+                # check applies immediately to every caller with no
+                # extension changes needed.
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS excluded_paths (
+                        id SERIAL PRIMARY KEY,
+                        project_id TEXT NOT NULL REFERENCES projects(id),
+                        source_path TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(project_id, source_path)
+                    )
+                    """
+                )
+                # Sequences for atomic id generation - see create_project's
+                # docstring for why "SELECT COUNT(*) + 1" isn't safe under
+                # concurrent writers.
+                cursor.execute("CREATE SEQUENCE IF NOT EXISTS project_id_seq")
+                cursor.execute("CREATE SEQUENCE IF NOT EXISTS artifact_id_seq")
                 conn.commit()
 
+                # Seed each sequence from the current max numeric suffix in
+                # the corresponding table, so a database that already has
+                # rows doesn't start generating ids that collide with them.
+                # Gated on is_called (a sequence's own permanent "has
+                # nextval() ever been called on this sequence" flag) so this
+                # only ever runs once, before the sequence's first real use -
+                # _init_db() runs on every repository construction (i.e.
+                # every request, per get_repository()'s lazy pattern), and
+                # re-running setval() against currently-committed rows on
+                # every request would be actively unsafe once the sequence
+                # is live: a concurrent request could have already reserved
+                # a value via nextval() without committing yet, and a reseed
+                # based on the not-yet-updated committed data would roll the
+                # sequence backward and hand that same value out again -
+                # reintroducing the exact race this migration exists to fix.
+                cursor.execute(
+                    r"""
+                    DO $$
+                    BEGIN
+                        IF NOT (SELECT is_called FROM project_id_seq) THEN
+                            PERFORM setval('project_id_seq',
+                                (SELECT COALESCE(MAX(substring(id from '\d+$')::int), 0) FROM projects));
+                        END IF;
+                        IF NOT (SELECT is_called FROM artifact_id_seq) THEN
+                            PERFORM setval('artifact_id_seq',
+                                (SELECT COALESCE(MAX(substring(id from '\d+$')::int), 0) FROM artifacts));
+                        END IF;
+                    END $$;
+                    """
+                )
+                conn.commit()
+
+                # Enforce one project per name so two concurrent
+                # create_project() calls for the same name can't both
+                # succeed. Best-effort: an existing database that already
+                # has duplicate names can't have this created retroactively
+                # without a manual dedupe first - don't crash startup for
+                # that, leave that database unprotected until cleaned up.
+                self._has_unique_project_name = True
+                try:
+                    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_name ON projects(name)")
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    self._has_unique_project_name = False
+
     def create_project(self, name: str, repo_url: Optional[str] = None) -> Dict[str, Any]:
-        """Create a new project."""
+        """
+        Get-or-create by name, race-safe: project_id_seq's nextval() is
+        atomic in Postgres regardless of transaction boundaries, so two
+        concurrent calls never get the same id. ON CONFLICT (name) DO
+        NOTHING then means at most one of two concurrent calls for the same
+        name actually inserts; the other gets no RETURNING row back and
+        falls through to SELECT-ing the row the first call just committed,
+        rather than either erroring or creating a duplicate.
+        """
         with self._connect() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("SELECT COUNT(*) FROM projects")
-                count = cursor.fetchone()["count"]
-                project_id = f"proj-{count + 1}"
-                
+                cursor.execute("SELECT nextval('project_id_seq')")
+                project_id = f"proj-{cursor.fetchone()['nextval']}"
+
+                if getattr(self, "_has_unique_project_name", True):
+                    cursor.execute(
+                        """
+                        INSERT INTO projects (id, name, repo_url) VALUES (%s, %s, %s)
+                        ON CONFLICT (name) DO NOTHING
+                        RETURNING id, name, repo_url
+                        """,
+                        (project_id, name, repo_url),
+                    )
+                    result = cursor.fetchone()
+                    conn.commit()
+                    if result:
+                        return dict(result)
+                    # Another concurrent call already created this name -
+                    # return that row instead.
+                    cursor.execute("SELECT id, name, repo_url FROM projects WHERE name = %s", (name,))
+                    return dict(cursor.fetchone())
+
+                # No unique constraint available on this (legacy/dirty)
+                # database - fall back to the old unprotected insert.
                 cursor.execute(
                     "INSERT INTO projects (id, name, repo_url) VALUES (%s, %s, %s) RETURNING id, name, repo_url",
                     (project_id, name, repo_url),
@@ -101,6 +198,16 @@ class PostgresArtifactRepository:
                 result = cursor.fetchone()
                 conn.commit()
                 return dict(result)
+
+    def next_artifact_id(self) -> str:
+        """Atomically reserve and return the next global artifact id
+        ("artifact-{n}"). See count_all_artifacts's docstring for why this
+        must be global, not per-project; see create_project's docstring for
+        why nextval() is the race-safe way to generate it."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT nextval('artifact_id_seq')")
+                return f"artifact-{cursor.fetchone()['nextval']}"
 
     def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Get a project by ID."""
@@ -270,6 +377,44 @@ class PostgresArtifactRepository:
                     }
                     for row in results
                 ]
+
+    def list_exceptions(self, project_id: str) -> List[Dict[str, Any]]:
+        """List all excluded paths for a project."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id, project_id, source_path, created_at FROM excluded_paths WHERE project_id = %s ORDER BY source_path",
+                    (project_id,),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def add_exception(self, project_id: str, source_path: str, created_at: str) -> Dict[str, Any]:
+        """Get-or-create by (project_id, source_path)."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO excluded_paths (project_id, source_path, created_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (project_id, source_path) DO NOTHING
+                    """,
+                    (project_id, source_path, created_at),
+                )
+                conn.commit()
+                cursor.execute(
+                    "SELECT id, project_id, source_path, created_at FROM excluded_paths WHERE project_id = %s AND source_path = %s",
+                    (project_id, source_path),
+                )
+                return dict(cursor.fetchone())
+
+    def remove_exception(self, project_id: str, exception_id: int) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM excluded_paths WHERE id = %s AND project_id = %s",
+                    (exception_id, project_id),
+                )
+                conn.commit()
 
     def _row_to_artifact(self, row: Any) -> Dict[str, Any]:
         """Convert a database row to an artifact dictionary."""

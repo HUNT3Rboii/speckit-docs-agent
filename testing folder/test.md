@@ -33,12 +33,12 @@ As a support agent, I want to manually cancel a backordered order so that I can 
 ## Tasks
 
 - [x] Implement OrderCreated event schema and publisher
-- [x] Wire Payment Service to external Payment Provider sandbox
-- [ ] Implement backorder retry scheduler
+- [x] Wire Payment Service to external Payment Provider sandbox  
+- [ ] Implement backorder retry scheduler 
 - [ ] Add idempotency key deduplication to the Event Bus consumer 
-- [ ] Load test API Gateway at 10x current peak traffic 
-
-## Design Decision: Event Bus Choice  
+- [ ] Load test API Gateway at 10x current peak traffic   
  
-We evaluated using direct synchronous HTTP calls between services versus an asynchronous Event Bus. We chose the Event Bus approach because it allows the Payment Service and Inventory Service to scale independently and to retry failed operations without blocking the customer-facing checkout request. The tradeoff is increased operational complexity: we now need dead-letter queues, event replay tooling, and careful schema versioning for every event type to avoid breaking downstream consumers during deploys.   
+## Design Decision: Event Bus Choice  
+  
+We evaluated using direct synchronous HTTP calls between services versus an asynchronous Event Bus. We chose the Event Bus approach because it allows the Payment Service and Inventory Service to scale independently and to retry failed operations without blocking the customer-facing checkout request. The tradeoff is increased operational complexity: we now need dead-letter queues, event replay tooling, and careful schema versioning for every event type to avoid breaking downstream consumers during deploys.    
  

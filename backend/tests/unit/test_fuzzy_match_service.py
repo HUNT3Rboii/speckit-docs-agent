@@ -607,3 +607,106 @@ class TestGappedMatch:
 
         assert self.service.gapped_match(evidence, self.real_source, threshold=score + 0.01) is False
         assert self.service.gapped_match(evidence, self.real_source, threshold=score - 0.01) is True
+
+
+class TestSentenceScopedMatch:
+    """
+    Tests for sentence_scoped_containment()/sentence_scoped_match() - added
+    after gapped_match (threshold=0.55) still rejected a real, live-testing
+    case: the AI citing only the "backordered" branch of a compound
+    "moves to fulfilled ... or to backordered ..." sentence, dropping the
+    other branch from the middle (a larger deletion than gapped_match's
+    original motivating case). Lowering gapped_match's threshold to admit
+    this case was tested and rejected: adversarial constructions combining
+    two real-but-unrelated phrases scored HIGHER than the genuine
+    compression on gapped_match's whole-document combined score. Scoping to
+    one sentence at a time and gating on coverage (not a combined score)
+    closes that gap - see sentence_scoped_match's docstring for the full
+    reasoning.
+    """
+
+    def setup_method(self):
+        self.service = FuzzyMatchService(default_threshold=0.85)
+        self.lifecycle_source = (
+            "An order starts in the `pending` state immediately after creation. It transitions to "
+            "`confirmed` once payment succeeds, or to `payment_failed` if the Payment Provider "
+            "declines the charge. From `confirmed`, the order moves to `fulfilled` once the "
+            "Inventory Service reserves stock and ships the item, or to `backordered` if stock is "
+            "unavailable. A `backordered` order automatically retries inventory reservation every "
+            "hour and moves to `fulfilled` once stock arrives, or can be manually moved to "
+            "`cancelled` by support staff."
+        )
+
+    def test_regression_backordered_branch_selection_from_live_report(self):
+        """The exact evidence text captured from the backend's own
+        ungrounded-evidence log during live testing."""
+        evidence = "From `confirmed`, the order moves to `backordered` if stock is unavailable."
+
+        # Confirms this is the case gapped_match (default threshold) misses.
+        assert self.service.gapped_match(evidence, self.lifecycle_source) is False
+        assert self.service.sentence_scoped_match(evidence, self.lifecycle_source) is True
+
+    def test_regression_event_bus_still_passes_via_sentence_scoping(self):
+        """The original gapped_match motivating case must still pass
+        through this newer, stricter check too."""
+        source = (
+            "The Storefront sends order requests to the API Gateway, which authenticates "
+            "the request and forwards it to the Order Service. The Order Service validates "
+            "the request and publishes an OrderCreated event to the Event Bus."
+        )
+        evidence = "The Order Service publishes an OrderCreated event to the Event Bus."
+
+        assert self.service.sentence_scoped_match(evidence, source) is True
+
+    def test_adversarial_cross_sentence_fabrication_rejected(self):
+        """Combines two real-but-unrelated phrases from different
+        sentences into a false claim. This is the exact construction that
+        scored HIGHER than the genuine compression on gapped_match's
+        whole-document combined score - must be rejected here."""
+        evidence = "the order moves to backordered once payment succeeds"
+
+        assert self.service.sentence_scoped_match(evidence, self.lifecycle_source) is False
+
+    def test_adversarial_fabrications_reused_vocabulary_rejected(self):
+        adversarial = [
+            "confirmed the order moves to cancelled by support staff",
+            "the order moves to fulfilled if the payment provider declines the charge",
+            "payment succeeds and the order moves to backordered immediately after creation",
+        ]
+        for evidence in adversarial:
+            assert self.service.sentence_scoped_match(evidence, self.lifecycle_source) is False, evidence
+
+    def test_fabricated_evidence_with_invented_content_rejected(self):
+        evidence = "The order moves to backordered because the warehouse caught fire"
+
+        assert self.service.sentence_scoped_match(evidence, self.lifecycle_source) is False
+
+    def test_sentence_scoped_containment_range(self):
+        coverage, density = self.service.sentence_scoped_containment("hello", "World. Hello there.")
+        assert 0.0 <= coverage <= 1.0
+        assert 0.0 <= density <= 1.0
+
+    def test_empty_needle_or_haystack_scores_zero(self):
+        assert self.service.sentence_scoped_containment("", "Some text.") == (0.0, 0.0)
+        assert self.service.sentence_scoped_containment("Some text.", "") == (0.0, 0.0)
+
+    def test_exact_sentence_match_scores_full_coverage_and_density(self):
+        coverage, density = self.service.sentence_scoped_containment(
+            "the exact same sentence.", "Some prefix sentence. The exact same sentence. Some suffix."
+        )
+        assert coverage == 1.0
+        assert density == 1.0
+
+    def test_custom_thresholds_are_respected(self):
+        evidence = "From `confirmed`, the order moves to `backordered` if stock is unavailable."
+        coverage, density = self.service.sentence_scoped_containment(evidence, self.lifecycle_source)
+
+        assert self.service.sentence_scoped_match(
+            evidence, self.lifecycle_source, coverage_threshold=coverage + 0.01
+        ) is False
+        assert self.service.sentence_scoped_match(
+            evidence, self.lifecycle_source, density_threshold=density + 0.01
+        ) is False
+        assert self.service.sentence_scoped_match(
+            evidence, self.lifecycle_source, coverage_threshold=coverage, density_threshold=density
+        ) is True

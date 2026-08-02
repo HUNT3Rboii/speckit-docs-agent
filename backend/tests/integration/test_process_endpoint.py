@@ -11,6 +11,7 @@ being installed or on reaching the real Kroki API over the network.
 import importlib
 from pathlib import Path
 
+import PyPDF2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -103,6 +104,34 @@ class TestHappyPath:
         assert body["partial"] is False
         assert Path(body["pdf_location"]).exists()
 
+    def test_provenance_fields_flow_through_to_pdf_and_metadata(self, client):
+        """project_root/authoring_framework/model_used are detected
+        client-side (extension) and sent up as plain optional request
+        fields - confirm they reach both the rendered PDF's cover page and
+        the persisted artifact metadata."""
+        response = _process(
+            client,
+            project_root="speckit-docs-agent",
+            authoring_framework="speckit",
+            model_used="GitHub Copilot Chat — Claude Sonnet 5",
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["artifact"]["metadata"]["project_root"] == "speckit-docs-agent"
+        assert body["artifact"]["metadata"]["authoring_framework"] == "speckit"
+        assert body["artifact"]["metadata"]["model_used"] == "GitHub Copilot Chat — Claude Sonnet 5"
+
+        with open(body["pdf_location"], "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            cover_text = reader.pages[0].extract_text()
+        assert "speckit-docs-agent" in cover_text
+
+    def test_provenance_fields_are_optional(self, client):
+        """Existing/older callers that don't send these fields must not break."""
+        response = _process(client)
+        assert response.status_code == 200
+        assert response.json()["artifact"]["metadata"]["project_root"] is None
+
     def test_requires_api_key(self, client):
         response = client.post(
             "/api/process",
@@ -159,6 +188,15 @@ class TestRetryProtocol:
         body = second.json()
         assert body["status"] == "ok"
         assert body["partial"] is False
+        # Regression: source_markdown (and therefore content_hash) is
+        # identical between attempt 1 and attempt 2 - only enriched_json
+        # differs. The "retry_needed" write on attempt 1 persists that
+        # content_hash, which the old buggy _check_skip() would then match
+        # against on attempt 2 (since an unrelated older version can already
+        # exist), incorrectly short-circuiting as "already rendered,
+        # nothing to do" - returning status="ok" but skipped=True without
+        # ever actually validating or re-rendering this corrected attempt.
+        assert body["skipped"] is False
 
 
 class TestContentHashSkip:
@@ -170,6 +208,49 @@ class TestContentHashSkip:
         body = second.json()
         assert body["skipped"] is True
         assert body["artifact_id"] == first.json()["artifact_id"]
+
+    def test_retry_loop_on_an_edited_document_does_not_falsely_skip_against_an_older_version(self, client):
+        """Reproduces the real production bug: an artifact that already has
+        an older successful version gets edited and resubmitted. Attempt 1
+        (new content, bad evidence) fails validation - its "retry_needed"
+        write persists the *new* content_hash. Attempt 2 resubmits the same
+        (unedited-since-attempt-1) markdown with corrected evidence.
+        source_markdown, and therefore content_hash, is identical between
+        attempt 1 and attempt 2 - only enriched_json differs between retry
+        attempts. The old buggy _check_skip() matched attempt 2's
+        content_hash against attempt 1's leftover write and, since an
+        older *unrelated* version already existed from before the edit,
+        incorrectly declared "nothing to do" - silently returning the OLD
+        pre-edit PDF instead of validating and rendering the edited one, and
+        never updating the dashboard's status away from mid-retry."""
+        # Edited but keeps the same headings (only body text differs) so
+        # this test isolates the content_hash/skip bug rather than also
+        # exercising heading-preservation validation.
+        EDITED_MARKDOWN = SOURCE_MARKDOWN + "\nAdditional detail about the database schema.\n"
+
+        first = _process(client)
+        assert first.json()["skipped"] is False
+        artifact_id = first.json()["artifact_id"]
+
+        retry1 = _process(
+            client,
+            source_markdown=EDITED_MARKDOWN,
+            enriched_json=make_enriched_json(evidence="this text does not appear anywhere in the source"),
+            retry_count=0,
+        )
+        assert retry1.json()["status"] == "retry_needed"
+
+        retry2 = _process(
+            client,
+            source_markdown=EDITED_MARKDOWN,
+            enriched_json=make_enriched_json(),
+            retry_count=1,
+        )
+        body = retry2.json()
+        assert body["status"] == "ok"
+        assert body["skipped"] is False
+        assert body["artifact_id"] == artifact_id
+        assert body["version"]["version_no"] == 2
 
 
 class TestCrossProjectArtifactIds:

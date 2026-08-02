@@ -61,7 +61,8 @@ export class ConfigurationManager {
         '**/.ai-responses/**',
         '**/dist/**',
         '**/out/**',
-        '**/*.json'
+        '**/*.json',
+        '**/.specify/templates/**'
       ]
     );
     const apiKey = config.get<string>('apiKey') ?? '';

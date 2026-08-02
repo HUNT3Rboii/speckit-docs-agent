@@ -10,7 +10,7 @@
 
 ## User Scenarios & Testing *(mandatory)*
 
-> Constitutional constraints for this feature: the implementation MUST remain within the Spec Kit-side extension/backend/pipeline scope, preserve the zero-config agent-native path, and avoid the listed non-goals such as frontend work and unrelated product features.
+> Constitutional constraints for this feature: all work MUST comply with the project constitution found at `.specify/memory/constitution.md`. The spec MUST list which constitution principles apply to each user story.
 
 <!--
   IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.

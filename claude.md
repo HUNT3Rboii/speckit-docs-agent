@@ -350,7 +350,8 @@ VITE_API_KEY=your-api-key
 - **Component Specs**: See `design.md` "Components and Interfaces" for detailed prop/interface specs
 - **Requirements**: Review `requirements.md` for acceptance criteria and user stories
 - **Full Task List**: See `tasks.md` for complete implementation roadmap with dependency graph
-
+ 
 ---
 
 **Good luck with your migration to Claude Code! You've got a well-structured spec and a clear roadmap. Start with task 10.1 and work through the dependency graph sequentially.**
+    

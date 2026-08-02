@@ -7,11 +7,13 @@
  */
 
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PDFViewer } from './PDFViewer';
 import * as useArtifactStatusModule from '../hooks/useArtifactStatus';
 import * as useVersionsModule from '../hooks/useVersions';
+import * as useExceptionsModule from '../hooks/useExceptions';
 import type { Artifact, ArtifactStatusResponse } from '../types/api';
 
 function makeArtifact(overrides?: Partial<Artifact>): Artifact {
@@ -48,6 +50,7 @@ function renderAtArtifact(artifactId = 'artifact-1') {
     <MemoryRouter initialEntries={[`/projects/proj-1/artifacts/${artifactId}`]}>
       <Routes>
         <Route path="/projects/:projectId/artifacts/:artifactId" element={<PDFViewer />} />
+        <Route path="/projects/:projectId" element={<div>Artifact list placeholder</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -59,6 +62,11 @@ describe('PDFViewer live processing states', () => {
       data: [],
       isLoading: false,
       error: null,
+    } as any);
+    vi.spyOn(useExceptionsModule, 'useAddException').mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
     } as any);
   });
 
@@ -135,5 +143,55 @@ describe('PDFViewer live processing states', () => {
     renderAtArtifact();
 
     expect(screen.getByText('Select a version to view PDF')).toBeInTheDocument();
+  });
+});
+
+describe('PDFViewer exclude-from-processing button', () => {
+  beforeEach(() => {
+    vi.spyOn(useVersionsModule, 'useVersions').mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    } as any);
+  });
+
+  it('adds the artifact source_path as an exception, then navigates back to the artifact list', async () => {
+    // Excluding deletes the artifact server-side (see backend's
+    // add_exception route), so staying on this page would start erroring
+    // once the status poll refetches a now-gone artifact.
+    const user = userEvent.setup();
+    const mutate = vi.fn((_path: string, options?: { onSuccess?: () => void }) => {
+      options?.onSuccess?.();
+    });
+    vi.spyOn(useExceptionsModule, 'useAddException').mockReturnValue({
+      mutate,
+      isPending: false,
+      isError: false,
+    } as any);
+    mockStatus(makeArtifact({ status: 'rendered', source_path: 'docs/onepager.md', project_id: 'proj-1' }));
+
+    renderAtArtifact();
+
+    await user.click(screen.getByRole('button', { name: /Exclude from Processing/ }));
+
+    expect(mutate).toHaveBeenCalledWith('docs/onepager.md', expect.anything());
+    expect(await screen.findByText('Artifact list placeholder')).toBeInTheDocument();
+  });
+
+  it('is disabled while the artifact status has not loaded yet', () => {
+    vi.spyOn(useArtifactStatusModule, 'useArtifactStatus').mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+    } as any);
+    vi.spyOn(useExceptionsModule, 'useAddException').mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+    } as any);
+
+    renderAtArtifact();
+
+    expect(screen.getByRole('button', { name: /Exclude from Processing/ })).toBeDisabled();
   });
 });

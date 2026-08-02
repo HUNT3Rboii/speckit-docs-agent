@@ -95,7 +95,8 @@
             "**/.ai-requests/**",
             "**/.ai-responses/**",
             "**/dist/**",
-            "**/out/**"
+            "**/out/**",
+            "**/.specify/templates/**"
           ],
           "description": "Glob patterns for files to exclude from processing",
           "order": 4

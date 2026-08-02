@@ -12,6 +12,8 @@ import type {
   ArtifactStatusResponse,
   Version,
   VersionsResponse,
+  ProcessingException,
+  ExceptionsResponse,
   ErrorResponse,
 } from '../types/api';
 
@@ -190,6 +192,43 @@ export class APIClient {
       `/api/status/${artifactId}`
     );
     return response.data;
+  }
+
+  /**
+   * Fetches the processing-exceptions list (excluded paths) for a project
+   * @param projectId - ID of the project
+   * @throws APIError on failure
+   */
+  async getExceptions(projectId: string): Promise<ProcessingException[]> {
+    const response = await this.axiosInstance.get<ExceptionsResponse>(
+      `/api/projects/${projectId}/exceptions`
+    );
+    return response.data.exceptions;
+  }
+
+  /**
+   * Adds a path (exact file or folder prefix) to a project's processing-
+   * exceptions list, excluding it from future processing.
+   * @param projectId - ID of the project
+   * @param sourcePath - exact file path or folder prefix to exclude
+   * @throws APIError on failure
+   */
+  async addException(projectId: string, sourcePath: string): Promise<ProcessingException> {
+    const response = await this.axiosInstance.post<{ exception: ProcessingException }>(
+      `/api/projects/${projectId}/exceptions`,
+      { source_path: sourcePath }
+    );
+    return response.data.exception;
+  }
+
+  /**
+   * Removes a path from a project's processing-exceptions list.
+   * @param projectId - ID of the project
+   * @param exceptionId - ID of the exception entry to remove
+   * @throws APIError on failure
+   */
+  async removeException(projectId: string, exceptionId: number): Promise<void> {
+    await this.axiosInstance.delete(`/api/projects/${projectId}/exceptions/${exceptionId}`);
   }
 
   /**

@@ -162,12 +162,20 @@ class GlossaryTermValidator:
         if self.fuzzy_matcher.partial_match(evidence_normalized, source_normalized, threshold=0.85):
             return True
 
-        # Last resort: a genuine excerpt that had a clause dropped from
+        # Third try: a genuine excerpt that had a clause dropped from
         # partway through it (see FuzzyMatchService.gapped_match's
         # docstring) - partial_ratio requires one contiguous alignment
         # window, so this case still fails it even though it's not a
         # fabrication.
-        return self.fuzzy_matcher.gapped_match(evidence_normalized, source_normalized)
+        if self.fuzzy_matcher.gapped_match(evidence_normalized, source_normalized):
+            return True
+
+        # Last resort: the same problem for a LARGER deletion - citing only
+        # one branch of a compound "X, or Y" sentence. See
+        # sentence_scoped_match's docstring for why this needs its own,
+        # stricter check rather than just loosening gapped_match's
+        # threshold. Uses the ORIGINAL text so sentence boundaries survive.
+        return self.fuzzy_matcher.sentence_scoped_match(evidence, source_markdown)
 
     def _normalize_for_matching(self, text: str) -> str:
         """Lowercase, collapse punctuation to spaces, and collapse whitespace,

@@ -73,6 +73,45 @@ export class BackendClient implements IBackendClient {
   }
 
   /**
+   * Report a client-side pipeline step (reading the file, calling the AI
+   * provider, etc.) so the dashboard can show it before enough is known to
+   * call process(). Best-effort telemetry, not part of the critical path:
+   * swallows all errors rather than throwing, so a flaky/offline backend
+   * never blocks or delays the actual transform-and-submit pipeline.
+   *
+   * Also doubles as the exclusion check: /api/processing-status responds
+   * {status: "excluded"} for a path on the project's exceptions list
+   * (see ExceptionsPanel) *before* any artifact is touched. The caller
+   * uses this to skip the AI call entirely for an excluded file rather
+   * than burning a real request and showing "processing" activity for
+   * work the backend was always going to reject anyway - a failed ping
+   * (network error, backend down) reports excluded: false rather than
+   * throwing, since the ping is best-effort and the authoritative
+   * exclusion check still happens server-side in process() regardless.
+   */
+  public async reportStep(
+    projectId: string,
+    sourcePath: string,
+    step: string,
+    attempt?: number,
+    maxAttempts?: number
+  ): Promise<{ excluded: boolean }> {
+    try {
+      const response = await this.makeRequest('/api/processing-status', {
+        project_id: projectId,
+        source_path: sourcePath,
+        step,
+        attempt,
+        max_attempts: maxAttempts
+      });
+      return { excluded: response?.status === 'excluded' };
+    } catch (error) {
+      console.log('[BackendClient] reportStep failed (non-fatal):', error);
+      return { excluded: false };
+    }
+  }
+
+  /**
    * Check backend health/availability
    */
   public async checkHealth(): Promise<boolean> {

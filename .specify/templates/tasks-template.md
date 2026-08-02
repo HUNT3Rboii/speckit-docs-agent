@@ -12,8 +12,8 @@ description: "Task list template for feature implementation"
 **Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
-
-**Constitutional constraints**: Tasks MUST stay within the Spec Kit-side extension/backend/pipeline/Docker/Postgres scope, preserve the zero-config agent-native path, and avoid frontend, Kanban, or other non-goal work.
+ 
+**Constitutional constraints**: Tasks MUST comply with the project constitution at `.specify/memory/constitution.md`. Each task group MUST cite which constitution principles the tasks address.
 
 ## Format: `[ID] [P?] [Story] Description`
 

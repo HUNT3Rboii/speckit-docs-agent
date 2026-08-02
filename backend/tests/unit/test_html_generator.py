@@ -93,6 +93,79 @@ class TestGenerateHtml:
         assert "Task Progress" not in html
 
 
+class TestMarkdownRendering:
+    """
+    Regression coverage for a real live-testing report: running the
+    pipeline on a formatting-heavy document (CLAUDE.md, with lots of ##
+    sub-headings and **bold** labels) produced a PDF with literal "##" and
+    "**" characters visible in the body text. Root cause: _render_section_body
+    only ever HTML-escaped `content` and dumped it as plain text inside a
+    <p> tag - it never actually interpreted the markdown syntax the AI was
+    told (via the enrichment prompt's schema comment) that `content` would
+    contain.
+    """
+
+    def test_bold_syntax_is_rendered_not_left_literal(self, generator, sample_enriched_json):
+        sample_enriched_json["sections"][0]["content"] = "This is **important** text."
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<strong>important</strong>" in html
+        assert "**important**" not in html
+
+    def test_nested_heading_syntax_is_rendered_not_left_literal(self, generator, sample_enriched_json):
+        sample_enriched_json["sections"][0]["content"] = "## Technology Stack\n\nSome details here."
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<h2>Technology Stack</h2>" in html
+        assert "## Technology Stack" not in html
+
+    def test_inline_code_syntax_is_rendered_not_left_literal(self, generator, sample_enriched_json):
+        sample_enriched_json["sections"][0]["content"] = "Set the `DEBUG` flag to true."
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<code>DEBUG</code>" in html
+        assert "`DEBUG`" not in html
+
+    def test_bullet_list_syntax_is_rendered_as_list(self, generator, sample_enriched_json):
+        sample_enriched_json["sections"][0]["content"] = "- **Frontend**: React\n- **Backend**: FastAPI"
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<ul>" in html
+        assert "<li>" in html
+        assert "<strong>Frontend</strong>" in html
+
+    def test_fenced_code_block_is_rendered_as_pre_code(self, generator, sample_enriched_json):
+        sample_enriched_json["sections"][0]["content"] = "Run this:\n\n```bash\nnpm install\n```"
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<pre>" in html
+        assert "npm install" in html
+
+    def test_embedded_script_tag_in_content_stays_inert(self, generator, sample_enriched_json):
+        """A prompt-injection attempt (or the AI accidentally including raw
+        HTML) must render as visible inert text, not be interpreted as
+        markup - see _render_markdown's docstring for why HTML-escaping
+        happens BEFORE markdown parsing rather than trusting python-markdown's
+        own raw-HTML handling."""
+        sample_enriched_json["sections"][0]["content"] = "Normal text <script>alert(1)</script> more text."
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<script>alert(1)</script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_executive_summary_bold_is_rendered(self, generator, sample_enriched_json):
+        sample_enriched_json["summaries"]["executiveSummary"] = "This uses **event sourcing**."
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<strong>event sourcing</strong>" in html
+
+    def test_glossary_definition_inline_code_is_rendered(self, generator, sample_enriched_json):
+        sample_enriched_json["glossary"][0]["definition"] = "A call to `authenticate()`."
+        html = generator.generate_html(sample_enriched_json, {})
+
+        assert "<code>authenticate()</code>" in html
+
+
 class TestGenerateCoverPage:
     def test_includes_title_summary_and_metadata(self, generator):
         html = generator.generate_cover_page(
@@ -102,6 +175,72 @@ class TestGenerateCoverPage:
         assert "My summary" in html
         assert "a.md" in html
         assert "abc" in html
+
+    def test_includes_project_framework_and_model_when_provided(self, generator):
+        html = generator.generate_cover_page(
+            "My Title",
+            "My summary",
+            {
+                "project": "speckit-docs-agent",
+                "framework": "speckit",
+                "model": "GitHub Copilot Chat — Claude Sonnet 5",
+                "type": "spec",
+                "source": "a.md",
+                "commit": "abc",
+                "generated": "now",
+            },
+        )
+        assert "speckit-docs-agent" in html
+        assert "speckit" in html
+        assert "GitHub Copilot Chat — Claude Sonnet 5" in html
+
+    def test_omits_project_framework_and_model_when_absent(self, generator):
+        """Backward compatible: legacy callers that don't pass these keys
+        (or pass None, as agentic_pipeline_service.process() does for the
+        old-style /api/artifacts/ingest-* path) get no empty rows."""
+        html = generator.generate_cover_page(
+            "My Title", "My summary", {"type": "spec", "source": "a.md", "commit": "abc", "generated": "now"}
+        )
+        assert "Project:" not in html
+        assert "Authored With:" not in html
+        assert "Enriched By:" not in html
+
+    def test_none_values_are_omitted_not_rendered_as_none_string(self, generator):
+        html = generator.generate_cover_page(
+            "My Title",
+            "My summary",
+            {
+                "project": None,
+                "framework": None,
+                "model": None,
+                "type": "spec",
+                "source": "a.md",
+                "commit": "abc",
+                "generated": "now",
+            },
+        )
+        assert "None" not in html
+
+
+class TestGenerateHtmlProvenanceFields:
+    def test_project_framework_and_model_flow_through_generate_html(self, generator, sample_enriched_json):
+        html = generator.generate_html(
+            sample_enriched_json,
+            {},
+            project_root="speckit-docs-agent",
+            authoring_framework="claude-code",
+            model_used="Anthropic — Claude Sonnet 5",
+        )
+        assert "speckit-docs-agent" in html
+        assert "claude-code" in html
+        assert "Anthropic — Claude Sonnet 5" in html
+
+    def test_generate_html_still_works_without_provenance_fields(self, generator, sample_enriched_json):
+        """Existing callers (and the legacy pipeline) don't pass these -
+        must not raise and must not print literal "None"."""
+        html = generator.generate_html(sample_enriched_json, {})
+        assert "<!DOCTYPE html>" in html
+        assert "None" not in html
 
 
 class TestGenerateTableOfContents:

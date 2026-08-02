@@ -23,7 +23,22 @@ export class AIProviderFactory {
    * Priority: Copilot → Claude → Kiro → Generic → Rule-based
    */
   public async detectProviders(): Promise<AIProvider> {
-    if (this.isDetected && this.detectedProvider) {
+    // Only trust the cache for a *real* provider. Detection normally runs
+    // once, at extension activation - but a real provider like Copilot
+    // registers its language model asynchronously and can finish doing so
+    // *after* this extension's own activate() already ran, so the very
+    // first detectProviders() call can land on the rule-based fallback
+    // simply because Copilot wasn't ready yet, not because it's actually
+    // unavailable. Without this check, that one bad-timing snapshot would
+    // get cached and used for every file for the rest of the VS Code
+    // session, even once Copilot becomes ready moments later - silently
+    // downgrading every document to the crude rule-based transform with no
+    // indication anything went wrong.
+    if (
+      this.isDetected &&
+      this.detectedProvider &&
+      this.detectedProvider.getProviderName() !== 'Rule-Based (Fallback)'
+    ) {
       console.log(`[AIProviderFactory] Using cached provider: ${this.detectedProvider.getProviderName()}`);
       return this.detectedProvider;
     }
@@ -109,10 +124,16 @@ export class AIProviderFactory {
     result: any;
     provider: string;
   }> {
-    // Ensure providers are detected
-    if (!this.detectedProvider) {
-      await this.detectProviders();
-    }
+    // Always defer to detectProviders() rather than checking
+    // this.detectedProvider directly - detectProviders() already knows how
+    // to decide when its own cache is trustworthy (a real provider) versus
+    // when it should re-check (the rule-based fallback). Checking
+    // `!this.detectedProvider` here instead would short-circuit that logic
+    // entirely: detectedProvider is non-null as soon as *any* provider,
+    // including the fallback, has ever been assigned, so this call would
+    // never re-detect again for the rest of the session - exactly the bug
+    // detectProviders()'s own fix was meant to close.
+    await this.detectProviders();
 
     // Try with detected provider first
     if (this.detectedProvider) {

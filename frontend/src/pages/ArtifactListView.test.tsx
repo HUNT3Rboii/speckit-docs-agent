@@ -5,6 +5,7 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { ArtifactListView } from "./ArtifactListView";
 import type { Artifact } from "../types/api";
 import * as useArtifactsModule from "../hooks/useArtifacts";
+import * as useExceptionsModule from "../hooks/useExceptions";
 
 const createMockArtifact = (overrides?: Partial<Artifact>): Artifact => ({
   id: "artifact-123",
@@ -29,6 +30,21 @@ const TestWrapper = ({ children }: { children: React.ReactNode }) => (
 describe("ArtifactListView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(useExceptionsModule, "useExceptions").mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    } as any);
+    vi.spyOn(useExceptionsModule, "useAddException").mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+    } as any);
+    vi.spyOn(useExceptionsModule, "useRemoveException").mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+    } as any);
   });
 
   it("fetches artifacts for correct project ID", () => {
@@ -285,5 +301,56 @@ describe("ArtifactListView", () => {
 
     // Categories with zero artifacts don't get a tab
     expect(screen.queryByRole("tab", { name: /task/i })).not.toBeInTheDocument();
+  });
+
+  it("always shows an Exceptions tab, even when the project has no artifacts yet", () => {
+    vi.spyOn(useArtifactsModule, "useArtifacts").mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isError: false,
+      isSuccess: true,
+      isPending: false,
+      status: "success",
+    } as any);
+
+    render(
+      <TestWrapper>
+        <ArtifactListView />
+      </TestWrapper>
+    );
+
+    expect(screen.getByRole("tab", { name: "Exceptions" })).toBeInTheDocument();
+  });
+
+  it("shows the exceptions manager when the Exceptions tab is selected", async () => {
+    vi.spyOn(useArtifactsModule, "useArtifacts").mockReturnValue({
+      data: [createMockArtifact({ id: "1" })],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isError: false,
+      isSuccess: true,
+      isPending: false,
+      status: "success",
+    } as any);
+    vi.spyOn(useExceptionsModule, "useExceptions").mockReturnValue({
+      data: [{ id: 1, project_id: "test-project-123", source_path: ".specify/templates", created_at: new Date().toISOString() }],
+      isLoading: false,
+      error: null,
+    } as any);
+
+    render(
+      <TestWrapper>
+        <ArtifactListView />
+      </TestWrapper>
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: "Exceptions" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(".specify/templates")).toBeInTheDocument();
+    });
   });
 });

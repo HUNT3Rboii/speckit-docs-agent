@@ -50,16 +50,29 @@ class HeadingPreservationValidator:
     
     def extract_json_headings(self, enriched_json: dict) -> List[str]:
         """
-        Extract all section headings from enriched JSON.
-        
+        Extract all section headings from enriched JSON, plus the document
+        title.
+
+        The document's own H1 (e.g. "# Order Processing Service") is
+        extracted by extract_markdown_headings() like any other heading,
+        but the enriched JSON schema deliberately keeps it out of
+        `sections` - it lives in `title` instead. Without including title
+        here, that H1 has nothing it *can* fuzzy-match against and fails
+        validation on essentially every document, regardless of how
+        faithfully the AI preserved everything else.
+
         Args:
             enriched_json: Enriched JSON dictionary
-            
+
         Returns:
-            List of section headings in array order
+            List of section headings (plus title, if present) in array order
         """
         sections = enriched_json.get('sections', [])
-        return [section.get('heading', '') for section in sections]
+        headings = [section.get('heading', '') for section in sections]
+        title = enriched_json.get('title')
+        if title:
+            headings.append(title)
+        return headings
     
     def validate_preservation(
         self, 

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { VersionList } from '../components/VersionList';
 import { Button } from '../components/ui/button';
-import { Download, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Download, Loader2, AlertCircle, AlertTriangle, Ban } from 'lucide-react';
 import { config } from '../config/env';
 import { useArtifactStatus } from '../hooks/useArtifactStatus';
+import { useAddException } from '../hooks/useExceptions';
 import { isActivelyProcessing, isProcessing, needsCorrection, stepLabel } from '../utils/processingStatus';
 
 export function PDFViewer() {
@@ -13,11 +14,14 @@ export function PDFViewer() {
     artifactId: string;
     versionId?: string;
   }>();
+  const navigate = useNavigate();
 
   const [currentVersionId, setCurrentVersionId] = useState(versionId || '');
 
   const { data: statusData } = useArtifactStatus(artifactId || '');
   const artifact = statusData?.artifact;
+  const addException = useAddException(artifact?.project_id || '');
+  const [excluded, setExcluded] = useState(false);
   const processing = artifact ? isActivelyProcessing(artifact.status) : false;
   const stalled = artifact ? needsCorrection(artifact.status) : false;
   const failed = artifact?.status === 'failed';
@@ -46,17 +50,45 @@ export function PDFViewer() {
     }
   };
 
+  const handleExclude = () => {
+    if (!artifact) return;
+    addException.mutate(artifact.source_path, {
+      onSuccess: () => {
+        // Excluding removes this artifact server-side (see backend's
+        // add_exception route) - staying on this page would otherwise
+        // start erroring once the status poll refetches a now-deleted
+        // artifact, so leave for the project's artifact list instead.
+        setExcluded(true);
+        navigate(`/projects/${artifact.project_id}`);
+      },
+    });
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6">
         {/* PDF Content Area */}
         <div className="flex-1">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between gap-2">
             <h1 className="text-2xl font-bold">PDF Viewer</h1>
-            <Button onClick={handleDownload} disabled={!pdfUrl}>
-              <Download className="h-4 w-4 mr-2" />
-              Download PDF
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={handleExclude}
+                disabled={!artifact || excluded || addException.isPending}
+                title="Never process this file into a PDF again"
+              >
+                <Ban className="h-4 w-4 mr-2" />
+                {excluded ? 'Excluded' : 'Exclude from Processing'}
+              </Button>
+              <Button onClick={handleDownload} disabled={!pdfUrl}>
+                <Download className="h-4 w-4 mr-2" />
+                Download PDF
+              </Button>
+            </div>
           </div>
+          {addException.isError && (
+            <p className="text-sm text-destructive mb-4">Failed to add exception. Try again.</p>
+          )}
           
           {pdfUrl ? (
             <div className="relative w-full h-[calc(100vh-200px)]">

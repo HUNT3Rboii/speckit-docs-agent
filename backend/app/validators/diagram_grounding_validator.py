@@ -311,7 +311,7 @@ class DiagramGroundingValidator:
         if self.fuzzy_matcher.partial_match(evidence_normalized, source_normalized, threshold=threshold):
             return True
 
-        # Last resort: a genuine excerpt that had a clause dropped from
+        # Third try: a genuine excerpt that had a clause dropped from
         # partway through it (e.g. AI paraphrases "X validates the request
         # and publishes Y" down to "X publishes Y", omitting the middle
         # clause). partial_ratio requires one contiguous alignment window,
@@ -320,7 +320,20 @@ class DiagramGroundingValidator:
         # density signal keeps this safe against evidence that recombines
         # real vocabulary from unrelated parts of the source into a false
         # claim.
-        return self.fuzzy_matcher.gapped_match(evidence_normalized, source_normalized)
+        if self.fuzzy_matcher.gapped_match(evidence_normalized, source_normalized):
+            return True
+
+        # Last resort: the same "clause dropped from the middle" problem,
+        # but for a LARGER deletion - specifically the AI citing only one
+        # branch of a compound "X, or Y" / "X, and Y" sentence (e.g. only
+        # the "backordered" outcome of "moves to fulfilled ... or to
+        # backordered ..."). gapped_match's combined score isn't safe for
+        # deletions this large (see sentence_scoped_match's docstring for
+        # the adversarial testing that showed why); scoping to one sentence
+        # at a time with coverage treated as a near-hard requirement is.
+        # Uses the ORIGINAL (non-punctuation-stripped) text so sentence
+        # boundaries survive - _normalize_for_matching above strips them.
+        return self.fuzzy_matcher.sentence_scoped_match(evidence, source_markdown)
 
     def _normalize_for_matching(self, text: str) -> str:
         """Lowercase, collapse punctuation to spaces, and collapse whitespace,

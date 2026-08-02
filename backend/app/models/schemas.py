@@ -15,6 +15,12 @@ class ProjectResponse(BaseModel):
     repo_url: Optional[str] = None
 
 
+class ExceptionCreate(BaseModel):
+    """A source_path (exact file) or folder prefix (e.g.
+    ".specify/templates") to exclude from future processing."""
+    source_path: str
+
+
 class ArtifactIngestStructuredRequest(BaseModel):
     project_id: str
     source_path: str
@@ -94,6 +100,25 @@ class ConfigStatusResponse(BaseModel):
     features: dict[str, bool]
 
 
+class ReportStepRequest(BaseModel):
+    """
+    Request for /api/processing-status, used by the VS Code extension to
+    report a client-side pipeline step (reading the file, calling the AI
+    provider, etc.) that happens before it has a full enriched_json to send
+    to /api/process - without this, those (often slower) steps are invisible
+    on the dashboard.
+    """
+    project_id: str
+    source_path: str
+    step: str
+    source_markdown: Optional[str] = ""
+    # Which client-side correction attempt this is (1-based) and the cap on
+    # attempts, so the dashboard can show "attempt 2/5" instead of leaving
+    # a long-running retry loop indistinguishable from a hang.
+    attempt: Optional[int] = None
+    max_attempts: Optional[int] = None
+
+
 class ProcessRequest(BaseModel):
     """
     Request for the agentic pipeline's /api/process endpoint.
@@ -110,3 +135,8 @@ class ProcessRequest(BaseModel):
     artifact_type: Optional[str] = None
     commit_hash: Optional[str] = None
     retry_count: int = 0
+    # Provenance fields, detected client-side (the backend has no filesystem
+    # visibility into the caller's workspace, especially when containerized).
+    project_root: Optional[str] = None
+    authoring_framework: Optional[str] = None
+    model_used: Optional[str] = None

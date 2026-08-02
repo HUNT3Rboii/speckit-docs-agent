@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useArtifacts } from '../hooks/useArtifacts';
 import { ArtifactCard } from '../components/ArtifactCard';
+import { ExceptionsPanel } from '../components/ExceptionsPanel';
 import { SearchBar } from '../components/SearchBar';
 import { Skeleton } from '../components/ui/skeleton';
 import { Button } from '../components/ui/button';
@@ -96,26 +97,14 @@ export function ArtifactListView() {
     );
   }
 
-  if (!artifacts || artifacts.length === 0) {
-    return (
-      <div>
-        <h1 className="text-3xl font-bold mb-8">Artifacts</h1>
-        <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
-          <div className="max-w-md space-y-4">
-            <h2 className="text-2xl font-semibold text-muted-foreground">No artifacts found</h2>
-            <p className="text-muted-foreground">This project doesn't have any artifacts yet.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const hasNoArtifacts = !artifacts || artifacts.length === 0;
 
   return (
     <div>
       <h1 className="text-3xl font-bold mb-8">Artifacts</h1>
 
       <div className="space-y-4 mb-6">
-        <SearchBar value={searchTerm} onChange={setSearchTerm} />
+        {!hasNoArtifacts && <SearchBar value={searchTerm} onChange={setSearchTerm} />}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
@@ -133,10 +122,20 @@ export function ArtifactListView() {
                 </Badge>
               </TabsTrigger>
             ))}
+            <TabsTrigger value="exceptions">Exceptions</TabsTrigger>
           </TabsList>
 
           <TabsContent value={activeTab}>
-            {displayedArtifacts.length === 0 ? (
+            {activeTab === 'exceptions' ? (
+              <ExceptionsPanel projectId={projectId!} />
+            ) : hasNoArtifacts ? (
+              <div className="flex flex-col items-center justify-center min-h-[300px] text-center">
+                <div className="max-w-md space-y-2">
+                  <h2 className="text-xl font-semibold text-muted-foreground">No artifacts found</h2>
+                  <p className="text-muted-foreground">This project doesn't have any artifacts yet.</p>
+                </div>
+              </div>
+            ) : displayedArtifacts.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-[300px] text-center">
                 <p className="text-muted-foreground">No artifacts match your filters.</p>
               </div>
