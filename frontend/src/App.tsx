@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ProjectDashboard } from './pages/ProjectDashboard'
 import { ArtifactListView } from './pages/ArtifactListView'
+import { KanbanBoardView } from './pages/KanbanBoardView'
 import { PDFViewer } from './pages/PDFViewer'
 import Layout from './components/Layout/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -35,6 +36,7 @@ function App() {
             <Route element={<Layout />}>
               <Route path="/" element={<ProjectDashboard />} />
               <Route path="/projects/:projectId" element={<ArtifactListView />} />
+              <Route path="/projects/:projectId/board" element={<KanbanBoardView />} />
               <Route path="/projects/:projectId/artifacts/:artifactId" element={<PDFViewer />} />
               <Route path="/projects/:projectId/artifacts/:artifactId/versions/:versionId" element={<PDFViewer />} />
             </Route>

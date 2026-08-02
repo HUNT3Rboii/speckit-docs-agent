@@ -22,6 +22,7 @@ describe('AppSidebar', () => {
             <Routes>
               <Route path="/" element={<AppSidebar />} />
               <Route path="/projects/:projectId" element={<AppSidebar />} />
+              <Route path="/projects/:projectId/board" element={<AppSidebar />} />
             </Routes>
           </SidebarProvider>
         </MemoryRouter>
@@ -102,5 +103,44 @@ describe('AppSidebar', () => {
     const inactiveButton = screen.getByText('Another Project').closest('[data-sidebar="menu-button"]');
     expect(activeButton).toHaveAttribute('data-active', 'true');
     expect(inactiveButton).toHaveAttribute('data-active', 'false');
+  });
+
+  it('shows Artifacts/Board sub-links only under the active project', () => {
+    const projects: Project[] = [
+      { id: 'proj-1', name: 'Speckit Docs Agent' },
+      { id: 'proj-2', name: 'Another Project' },
+    ];
+    vi.spyOn(useProjectsModule, 'useProjects').mockReturnValue({
+      data: projects,
+      isLoading: false,
+      error: null,
+    } as any);
+
+    renderWithProviders('/projects/proj-1');
+
+    const boardLink = screen.getByText('Board').closest('a');
+    const artifactsLink = screen.getByText('Artifacts').closest('a');
+    expect(boardLink).toHaveAttribute('href', '/projects/proj-1/board');
+    expect(artifactsLink).toHaveAttribute('href', '/projects/proj-1');
+
+    // Only one project is active, so only one set of sub-links renders.
+    expect(screen.getAllByText('Board')).toHaveLength(1);
+    expect(screen.getAllByText('Artifacts')).toHaveLength(1);
+  });
+
+  it('marks the Board sub-link active when viewing the board route', () => {
+    const projects: Project[] = [{ id: 'proj-1', name: 'Speckit Docs Agent' }];
+    vi.spyOn(useProjectsModule, 'useProjects').mockReturnValue({
+      data: projects,
+      isLoading: false,
+      error: null,
+    } as any);
+
+    renderWithProviders('/projects/proj-1/board');
+
+    const boardButton = screen.getByText('Board').closest('[data-sidebar="menu-sub-button"]');
+    const artifactsButton = screen.getByText('Artifacts').closest('[data-sidebar="menu-sub-button"]');
+    expect(boardButton).toHaveAttribute('data-active', 'true');
+    expect(artifactsButton).toHaveAttribute('data-active', 'false');
   });
 });

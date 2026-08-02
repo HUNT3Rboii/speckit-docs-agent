@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useArtifacts } from './useArtifacts';
+import { useArtifacts, getArtifactsRefetchInterval } from './useArtifacts';
 import { APIClient } from '../api/client';
 import type { Artifact } from '../types/api';
 import type { ReactNode } from 'react';
@@ -397,5 +397,40 @@ describe('useArtifacts', () => {
       expect(getArtifactsSpy).toHaveBeenCalledTimes(1);
       expect(getArtifactsSpy).toHaveBeenCalledWith(projectId);
     });
+  });
+});
+
+describe('getArtifactsRefetchInterval', () => {
+  const makeArtifact = (status: string): Artifact => ({
+    id: 'artifact-1',
+    project_id: 'proj-1',
+    source_path: 'spec.md',
+    artifact_type: 'spec',
+    status,
+    content_hash: 'hash',
+    created_at: '2024-01-01T00:00:00Z',
+  });
+
+  it('never stops polling, even when nothing is currently processing', () => {
+    // Regression: a brand-new document has no row in the list yet for a
+    // conditional-only "is anything processing" check to match against,
+    // so a poll that fully stops (returns false) once everything settles
+    // can never notice a new card appear - the page just sits there until
+    // the user manually refreshes.
+    expect(getArtifactsRefetchInterval([makeArtifact('rendered')])).toBeGreaterThan(0);
+    expect(getArtifactsRefetchInterval([])).toBeGreaterThan(0);
+    expect(getArtifactsRefetchInterval(undefined)).toBeGreaterThan(0);
+  });
+
+  it('polls faster while an artifact in the list is actively processing', () => {
+    const idle = getArtifactsRefetchInterval([makeArtifact('rendered')]);
+    const active = getArtifactsRefetchInterval([makeArtifact('processing')]);
+    expect(active).toBeLessThan(idle);
+  });
+
+  it('polls faster while an artifact is retry_needed too', () => {
+    const idle = getArtifactsRefetchInterval([makeArtifact('rendered')]);
+    const retrying = getArtifactsRefetchInterval([makeArtifact('retry_needed')]);
+    expect(retrying).toBeLessThan(idle);
   });
 });

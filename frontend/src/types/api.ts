@@ -107,6 +107,39 @@ export interface ExceptionsResponse {
   exceptions: ProcessingException[];
 }
 
+export type KanbanBoardStatus = 'todo' | 'in_progress' | 'done';
+
+/**
+ * A single task parsed out of a tasks.md-classified artifact (see the
+ * backend's tasks_parser.py) - re-synced from the file on every successful
+ * (re)render. board_status is the only field the board itself can change
+ * (via drag-and-drop); everything else is owned by the source file and is
+ * overwritten on the next resync.
+ */
+export interface KanbanTask {
+  id: number;
+  project_id: string;
+  artifact_id: string;
+  source_path: string;
+  task_key: string;
+  phase: string;
+  phase_order: number;
+  parallel: boolean;
+  story: string | null;
+  description: string;
+  checkbox_done: boolean;
+  board_status: KanbanBoardStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * API response for the Kanban tasks list endpoint
+ */
+export interface KanbanTasksResponse {
+  tasks: KanbanTask[];
+}
+
 /**
  * Error response structure from the backend API
  */

@@ -14,6 +14,9 @@ import type {
   VersionsResponse,
   ProcessingException,
   ExceptionsResponse,
+  KanbanTask,
+  KanbanTasksResponse,
+  KanbanBoardStatus,
   ErrorResponse,
 } from '../types/api';
 
@@ -229,6 +232,43 @@ export class APIClient {
    */
   async removeException(projectId: string, exceptionId: number): Promise<void> {
     await this.axiosInstance.delete(`/api/projects/${projectId}/exceptions/${exceptionId}`);
+  }
+
+  /**
+   * Fetches all Kanban tasks for a project, across every tasks.md-classified
+   * artifact.
+   * @param projectId - ID of the project
+   * @throws APIError on failure
+   */
+  async getKanbanTasks(projectId: string): Promise<KanbanTask[]> {
+    const response = await this.axiosInstance.get<KanbanTasksResponse>(
+      `/api/projects/${projectId}/kanban-tasks`
+    );
+    return response.data.tasks;
+  }
+
+  /**
+   * Moves a Kanban card between columns and, optionally, between phase
+   * lanes (when phase/phaseOrder are supplied, e.g. dragging a card into a
+   * different phase's board).
+   * @param taskId - ID of the task
+   * @param boardStatus - the column to move it to
+   * @param phase - target phase lane, if the card moved to a different one
+   * @param phaseOrder - the target phase's sort order, kept in sync with phase
+   * @throws APIError on failure
+   */
+  async updateKanbanTaskStatus(
+    taskId: number,
+    boardStatus: KanbanBoardStatus,
+    phase?: string,
+    phaseOrder?: number
+  ): Promise<KanbanTask> {
+    const response = await this.axiosInstance.patch<{ task: KanbanTask }>(`/api/kanban-tasks/${taskId}`, {
+      board_status: boardStatus,
+      ...(phase !== undefined ? { phase } : {}),
+      ...(phaseOrder !== undefined ? { phase_order: phaseOrder } : {}),
+    });
+    return response.data.task;
   }
 
   /**

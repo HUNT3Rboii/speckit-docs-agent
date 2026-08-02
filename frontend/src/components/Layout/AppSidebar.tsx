@@ -1,5 +1,5 @@
-import { Link, useParams } from 'react-router-dom';
-import { FileText, Folder, FolderOpen } from 'lucide-react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { FileText, Folder, FolderOpen, KanbanSquare, LayoutGrid } from 'lucide-react';
 import { useProjects } from '../../hooks/useProjects';
 import {
   Sidebar,
@@ -12,11 +12,15 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from '../ui/sidebar';
 
 export function AppSidebar() {
   const { projectId } = useParams<{ projectId?: string }>();
+  const location = useLocation();
   const { data: projects, isLoading } = useProjects();
 
   return (
@@ -57,10 +61,12 @@ export function AppSidebar() {
 
               {projects?.map((project) => {
                 const isActive = project.id === projectId;
+                const artifactsPath = `/projects/${project.id}`;
+                const boardPath = `/projects/${project.id}/board`;
                 return (
                   <SidebarMenuItem key={project.id}>
                     <SidebarMenuButton asChild isActive={isActive} tooltip={project.name}>
-                      <Link to={`/projects/${project.id}`}>
+                      <Link to={artifactsPath}>
                         {isActive ? (
                           <FolderOpen className="h-4 w-4 shrink-0" />
                         ) : (
@@ -69,6 +75,26 @@ export function AppSidebar() {
                         <span>{project.name}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {isActive && (
+                      <SidebarMenuSub>
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton asChild isActive={location.pathname === artifactsPath}>
+                            <Link to={artifactsPath}>
+                              <LayoutGrid className="h-4 w-4 shrink-0" />
+                              <span>Artifacts</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton asChild isActive={location.pathname === boardPath}>
+                            <Link to={boardPath}>
+                              <KanbanSquare className="h-4 w-4 shrink-0" />
+                              <span>Board</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      </SidebarMenuSub>
+                    )}
                   </SidebarMenuItem>
                 );
               })}
