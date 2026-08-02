@@ -620,4 +620,84 @@ describe('ArtifactCard', () => {
       }).not.toThrow();
     });
   });
+
+  describe('live processing state', () => {
+    it('shows a spinner and step label instead of the created date while processing', () => {
+      const artifact = createMockArtifact({
+        status: 'processing',
+        metadata: { current_step: 'rendering_diagrams' },
+      });
+      const onClick = vi.fn();
+
+      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+
+      expect(screen.getByTestId('processing-indicator')).toBeInTheDocument();
+      expect(screen.getByText('Rendering diagrams')).toBeInTheDocument();
+      expect(screen.queryByText(/Created/)).not.toBeInTheDocument();
+    });
+
+    it('shows a static "needs correction" state (not a spinner) for retry_needed status', () => {
+      const artifact = createMockArtifact({
+        status: 'retry_needed',
+        metadata: {
+          current_step: 'awaiting_retry',
+          structured_error: {
+            valid: false,
+            retry_count: 1,
+            errors: { ungrounded_diagrams: ['Diagram evidence ungrounded for component X'] },
+            warnings: [],
+          },
+        },
+      });
+      const onClick = vi.fn();
+
+      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+
+      expect(screen.getByTestId('stalled-indicator')).toBeInTheDocument();
+      expect(screen.queryByTestId('processing-indicator')).not.toBeInTheDocument();
+      expect(
+        screen.getByText('Needs correction: Diagram evidence ungrounded for component X')
+      ).toBeInTheDocument();
+    });
+
+    it('shows a failed indicator with the error message', () => {
+      const artifact = createMockArtifact({
+        status: 'failed',
+        metadata: { error: 'PDF generation crashed' },
+      });
+      const onClick = vi.fn();
+
+      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+
+      expect(screen.getByTestId('failed-indicator')).toBeInTheDocument();
+      expect(screen.getByText('Failed: PDF generation crashed')).toBeInTheDocument();
+    });
+
+    it('shows a "Ready" indicator alongside the created date once rendered', () => {
+      const artifact = createMockArtifact({ status: 'rendered' });
+      const onClick = vi.fn();
+
+      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+
+      expect(screen.getByTestId('ready-indicator')).toBeInTheDocument();
+      expect(screen.getByText(/Ready/)).toBeInTheDocument();
+      expect(screen.getByText(/Created/)).toBeInTheDocument();
+      expect(screen.queryByTestId('processing-indicator')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('stalled-indicator')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('failed-indicator')).not.toBeInTheDocument();
+    });
+
+    it('remains clickable while processing so users can view the live status page', () => {
+      const artifact = createMockArtifact({
+        status: 'processing',
+        metadata: { current_step: 'validating' },
+      });
+      const onClick = vi.fn();
+
+      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+
+      fireEvent.click(screen.getByRole('button'));
+      expect(onClick).toHaveBeenCalledWith(artifact.id);
+    });
+  });
 });

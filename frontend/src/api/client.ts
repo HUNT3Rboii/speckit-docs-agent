@@ -9,6 +9,7 @@ import type {
   ProjectsResponse,
   Artifact,
   ArtifactsResponse,
+  ArtifactStatusResponse,
   Version,
   VersionsResponse,
   ErrorResponse,
@@ -175,6 +176,20 @@ export class APIClient {
       `/api/artifacts/${artifactId}/versions`
     );
     return response.data.versions;
+  }
+
+  /**
+   * Fetches live processing status for a specific artifact - the current
+   * pipeline step while it's still rendering, or the final artifact/version
+   * once done.
+   * @param artifactId - ID of the artifact
+   * @throws APIError on failure
+   */
+  async getArtifactStatus(artifactId: string): Promise<ArtifactStatusResponse> {
+    const response = await this.axiosInstance.get<ArtifactStatusResponse>(
+      `/api/status/${artifactId}`
+    );
+    return response.data;
   }
 
   /**

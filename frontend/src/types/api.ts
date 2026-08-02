@@ -31,6 +31,34 @@ export interface Artifact {
   content_hash: string;
   created_at: string;
   title?: string;
+  metadata?: {
+    current_step?: string | null;
+    title?: string;
+    error?: string;
+    attempt?: number | null;
+    max_attempts?: number | null;
+    structured_error?: {
+      valid: boolean;
+      retry_count: number;
+      errors: Record<string, string[]>;
+      warnings: string[];
+    };
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * Response from GET /api/status/{artifactId} - a richer per-artifact
+ * status snapshot (used while polling a document still being processed)
+ * than the plain list-artifacts response.
+ */
+export interface ArtifactStatusResponse {
+  artifact: Artifact;
+  latest_version: Version | null;
+  version_count: number;
+  dropped_items: Record<string, unknown>;
+  validation_warnings: string[];
+  cache_hit: boolean;
 }
 
 /**

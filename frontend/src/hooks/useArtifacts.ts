@@ -6,6 +6,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '../api/client';
 import type { Artifact } from '../types/api';
+import { isProcessing } from '../utils/processingStatus';
 
 /**
  * Configuration for API client
@@ -30,5 +31,12 @@ export function useArtifacts(projectId: string) {
     staleTime: 2 * 60 * 1000, // 2 minutes - data considered fresh for 2 minutes
     retry: 2, // Retry failed requests up to 2 times
     enabled: !!projectId, // Only fetch when projectId is provided
+    // While any artifact in this project is still processing, poll so
+    // newly-started documents (and their step) show up live instead of
+    // only appearing once the whole pipeline finishes.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data?.some((artifact) => isProcessing(artifact.status)) ? 3000 : false;
+    },
   });
 }

@@ -1,4 +1,4 @@
-﻿import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+﻿import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
@@ -114,7 +114,7 @@ describe("ArtifactListView", () => {
     });
   });
 
-  it("filters by category when category button is clicked", async () => {
+  it("filters by category when a category tab is clicked", async () => {
     const artifacts = [
       createMockArtifact({ id: "1", artifact_type: "spec", title: "Spec1" }),
       createMockArtifact({ id: "2", artifact_type: "plan", title: "Plan1" }),
@@ -137,13 +137,40 @@ describe("ArtifactListView", () => {
       </TestWrapper>
     );
 
-    const specButton = screen.getByLabelText(/filter by spec/i);
-    fireEvent.click(specButton);
+    const specTab = screen.getByRole("tab", { name: /spec/i });
+    await userEvent.click(specTab);
 
     await waitFor(() => {
       expect(screen.getByText("Spec1")).toBeInTheDocument();
       expect(screen.queryByText("Plan1")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows all artifacts when the All tab is active", () => {
+    const artifacts = [
+      createMockArtifact({ id: "1", artifact_type: "spec", title: "Spec1" }),
+      createMockArtifact({ id: "2", artifact_type: "plan", title: "Plan1" }),
+    ];
+
+    vi.spyOn(useArtifactsModule, "useArtifacts").mockReturnValue({
+      data: artifacts,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isError: false,
+      isSuccess: true,
+      isPending: false,
+      status: "success",
+    } as any);
+
+    render(
+      <TestWrapper>
+        <ArtifactListView />
+      </TestWrapper>
+    );
+
+    expect(screen.getByText("Spec1")).toBeInTheDocument();
+    expect(screen.getByText("Plan1")).toBeInTheDocument();
   });
 
   it("sorts artifacts by created_at descending (newest first)", () => {
@@ -226,10 +253,11 @@ describe("ArtifactListView", () => {
     });
   });
 
-  it("displays category group headers when artifacts exist", () => {
+  it("displays a category tab, with count, for each category present", () => {
     const artifacts = [
       createMockArtifact({ id: "1", artifact_type: "spec" }),
-      createMockArtifact({ id: "2", artifact_type: "plan" }),
+      createMockArtifact({ id: "2", artifact_type: "spec" }),
+      createMockArtifact({ id: "3", artifact_type: "plan" }),
     ];
 
     vi.spyOn(useArtifactsModule, "useArtifacts").mockReturnValue({
@@ -249,9 +277,13 @@ describe("ArtifactListView", () => {
       </TestWrapper>
     );
 
-    const headings = screen.getAllByRole("heading");
-    const headingTexts = headings.map((h) => h.textContent);
-    expect(headingTexts).toContain("spec");
-    expect(headingTexts).toContain("plan");
+    expect(screen.getByRole("tab", { name: /all/i })).toBeInTheDocument();
+    const specTab = screen.getByRole("tab", { name: /spec/i });
+    const planTab = screen.getByRole("tab", { name: /plan/i });
+    expect(specTab).toHaveTextContent("2");
+    expect(planTab).toHaveTextContent("1");
+
+    // Categories with zero artifacts don't get a tab
+    expect(screen.queryByRole("tab", { name: /task/i })).not.toBeInTheDocument();
   });
 });

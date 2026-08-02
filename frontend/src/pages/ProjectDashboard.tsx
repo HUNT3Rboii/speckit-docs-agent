@@ -21,7 +21,7 @@ export function ProjectDashboard() {
   // Loading state with skeleton components
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div>
         <h1 className="text-3xl font-bold mb-8">Projects</h1>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(6)].map((_, index) => (
@@ -37,7 +37,7 @@ export function ProjectDashboard() {
   // Error state with retry button
   if (error) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div>
         <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
           <div className="max-w-md space-y-4">
             <h2 className="text-2xl font-semibold text-destructive">
@@ -58,7 +58,7 @@ export function ProjectDashboard() {
   // Empty state when no projects exist
   if (!projects || projects.length === 0) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div>
         <h1 className="text-3xl font-bold mb-8">Projects</h1>
         <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
           <div className="max-w-md space-y-4">
@@ -76,7 +76,7 @@ export function ProjectDashboard() {
 
   // Success state with project cards in responsive grid
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div>
       <h1 className="text-3xl font-bold mb-8">Projects</h1>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((project) => (

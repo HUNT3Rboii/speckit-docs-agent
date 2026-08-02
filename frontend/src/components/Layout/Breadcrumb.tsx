@@ -1,75 +1,80 @@
 import React from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
-import { ChevronRight, Home } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
+import { useProjects } from '../../hooks/useProjects';
+import { useArtifacts } from '../../hooks/useArtifacts';
+import { truncatePath } from '../../utils/pathTruncate';
+import {
+  Breadcrumb as BreadcrumbRoot,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '../ui/breadcrumb';
 
 const Breadcrumb: React.FC = () => {
-  const location = useLocation();
   const params = useParams<{ projectId?: string; artifactId?: string; versionId?: string }>();
 
-  // Build breadcrumb items based on current route
-  const breadcrumbItems: { label: string; path: string; current: boolean }[] = [
-    { label: 'Home', path: '/', current: false },
-  ];
+  const { data: projects } = useProjects();
+  const { data: artifacts } = useArtifacts(params.projectId || '');
 
-  // Parse the current path to build breadcrumbs
+  const project = projects?.find((p) => p.id === params.projectId);
+  const artifact = artifacts?.find((a) => a.id === params.artifactId);
+
+  const items: { label: string; path: string }[] = [];
+
   if (params.projectId) {
-    breadcrumbItems.push({
-      label: `Project ${params.projectId.substring(0, 8)}...`,
+    items.push({
+      label: project?.name || `Project ${params.projectId.substring(0, 8)}...`,
       path: `/projects/${params.projectId}`,
-      current: !params.artifactId,
     });
   }
 
   if (params.artifactId) {
-    breadcrumbItems.push({
-      label: `Artifact ${params.artifactId.substring(0, 8)}...`,
+    items.push({
+      label: artifact?.title || (artifact ? truncatePath(artifact.source_path, 40) : `Artifact ${params.artifactId.substring(0, 8)}...`),
       path: `/projects/${params.projectId}/artifacts/${params.artifactId}`,
-      current: !params.versionId,
     });
   }
 
   if (params.versionId) {
-    breadcrumbItems.push({
-      label: `Version ${params.versionId.substring(0, 8)}...`,
+    items.push({
+      label: `Version ${params.versionId}`,
       path: `/projects/${params.projectId}/artifacts/${params.artifactId}/versions/${params.versionId}`,
-      current: true,
     });
   }
 
-  // Mark the last item as current if no params indicate otherwise
-  if (breadcrumbItems.length > 0 && location.pathname === '/') {
-    breadcrumbItems[0].current = true;
-  }
-
   return (
-    <nav aria-label="Breadcrumb">
-      <ol className="flex items-center space-x-2 text-sm">
-        {breadcrumbItems.map((item, index) => (
-          <li key={item.path} className="flex items-center">
-            {index > 0 && (
-              <ChevronRight className="h-4 w-4 mx-2 text-muted-foreground" aria-hidden="true" />
-            )}
-            {item.current ? (
-              <span
-                className="text-foreground font-medium"
-                aria-current="page"
-              >
-                {index === 0 && <Home className="h-4 w-4 inline mr-1" aria-hidden="true" />}
-                {item.label}
-              </span>
-            ) : (
-              <Link
-                to={item.path}
-                className="text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-1"
-              >
-                {index === 0 && <Home className="h-4 w-4 inline mr-1" aria-hidden="true" />}
-                {item.label}
-              </Link>
-            )}
-          </li>
-        ))}
-      </ol>
-    </nav>
+    <BreadcrumbRoot>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          {items.length === 0 ? (
+            <BreadcrumbPage>Projects</BreadcrumbPage>
+          ) : (
+            <BreadcrumbLink asChild>
+              <Link to="/">Projects</Link>
+            </BreadcrumbLink>
+          )}
+        </BreadcrumbItem>
+        {items.map((item, index) => {
+          const isLast = index === items.length - 1;
+          return (
+            <React.Fragment key={item.path}>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                {isLast ? (
+                  <BreadcrumbPage>{item.label}</BreadcrumbPage>
+                ) : (
+                  <BreadcrumbLink asChild>
+                    <Link to={item.path}>{item.label}</Link>
+                  </BreadcrumbLink>
+                )}
+              </BreadcrumbItem>
+            </React.Fragment>
+          );
+        })}
+      </BreadcrumbList>
+    </BreadcrumbRoot>
   );
 };
 

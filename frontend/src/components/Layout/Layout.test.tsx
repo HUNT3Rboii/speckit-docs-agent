@@ -1,87 +1,102 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Layout from './Layout';
-import { BrowserRouter } from 'react-router-dom';
+import * as useProjectsModule from '../../hooks/useProjects';
+import * as useArtifactsModule from '../../hooks/useArtifacts';
+import type { Project } from '../../types/api';
 
 /**
- * Unit tests for Layout component
- * Tests that Layout renders children correctly with navigation structure
- * **Validates: Requirements 6.2**
+ * Unit tests for Layout component.
+ * Layout is rendered as a parent route (see App.tsx) so its Outlet's matched
+ * child route's params (:projectId etc.) are visible to components Layout
+ * renders internally, like the header's Breadcrumb - it is NOT a
+ * children-taking wrapper placed around <Routes>, which does not give
+ * useParams() access to the child route's params at all. Tests render it
+ * the same way: as the element of a parent <Route>, with a child <Route>
+ * providing the content and route params.
  */
 describe('Layout', () => {
-  const renderWithRouter = (ui: React.ReactElement) => {
-    return render(<BrowserRouter>{ui}</BrowserRouter>);
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.spyOn(useProjectsModule, 'useProjects').mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    } as any);
+    vi.spyOn(useArtifactsModule, 'useArtifacts').mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    } as any);
+  });
+
+  const renderWithProviders = (
+    childElement: React.ReactElement,
+    { initialRoute = '/test', childPath = '/test' }: { initialRoute?: string; childPath?: string } = {}
+  ) => {
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[initialRoute]}>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path={childPath} element={childElement} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
   };
 
-  describe('navigation header', () => {
-    it('renders the application title', () => {
-      renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
+  describe('sidebar and header', () => {
+    it('renders the app name in the sidebar', () => {
+      renderWithProviders(<div>Test content</div>);
 
-      expect(screen.getByText('PDF Visualization')).toBeInTheDocument();
+      expect(screen.getByText('PDF Docs')).toBeInTheDocument();
     });
 
-    it('renders navigation with correct role and aria-label', () => {
-      renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
+    it('renders a sidebar toggle button (header trigger + rail)', () => {
+      renderWithProviders(<div>Test content</div>);
 
-      const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      expect(nav).toBeInTheDocument();
+      // The header's SidebarTrigger and the always-present SidebarRail both
+      // expose a "Toggle Sidebar" accessible name.
+      expect(screen.getAllByRole('button', { name: /toggle sidebar/i }).length).toBeGreaterThan(0);
+    });
+
+    it('renders the theme toggle button', () => {
+      renderWithProviders(<div>Test content</div>);
+
+      expect(screen.getByRole('button', { name: /switch to (dark|light) mode/i })).toBeInTheDocument();
     });
   });
 
-  describe('children rendering', () => {
-    it('renders children in main content area', () => {
-      renderWithRouter(
-        <Layout>
-          <div data-testid="child-content">Child Component</div>
-        </Layout>
-      );
+  describe('routed content rendering (via Outlet)', () => {
+    it('renders the matched child route element in the main content area', () => {
+      renderWithProviders(<div data-testid="child-content">Child Component</div>);
 
       expect(screen.getByTestId('child-content')).toBeInTheDocument();
       expect(screen.getByText('Child Component')).toBeInTheDocument();
     });
 
-    it('renders multiple children', () => {
-      renderWithRouter(
-        <Layout>
-          <div>First child</div>
-          <div>Second child</div>
-          <div>Third child</div>
-        </Layout>
-      );
+    it('renders a single main landmark (SidebarInset)', () => {
+      renderWithProviders(<div>Test content</div>);
 
-      expect(screen.getByText('First child')).toBeInTheDocument();
-      expect(screen.getByText('Second child')).toBeInTheDocument();
-      expect(screen.getByText('Third child')).toBeInTheDocument();
+      expect(screen.getByRole('main')).toBeInTheDocument();
     });
 
-    it('renders main element with correct role and id', () => {
-      renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
+    it('renders the skip-link target with id="main-content"', () => {
+      const { container } = renderWithProviders(<div>Test content</div>);
 
-      const main = screen.getByRole('main');
-      expect(main).toBeInTheDocument();
-      expect(main).toHaveAttribute('id', 'main-content');
+      expect(container.querySelector('#main-content')).toBeInTheDocument();
     });
   });
 
   describe('accessibility features', () => {
     it('provides skip to main content link', () => {
-      renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
+      renderWithProviders(<div>Test content</div>);
 
       const skipLink = screen.getByText('Skip to main content');
       expect(skipLink).toBeInTheDocument();
@@ -89,78 +104,39 @@ describe('Layout', () => {
     });
 
     it('has skip link with screen reader only class initially', () => {
-      renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
+      renderWithProviders(<div>Test content</div>);
 
       const skipLink = screen.getByText('Skip to main content');
       expect(skipLink).toHaveClass('sr-only');
     });
   });
 
-  describe('layout structure', () => {
-    it('renders breadcrumb navigation area', () => {
-      renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
+  describe('breadcrumb integration', () => {
+    it('renders the breadcrumb navigation area', () => {
+      renderWithProviders(<div>Test content</div>);
 
-      // Breadcrumb component is rendered, which has a nav with aria-label="Breadcrumb"
       const breadcrumbNav = screen.getByRole('navigation', { name: /breadcrumb/i });
       expect(breadcrumbNav).toBeInTheDocument();
+      // "Projects" also appears as the sidebar's group label, so scope this
+      // assertion to the breadcrumb nav specifically.
+      expect(within(breadcrumbNav).getByText('Projects')).toBeInTheDocument();
     });
 
-    it('applies correct styling classes', () => {
-      const { container } = renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
+    it('resolves the actual route params (regression: Layout must be a parent route, not a children-wrapper, for useParams() to work in Breadcrumb)', () => {
+      const projects: Project[] = [{ id: 'proj-1', name: 'Speckit Docs Agent' }];
+      vi.spyOn(useProjectsModule, 'useProjects').mockReturnValue({
+        data: projects,
+        isLoading: false,
+        error: null,
+      } as any);
 
-      // Check that the root div has min-h-screen class
-      const rootDiv = container.firstChild as HTMLElement;
-      expect(rootDiv).toHaveClass('min-h-screen', 'bg-background');
-    });
-  });
+      renderWithProviders(<div>Artifact list content</div>, {
+        initialRoute: '/projects/proj-1',
+        childPath: '/projects/:projectId',
+      });
 
-  describe('component integration', () => {
-    it('renders Breadcrumb component', () => {
-      renderWithRouter(
-        <Layout>
-          <div>Test content</div>
-        </Layout>
-      );
-
-      // Breadcrumb should render Home link
-      expect(screen.getByText('Home')).toBeInTheDocument();
-    });
-
-    it('renders all sections in correct order', () => {
-      const { container } = renderWithRouter(
-        <Layout>
-          <div data-testid="test-content">Test content</div>
-        </Layout>
-      );
-
-      // Get all major sections
-      const skipLink = screen.getByText('Skip to main content');
-      const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      const breadcrumb = screen.getByRole('navigation', { name: /breadcrumb/i });
-      const main = screen.getByRole('main');
-
-      // Verify order by comparing positions in the DOM
-      const allElements = [skipLink, nav, breadcrumb, main];
-      const positions = allElements.map(el => 
-        Array.from(container.querySelectorAll('*')).indexOf(el as Element)
-      );
-
-      // Each element should appear after the previous one
-      for (let i = 1; i < positions.length; i++) {
-        expect(positions[i]).toBeGreaterThan(positions[i - 1]);
-      }
+      const breadcrumbNav = screen.getByRole('navigation', { name: /breadcrumb/i });
+      expect(within(breadcrumbNav).getByText('Speckit Docs Agent')).toBeInTheDocument();
     });
   });
 });

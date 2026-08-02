@@ -14,8 +14,12 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@radix-ui/react-collapsible": "^1.1.20",
     "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-separator": "^1.1.15",
     "@radix-ui/react-slot": "^1.3.3",
+    "@radix-ui/react-tabs": "^1.1.21",
+    "@radix-ui/react-tooltip": "^1.2.16",
     "@tanstack/react-query": "^5.101.4",
     "axios": "^1.18.1",
     "class-variance-authority": "^0.7.1",
@@ -48,6 +52,7 @@
     "jsdom": "^29.1.1",
     "postcss": "^8.5.23",
     "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.62.0",
     "vite": "^8.1.1",

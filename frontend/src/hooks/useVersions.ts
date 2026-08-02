@@ -19,16 +19,21 @@ const apiClient = new APIClient(
 /**
  * Hook for fetching version history for a specific artifact
  * Uses React Query to manage server state with caching
- * 
+ *
  * @param artifactId - ID of the artifact to fetch versions for
+ * @param options.pollForNewVersion - while true, refetch periodically (the
+ *   artifact is still being processed and a new version is expected to
+ *   appear once it finishes)
  * @returns Object with versions data, loading state, error, and refetch function
  */
-export function useVersions(artifactId: string) {
+export function useVersions(artifactId: string, options: { pollForNewVersion?: boolean } = {}) {
+  const { pollForNewVersion = false } = options;
   return useQuery<Version[], Error>({
     queryKey: ['versions', artifactId],
     queryFn: () => apiClient.getVersions(artifactId),
     staleTime: 5 * 60 * 1000, // 5 minutes - data considered fresh for 5 minutes
     retry: 2, // Retry failed requests up to 2 times
     enabled: !!artifactId, // Only fetch when artifactId is provided
+    refetchInterval: pollForNewVersion ? 3000 : false,
   });
 }

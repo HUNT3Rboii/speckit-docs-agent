@@ -1,13 +1,19 @@
-import React from 'react';
-import Breadcrumb from './Breadcrumb';
+import { Outlet } from 'react-router-dom';
+import { SidebarProvider, SidebarInset } from '../ui/sidebar';
+import { AppSidebar } from './AppSidebar';
+import { AppHeader } from './AppHeader';
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
-
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+/**
+ * Rendered as a parent route (see App.tsx), not a plain children-taking
+ * wrapper: components rendered inside it (notably AppHeader's Breadcrumb)
+ * need useParams() to resolve :projectId/:artifactId, which only works if
+ * Layout is genuinely part of the matched route tree - a wrapper placed
+ * around <Routes> from the outside does not give its own children access to
+ * the matched child route's params.
+ */
+const Layout = () => {
   return (
-    <div className="min-h-screen bg-background">
+    <SidebarProvider>
       {/* Skip to main content link for accessibility */}
       <a
         href="#main-content"
@@ -16,29 +22,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         Skip to main content
       </a>
 
-      {/* Navigation header */}
-      <nav className="border-b bg-card" role="navigation" aria-label="Main navigation">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-foreground">
-              PDF Visualization
-            </h1>
-          </div>
+      <AppSidebar />
+      {/* SidebarInset renders its own <main>, so the id="main-content" skip
+          target lives on a plain div to avoid a nested/duplicate <main> landmark. */}
+      <SidebarInset>
+        <AppHeader />
+        <div id="main-content" className="flex-1 px-4 py-8 md:px-8">
+          <Outlet />
         </div>
-      </nav>
-
-      {/* Breadcrumb navigation */}
-      <div className="border-b bg-muted/30">
-        <div className="container mx-auto px-4 py-2">
-          <Breadcrumb />
-        </div>
-      </div>
-
-      {/* Main content */}
-      <main id="main-content" className="container mx-auto px-4 py-8" role="main">
-        {children}
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 };
 

@@ -1,8 +1,10 @@
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { formatDistanceToNow, isValid } from 'date-fns';
+import { Loader2, AlertCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { truncatePath } from '../utils/pathTruncate';
 import { getCategoryBadgeClasses } from '../utils/categoryColors';
+import { isActivelyProcessing, needsCorrection, stepLabel } from '../utils/processingStatus';
 import type { Artifact } from '../types/api';
 
 interface ArtifactCardProps {
@@ -23,6 +25,9 @@ export function ArtifactCard({ artifact, onClick }: ArtifactCardProps) {
   };
 
   const badgeClasses = getCategoryBadgeClasses(artifact.artifact_type);
+  const processing = isActivelyProcessing(artifact.status);
+  const stalled = needsCorrection(artifact.status);
+  const failed = artifact.status === 'failed';
 
   // Safely format the date, fallback to "Unknown" if invalid
   const formatCreatedDate = () => {
@@ -44,7 +49,7 @@ export function ArtifactCard({ artifact, onClick }: ArtifactCardProps) {
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-xl flex-1">
-            {artifact.title || truncatePath(artifact.source_path, 50)}
+            {artifact.title || artifact.metadata?.title || truncatePath(artifact.source_path, 50)}
           </CardTitle>
           <Badge className={badgeClasses}>
             {artifact.artifact_type}
@@ -55,9 +60,27 @@ export function ArtifactCard({ artifact, onClick }: ArtifactCardProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="text-sm text-muted-foreground">
-          Created {formatCreatedDate()}
-        </div>
+        {processing ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="processing-indicator">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {stepLabel(artifact)}
+          </div>
+        ) : stalled ? (
+          <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-500" data-testid="stalled-indicator">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="truncate">{stepLabel(artifact)}</span>
+          </div>
+        ) : failed ? (
+          <div className="flex items-center gap-2 text-sm text-destructive" data-testid="failed-indicator">
+            <AlertCircle className="h-4 w-4" />
+            {stepLabel(artifact)}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="ready-indicator">
+            <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-500 shrink-0" />
+            <span>Ready · Created {formatCreatedDate()}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
