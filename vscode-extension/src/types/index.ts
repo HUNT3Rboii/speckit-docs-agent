@@ -75,6 +75,19 @@ export interface Summaries {
 }
 
 /**
+ * A per-task, user-friendly description produced only for task-list
+ * (tasks.md) documents - see EnrichmentPromptBuilder's task-descriptions
+ * guidance. The backend's Kanban board sync uses this (keyed by taskKey) in
+ * place of the raw checklist text when present.
+ */
+export interface TaskDescription {
+  /** The task's ID exactly as it appears in the source (e.g. "T001") */
+  taskKey: string;
+  /** Short, user-friendly one-sentence description of what the task involves */
+  description: string;
+}
+
+/**
  * Structured JSON representation of a markdown document, enriched with
  * evidence-grounded diagrams, glossary, and summaries (the single AI call's
  * output — see EnrichmentPromptBuilder).
@@ -92,6 +105,8 @@ export interface StructuredJSON {
   glossary: GlossaryEntry[];
   /** Executive and per-section summaries */
   summaries: Summaries;
+  /** Per-task friendly descriptions (task-list documents only) */
+  taskDescriptions?: TaskDescription[];
   /** Optional document type classification */
   artifact_type?: string;
   /** Relative path from workspace root */
@@ -259,6 +274,14 @@ export interface ExtensionConfig {
   debounceMs: number;
   /** Maximum concurrent file processing */
   maxConcurrentProcessing: number;
+  /**
+   * Allow degrading to the rule-based (non-AI) transform when no AI
+   * provider is available or the AI request fails. Off by default: a
+   * document should always go through real AI, and if it can't, that
+   * should be a visible, actionable failure - not a silently
+   * lower-quality PDF/board that looks like it "just worked".
+   */
+  allowRuleBasedFallback: boolean;
 }
 
 /**

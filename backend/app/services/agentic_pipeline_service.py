@@ -33,6 +33,7 @@ from app.services.html_generator import HTMLGeneratorService
 from app.services.pdf_generator import PDFGeneratorService
 from app.services.artifact_cache import ArtifactCacheService
 from app.services.path_matching import path_matches_exception
+from app.services.tasks_parser import parse_tasks_markdown
 from app.validators.retry_loop_orchestrator import RetryLoopOrchestrator, ValidatedArtifact
 
 
@@ -265,6 +266,12 @@ class AgenticPipelineService:
         }
         self.repo.add_doc_version(artifact_id, version)
 
+        if artifact_type == "task":
+            friendly_descriptions = self._extract_friendly_descriptions(validated.enriched_json)
+            self._sync_kanban_tasks(
+                project_id, artifact_id, source_path, source_markdown, friendly_descriptions
+            )
+
         try:
             self.artifact_cache.store_artifact(
                 content_hash, pdf_path, artifact_id, metadata={"source_path": source_path}
@@ -390,3 +397,95 @@ class AgenticPipelineService:
         the *per-project* case - see repo.next_artifact_id()'s docstring.
         """
         return self.repo.next_artifact_id()
+
+    def _extract_friendly_descriptions(self, enriched_json: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Pull the AI's per-task, user-friendly descriptions (see
+        EnrichmentPromptBuilder's task-descriptions guidance) out of the
+        enriched JSON, keyed by task_key. Absent/malformed entries are
+        skipped rather than raising - this is a best-effort enhancement over
+        the raw regex-parsed text (tasks_parser.py's `description` field),
+        never a requirement: older clients, non-AI providers, and the
+        rule-based fallback (which has no way to generate this) simply don't
+        include it, and _sync_kanban_tasks falls back to the raw text below.
+        """
+        raw_entries = enriched_json.get("taskDescriptions")
+        if not isinstance(raw_entries, list):
+            return {}
+
+        friendly_descriptions: Dict[str, str] = {}
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            task_key = entry.get("taskKey")
+            description = entry.get("description")
+            if isinstance(task_key, str) and isinstance(description, str) and description.strip():
+                friendly_descriptions[task_key] = description.strip()
+        return friendly_descriptions
+
+    def _sync_kanban_tasks(
+        self,
+        project_id: str,
+        artifact_id: str,
+        source_path: str,
+        source_markdown: str,
+        friendly_descriptions: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """
+        Re-derive the Kanban board's task rows from a tasks.md-classified
+        artifact's current content, called after every successful render.
+
+        A task's board_status (todo/in_progress/done - which column it's
+        in) is the one thing NOT simply overwritten from the file: it's
+        preserved across a resync so dragging a card on the board isn't
+        wiped out by an unrelated edit elsewhere in the same file, UNLESS
+        the task's own checkbox newly flips to done (- [ ] -> - [x]), which
+        counts as the file itself declaring the task finished. A task_key
+        no longer present in the file (removed or renumbered) is deleted -
+        the board reflects the file, not a permanent history of it.
+
+        friendly_descriptions (task_key -> AI-rewritten description) takes
+        priority over the raw regex-parsed text when present for that key,
+        same "always overwritten from the source on resync" treatment as
+        every other field but board_status.
+        """
+        parsed_tasks = parse_tasks_markdown(source_markdown)
+        friendly_descriptions = friendly_descriptions or {}
+        existing_by_key = {
+            task["task_key"]: task for task in self.repo.list_kanban_tasks_for_artifact(artifact_id)
+        }
+        now = _utcnow_iso()
+        seen_keys = set()
+
+        for task in parsed_tasks:
+            seen_keys.add(task["task_key"])
+            existing_task = existing_by_key.get(task["task_key"])
+            if existing_task:
+                board_status = existing_task["board_status"]
+                if task["checkbox_done"] and not existing_task["checkbox_done"]:
+                    board_status = "done"
+            else:
+                board_status = "done" if task["checkbox_done"] else "todo"
+
+            description = friendly_descriptions.get(task["task_key"]) or task["description"]
+
+            self.repo.upsert_kanban_task(
+                {
+                    "project_id": project_id,
+                    "artifact_id": artifact_id,
+                    "source_path": source_path,
+                    "task_key": task["task_key"],
+                    "phase": task["phase"],
+                    "phase_order": task["phase_order"],
+                    "parallel": task["parallel"],
+                    "story": task["story"],
+                    "description": description,
+                    "checkbox_done": task["checkbox_done"],
+                    "board_status": board_status,
+                },
+                now,
+            )
+
+        for task_key, existing_task in existing_by_key.items():
+            if task_key not in seen_keys:
+                self.repo.delete_kanban_task(existing_task["id"])

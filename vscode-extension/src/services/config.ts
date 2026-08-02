@@ -79,6 +79,7 @@ export class ConfigurationManager {
       1,
       10
     );
+    const allowRuleBasedFallback = config.get<boolean>('allowRuleBasedFallback') ?? false;
 
     return {
       backendUrl,
@@ -88,7 +89,8 @@ export class ConfigurationManager {
       apiKey,
       enableDebugLogging,
       debounceMs,
-      maxConcurrentProcessing
+      maxConcurrentProcessing,
+      allowRuleBasedFallback
     };
   }
 

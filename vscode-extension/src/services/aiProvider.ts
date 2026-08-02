@@ -64,6 +64,9 @@ return the complete, corrected JSON object (all other fields unchanged):
 ${JSON.stringify(structuredError.errors, null, 2)}
 
 Reminders:
+- "schema_errors": your previous response was malformed or missing required fields, as listed
+  above (e.g. "Section 7: Missing or invalid content" means section index 7 needs a non-empty
+  content string). Fix each named issue directly and return the complete, valid JSON object.
 - "missing_headings": add these headings back into sections[], preserving their original text.
 - "ungrounded_diagrams": either find the correct verbatim evidence quote from the source for
   the named component, or remove that component/diagram if no such text exists.
@@ -84,11 +87,39 @@ Return ONLY the corrected JSON object, no explanations.`;
    * returned a structured error, the correction prompt for a retry. Shared by
    * every VS Code Language Model-backed provider (Copilot/Claude/Kiro/Generic)
    * so each only needs a one-line call instead of duplicating this branch.
+   *
+   * sourcePath (when provided) is used to infer the document type so the
+   * prompt can ask for task-list-specific output (see
+   * inferDocumentType/taskDescriptions) - without it every call defaulted to
+   * the literal string 'document', so the AI never actually knew when it was
+   * looking at a tasks.md.
    */
-  protected buildTransformPrompt(markdown: string, structuredError?: StructuredError): string {
+  protected buildTransformPrompt(
+    markdown: string,
+    structuredError?: StructuredError,
+    sourcePath?: string
+  ): string {
+    const documentType = sourcePath ? this.inferDocumentType(sourcePath) : 'document';
     return structuredError
-      ? this.createCorrectionPrompt(markdown, structuredError)
-      : this.createPrompt(markdown);
+      ? this.createCorrectionPrompt(markdown, structuredError, documentType)
+      : this.createPrompt(markdown, documentType);
+  }
+
+  /**
+   * Classify a document by its path for prompt purposes. Mirrors the
+   * backend's IngestionService.classify() 'task' rule (source_path's
+   * filename is tasks.md, or it lives under a tasks/ directory) closely
+   * enough for prompt-selection purposes - it doesn't need to be identical,
+   * just needs to catch the same tasks.md files the backend will later parse
+   * into Kanban board rows.
+   */
+  protected inferDocumentType(sourcePath: string): string {
+    const normalized = sourcePath.replace(/\\/g, '/').toLowerCase();
+    const filename = normalized.split('/').pop() || '';
+    if (filename === 'tasks.md' || normalized.includes('/tasks/')) {
+      return 'task_list';
+    }
+    return 'document';
   }
 
   /**
@@ -96,6 +127,23 @@ Return ONLY the corrected JSON object, no explanations.`;
    */
   public setTimeout(ms: number): void {
     this.timeout = ms;
+  }
+
+  /**
+   * Scale the request timeout to the document size. The previous flat 15s
+   * timeout was tripping on larger documents (tasks.md especially - it asks
+   * the model for a taskDescriptions entry per checklist item on top of the
+   * usual sections/diagrams/glossary, meaningfully increasing generation
+   * time) well before the model finished, silently and irrecoverably
+   * falling back to the rule-based (non-AI) provider with zero user-visible
+   * indication anything went wrong. 3ms/char keeps small documents fast
+   * while giving large ones realistically enough time; floor/ceiling keep it
+   * within a sane range either way. Ceiling raised to 3 minutes after a real
+   * ~27KB tasks.md still timed out at the previous 90s cap against a smaller/
+   * faster model (GPT-4o mini) generating a large amount of structured JSON.
+   */
+  protected computeTimeout(markdown: string): number {
+    return Math.min(180000, Math.max(45000, markdown.length * 3));
   }
 
   /**

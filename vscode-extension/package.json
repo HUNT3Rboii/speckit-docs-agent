@@ -128,6 +128,12 @@
           "maximum": 10,
           "description": "Maximum number of files to process concurrently",
           "order": 8
+        },
+        "speckit.allowRuleBasedFallback": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow falling back to a lower-quality rule-based transform when no AI provider is available or the AI request fails. When off (default), processing fails with a clear error instead, so you notice and fix AI availability rather than silently getting a degraded PDF/board.",
+          "order": 9
         }
       }
     }

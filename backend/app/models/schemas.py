@@ -21,6 +21,20 @@ class ExceptionCreate(BaseModel):
     source_path: str
 
 
+class KanbanTaskStatusUpdate(BaseModel):
+    """
+    Body for moving a Kanban card between columns and/or lanes (phases).
+    phase/phase_order are optional: dragging within a phase's own columns
+    only ever sends board_status, while dragging a card into a different
+    phase's board also sends the target phase's identity so the card
+    actually relocates instead of the mutation only changing its status
+    and the card snapping back to its original phase on the next refetch.
+    """
+    board_status: str = Field(..., pattern="^(todo|in_progress|done)$")
+    phase: Optional[str] = None
+    phase_order: Optional[int] = None
+
+
 class ArtifactIngestStructuredRequest(BaseModel):
     project_id: str
     source_path: str

@@ -55,7 +55,8 @@ export class GenericProvider extends BaseAIProvider {
     }
 
     const sanitized = this.sanitizeMarkdown(markdown);
-    const prompt = this.buildTransformPrompt(sanitized, structuredError);
+    this.setTimeout(this.computeTimeout(sanitized));
+    const prompt = this.buildTransformPrompt(sanitized, structuredError, sourcePath);
 
     try {
       this.log('Sending request to AI model...');

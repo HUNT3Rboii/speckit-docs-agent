@@ -103,6 +103,35 @@ class PostgresArtifactRepository:
                     )
                     """
                 )
+                # One row per task parsed out of a tasks.md-classified
+                # artifact (see tasks_parser.py), backing the Kanban board.
+                # Synced from the file on every successful (re)render - see
+                # AgenticPipelineService's _sync_kanban_tasks - so
+                # board_status is the only field that survives a resync
+                # untouched (unless the task's own checkbox newly flips to
+                # done); everything else is always overwritten from the
+                # file's current content.
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS kanban_tasks (
+                        id SERIAL PRIMARY KEY,
+                        project_id TEXT NOT NULL REFERENCES projects(id),
+                        artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+                        source_path TEXT NOT NULL,
+                        task_key TEXT NOT NULL,
+                        phase TEXT NOT NULL,
+                        phase_order INTEGER NOT NULL,
+                        parallel BOOLEAN NOT NULL DEFAULT FALSE,
+                        story TEXT,
+                        description TEXT NOT NULL,
+                        checkbox_done BOOLEAN NOT NULL DEFAULT FALSE,
+                        board_status TEXT NOT NULL DEFAULT 'todo',
+                        created_at TIMESTAMP NOT NULL,
+                        updated_at TIMESTAMP NOT NULL,
+                        UNIQUE(artifact_id, task_key)
+                    )
+                    """
+                )
                 # Sequences for atomic id generation - see create_project's
                 # docstring for why "SELECT COUNT(*) + 1" isn't safe under
                 # concurrent writers.
@@ -415,6 +444,143 @@ class PostgresArtifactRepository:
                     (exception_id, project_id),
                 )
                 conn.commit()
+
+    _KANBAN_TASK_COLUMNS = (
+        "id, project_id, artifact_id, source_path, task_key, phase, phase_order, "
+        "parallel, story, description, checkbox_done, board_status, created_at, updated_at"
+    )
+
+    def list_kanban_tasks(self, project_id: str) -> List[Dict[str, Any]]:
+        """All Kanban tasks for a project, across every tasks.md-classified
+        artifact - the Board tab groups these into swimlanes by source_path
+        client-side."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {self._KANBAN_TASK_COLUMNS} FROM kanban_tasks "
+                    "WHERE project_id = %s ORDER BY source_path, phase_order, task_key",
+                    (project_id,),
+                )
+                return [self._row_to_kanban_task(row) for row in cursor.fetchall()]
+
+    def list_kanban_tasks_for_artifact(self, artifact_id: str) -> List[Dict[str, Any]]:
+        """Used by the sync logic to diff the current DB state against a
+        freshly re-parsed tasks.md."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {self._KANBAN_TASK_COLUMNS} FROM kanban_tasks "
+                    "WHERE artifact_id = %s ORDER BY phase_order, task_key",
+                    (artifact_id,),
+                )
+                return [self._row_to_kanban_task(row) for row in cursor.fetchall()]
+
+    def upsert_kanban_task(self, task: Dict[str, Any], now: str) -> Dict[str, Any]:
+        """Insert or update by (artifact_id, task_key). created_at is only
+        ever set on first insert - the caller decides board_status (e.g.
+        preserving it across a resync unless the file's own checkbox newly
+        flipped to done), this just persists whatever it's given."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO kanban_tasks (
+                        project_id, artifact_id, source_path, task_key, phase, phase_order,
+                        parallel, story, description, checkbox_done, board_status, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (artifact_id, task_key) DO UPDATE SET
+                        source_path = EXCLUDED.source_path,
+                        phase = EXCLUDED.phase,
+                        phase_order = EXCLUDED.phase_order,
+                        parallel = EXCLUDED.parallel,
+                        story = EXCLUDED.story,
+                        description = EXCLUDED.description,
+                        checkbox_done = EXCLUDED.checkbox_done,
+                        board_status = EXCLUDED.board_status,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    (
+                        task["project_id"],
+                        task["artifact_id"],
+                        task["source_path"],
+                        task["task_key"],
+                        task["phase"],
+                        task["phase_order"],
+                        bool(task["parallel"]),
+                        task.get("story"),
+                        task["description"],
+                        bool(task["checkbox_done"]),
+                        task["board_status"],
+                        now,
+                        now,
+                    ),
+                )
+                conn.commit()
+                cursor.execute(
+                    f"SELECT {self._KANBAN_TASK_COLUMNS} FROM kanban_tasks WHERE artifact_id = %s AND task_key = %s",
+                    (task["artifact_id"], task["task_key"]),
+                )
+                return self._row_to_kanban_task(cursor.fetchone())
+
+    def update_kanban_task_status(
+        self,
+        task_id: int,
+        board_status: str,
+        now: str,
+        phase: Optional[str] = None,
+        phase_order: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Move a card between columns and, optionally (when dragged into a
+        different phase's board), between phase lanes too - phase/phase_order
+        are only included in the UPDATE when the caller actually supplied
+        them, so a plain same-phase column move never touches those columns."""
+        set_clauses = ["board_status = %s", "updated_at = %s"]
+        params: List[Any] = [board_status, now]
+        if phase is not None:
+            set_clauses.append("phase = %s")
+            params.append(phase)
+        if phase_order is not None:
+            set_clauses.append("phase_order = %s")
+            params.append(phase_order)
+        params.append(task_id)
+
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE kanban_tasks SET {', '.join(set_clauses)} WHERE id = %s",
+                    tuple(params),
+                )
+                conn.commit()
+                cursor.execute(
+                    f"SELECT {self._KANBAN_TASK_COLUMNS} FROM kanban_tasks WHERE id = %s",
+                    (task_id,),
+                )
+                row = cursor.fetchone()
+                return self._row_to_kanban_task(row) if row else None
+
+    def delete_kanban_task(self, task_id: int) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM kanban_tasks WHERE id = %s", (task_id,))
+                conn.commit()
+
+    def _row_to_kanban_task(self, row: Any) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "project_id": row["project_id"],
+            "artifact_id": row["artifact_id"],
+            "source_path": row["source_path"],
+            "task_key": row["task_key"],
+            "phase": row["phase"],
+            "phase_order": row["phase_order"],
+            "parallel": bool(row["parallel"]),
+            "story": row["story"],
+            "description": row["description"],
+            "checkbox_done": bool(row["checkbox_done"]),
+            "board_status": row["board_status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
 
     def _row_to_artifact(self, row: Any) -> Dict[str, Any]:
         """Convert a database row to an artifact dictionary."""

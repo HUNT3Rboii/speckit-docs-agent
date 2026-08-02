@@ -72,7 +72,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Initialize AI provider factory
-    aiFactory = new AIProviderFactory();
+    aiFactory = new AIProviderFactory(config.allowRuleBasedFallback);
     notificationService.info('Detecting AI providers...');
     const aiProvider = await aiFactory.detectProviders();
     notificationService.info(`AI Provider: ${aiProvider.getProviderName()}`);
@@ -80,8 +80,11 @@ export async function activate(context: vscode.ExtensionContext) {
     // Show AI provider notification
     const hasAI = await aiFactory.hasAIProvider();
     if (!hasAI) {
+      const message = config.allowRuleBasedFallback
+        ? 'No AI provider detected. Using rule-based fallback for document analysis.'
+        : 'No AI provider detected. Processing will fail until one is available (rule-based fallback is disabled - see speckit.allowRuleBasedFallback).';
       vscode.window.showInformationMessage(
-        'No AI provider detected. Using rule-based fallback for document analysis.',
+        message,
         'Install GitHub Copilot',
         'Learn More'
       ).then(selection => {
@@ -140,6 +143,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
       // Update pipeline settings
       transformPipeline.setMaxConcurrent(newConfig.maxConcurrentProcessing);
+      aiFactory.setAllowRuleBasedFallback(newConfig.allowRuleBasedFallback);
 
       // Restart file watcher with new patterns
       await fileWatcher.stop();

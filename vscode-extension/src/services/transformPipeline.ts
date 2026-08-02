@@ -245,17 +245,69 @@ export class TransformPipeline implements ITransformPipeline {
           MAX_CLIENT_CORRECTION_ATTEMPTS
         );
       }
-      const { result: enrichedJson, provider: usedProvider } = await this.transformWithAI(
-        content,
-        fileUri,
-        structuredError
-      );
+      let enrichedJson: StructuredJSON;
+      let usedProvider: string;
+      try {
+        const outcome = await this.transformWithAI(content, fileUri, structuredError);
+        enrichedJson = outcome.result;
+        usedProvider = outcome.provider;
+      } catch (error: any) {
+        // A malformed/truncated AI response (the provider's own JSON.parse
+        // throwing, e.g. a missing comma between array elements - a real,
+        // observed failure mode with smaller models on a large enough
+        // document) previously aborted this entire retry loop on attempt 1,
+        // even though it's exactly the class of problem the correction-
+        // prompt mechanism below already exists to fix for schema failures.
+        // The AI is often perfectly capable of correcting its own JSON
+        // syntax mistake when told specifically what broke and where -
+        // feed it back the same way instead of failing outright. Mirrors
+        // the sibling !parseResult.valid branch below exactly, including
+        // on the final attempt: falling through to the loop's natural
+        // "attempt cap reached" return (rather than throwing here) keeps
+        // both failure classes reported identically to the caller.
+        this.notificationService.info(
+          `AI response failed (attempt ${attempt}), asking for a correction: ${fileName} - ${error.message}`
+        );
+        structuredError = {
+          valid: false,
+          retry_count: retryCount + 1,
+          errors: { schema_errors: [error.message] },
+          warnings: []
+        };
+        retryCount += 1;
+        continue;
+      }
       provider = usedProvider;
 
       this.notificationService.info(`Validating JSON: ${fileName}`);
-      let validated = this.jsonParser.parseAndValidate(
+      const parseResult = this.tryParseAndValidate(
         typeof enrichedJson === 'string' ? enrichedJson : JSON.stringify(enrichedJson)
       );
+      if (!parseResult.valid) {
+        // Client-side JSON malformation/missing-fields is just as
+        // correctable as a backend validation failure - feed it back to
+        // the AI as a retry instead of treating it as an instant,
+        // unrecoverable failure. Previously this called
+        // jsonParser.parseAndValidate(), which throws on the first
+        // malformed response - that exception propagated all the way up
+        // through executeProcess()'s try/catch with no chance for the AI
+        // to fix it, ending the whole attempt on one bad response even
+        // though the exact same class of problem from the *backend*
+        // (missing_headings, ungrounded evidence, etc.) always gets a
+        // correction attempt.
+        this.notificationService.info(
+          `AI response had ${parseResult.errors.length} issue(s), asking for a correction (attempt ${attempt}): ${fileName}`
+        );
+        structuredError = {
+          valid: false,
+          retry_count: retryCount + 1,
+          errors: { schema_errors: parseResult.errors },
+          warnings: []
+        };
+        retryCount += 1;
+        continue;
+      }
+      let validated = parseResult.json;
 
       // AI generation is non-deterministic: a section that clearly warrants
       // a diagram (per heading alone) sometimes gets skipped anyway,
@@ -281,9 +333,16 @@ export class TransformPipeline implements ITransformPipeline {
             gapFillError
           );
           provider = filledProvider;
-          validated = this.jsonParser.parseAndValidate(
+          const gapFillResult = this.tryParseAndValidate(
             typeof filledJson === 'string' ? filledJson : JSON.stringify(filledJson)
           );
+          // Gap-filling is a best-effort enhancement (documented above) -
+          // if it comes back malformed, keep the already-valid
+          // pre-gap-fill JSON rather than losing a working document over
+          // an optional diagram-completeness pass.
+          if (gapFillResult.valid) {
+            validated = gapFillResult.json;
+          }
         }
       }
 
@@ -330,6 +389,29 @@ export class TransformPipeline implements ITransformPipeline {
   }
 
   /**
+   * Parse and validate an AI response without throwing - unlike
+   * jsonParser.parseAndValidate(), which throws on the first problem,
+   * making it unusable inside a retry loop that needs the specific error
+   * list to build a correction prompt rather than an unwind-the-stack
+   * exception.
+   */
+  private tryParseAndValidate(
+    jsonText: string
+  ): { valid: true; json: StructuredJSON } | { valid: false; errors: string[] } {
+    let parsed: StructuredJSON;
+    try {
+      parsed = this.jsonParser.parse(jsonText);
+    } catch (error: any) {
+      return { valid: false, errors: [`Response was not valid JSON: ${error.message}`] };
+    }
+    const result = this.jsonParser.validate(parsed);
+    if (!result.valid) {
+      return { valid: false, errors: result.errors };
+    }
+    return { valid: true, json: parsed };
+  }
+
+  /**
    * Read file content
    */
   private async readFile(fileUri: vscode.Uri): Promise<string> {
@@ -356,7 +438,17 @@ export class TransformPipeline implements ITransformPipeline {
   }> {
     try {
       const sourcePath = vscode.workspace.asRelativePath(fileUri);
-      return await this.aiFactory.transformWithFallback(markdown, sourcePath, structuredError);
+      const outcome = await this.aiFactory.transformWithFallback(markdown, sourcePath, structuredError);
+      if (outcome.provider === 'Rule-Based (Fallback)') {
+        // Previously silent: every real provider's detection/transform
+        // failure (unavailable, timeout, rate limit, malformed response)
+        // bottoms out here with no user-visible indication, so a document
+        // could quietly get the crude heading-only fallback treatment
+        // (no AI summarization, no diagrams/glossary, no task-friendly
+        // descriptions) and look like it "just worked".
+        this.notificationService.fallbackWarning(sourcePath);
+      }
+      return outcome;
     } catch (error: any) {
       throw new Error(`AI transformation failed: ${error.message}`);
     }

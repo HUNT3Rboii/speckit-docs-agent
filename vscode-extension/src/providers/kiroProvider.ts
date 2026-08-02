@@ -68,7 +68,8 @@ export class KiroProvider extends BaseAIProvider {
     }
 
     const sanitized = this.sanitizeMarkdown(markdown);
-    const prompt = this.buildTransformPrompt(sanitized, structuredError);
+    this.setTimeout(this.computeTimeout(sanitized));
+    const prompt = this.buildTransformPrompt(sanitized, structuredError, sourcePath);
 
     try {
       this.log('Sending request to Kiro...');

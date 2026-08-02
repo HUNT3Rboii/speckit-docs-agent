@@ -14,13 +14,41 @@ export class CopilotProvider extends BaseAIProvider {
   private model: vscode.LanguageModelChat | null = null;
 
   /**
-   * Check if GitHub Copilot is available
+   * Check if GitHub Copilot is available.
+   *
+   * Being signed into Copilot Chat is NOT sufficient on its own:
+   * vscode.lm.selectChatModels() also requires the user to have granted
+   * *this extension* permission to use language models (a separate,
+   * per-extension consent prompt) - if that was never approved/was
+   * dismissed, this returns an empty array with no error at all, which
+   * previously looked identical to "Copilot isn't installed". If the
+   * vendor-scoped lookup comes back empty, fall back to enumerating every
+   * model this extension CAN see (mirrors KiroProvider's same pattern) and
+   * log the result either way, so the actual failure mode (zero models
+   * exposed at all vs. Copilot registered under an unexpected vendor id)
+   * is visible in the output channel instead of just "not available".
    */
   public async isAvailable(): Promise<boolean> {
     try {
-      const models = await vscode.lm.selectChatModels({
+      let models = await vscode.lm.selectChatModels({
         vendor: 'copilot'
       });
+
+      if (models.length === 0) {
+        const allModels = await vscode.lm.selectChatModels();
+        this.log(
+          `No models found for vendor 'copilot'. All models visible to this extension: ${
+            allModels.length > 0
+              ? allModels.map(m => `${m.vendor}/${m.family}/${m.id}`).join(', ')
+              : '(none - check that this extension has been granted language model access)'
+          }`
+        );
+        models = allModels.filter(model =>
+          model.vendor?.toLowerCase().includes('copilot') ||
+          model.id.toLowerCase().includes('copilot') ||
+          model.name?.toLowerCase().includes('copilot')
+        );
+      }
 
       if (models.length > 0) {
         this.model = models[0];
@@ -57,7 +85,8 @@ export class CopilotProvider extends BaseAIProvider {
     }
 
     const sanitized = this.sanitizeMarkdown(markdown);
-    const prompt = this.buildTransformPrompt(sanitized, structuredError);
+    this.setTimeout(this.computeTimeout(sanitized));
+    const prompt = this.buildTransformPrompt(sanitized, structuredError, sourcePath);
 
     // Owned by this call (not a throwaway token) so it can be cancelled in
     // `finally` if we bail out via the timeout race below - otherwise the

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_api_key, get_output_dir, get_project_name, get_repository
-from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ExceptionCreate, ProjectCreate, ProjectResponse
+from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ExceptionCreate, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
 from app.services.agent_transform import AgentTransformService
 from app.services.ingestion import IngestionService
 from app.services.path_matching import path_matches_exception
@@ -222,6 +222,36 @@ def remove_exception(project_id: str, exception_id: int, _=Depends(require_api_k
             unhidden_artifact_ids.append(artifact["id"])
 
     return {"status": "ok", "unhidden_artifact_ids": unhidden_artifact_ids}
+
+
+@router.get("/api/projects/{project_id}/kanban-tasks")
+def list_kanban_tasks(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """All Kanban tasks for a project, across every tasks.md-classified
+    artifact - see AgenticPipelineService._sync_kanban_tasks for how these
+    get (re)populated. The Board tab groups these into swimlanes by
+    source_path client-side."""
+    repo, _, _, _, _, _ = get_services()
+    return {"tasks": repo.list_kanban_tasks(project_id)}
+
+
+@router.patch("/api/kanban-tasks/{task_id}")
+def update_kanban_task_status(
+    task_id: int, payload: KanbanTaskStatusUpdate, _=Depends(require_api_key)
+) -> Dict[str, Any]:
+    """Move a card between columns and, optionally, between phase lanes.
+    phase/phase_order are a manual override - like board_status, they
+    survive until the source tasks.md is reprocessed, at which point the
+    file's own phase for that task wins again (the board reflects the
+    file, not an independently-editable record) unless the task's own
+    checkbox/phase-heading genuinely changed in the file."""
+    repo, _, _, _, _, _ = get_services()
+    now = datetime.now(timezone.utc).isoformat()
+    task = repo.update_kanban_task_status(
+        task_id, payload.board_status, now, phase=payload.phase, phase_order=payload.phase_order
+    )
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task": task}
 
 
 @router.get("/api/doc-versions/{version_id}/pdf")

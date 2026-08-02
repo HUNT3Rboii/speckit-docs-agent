@@ -19,6 +19,24 @@ export class AIProviderFactory {
   private isDetected: boolean = false;
 
   /**
+   * When false (the default), transformWithFallback() never actually
+   * invokes RuleBasedProvider - it's still detected/tracked as a state
+   * (see detectProviders()) so hasAIProvider()/activation messaging keep
+   * working, but a real per-file transform either uses a real AI provider
+   * or throws a clear, actionable error. When true, restores the old
+   * "always eventually succeeds, possibly via rule-based" behavior.
+   */
+  constructor(private allowRuleBasedFallback: boolean = false) {}
+
+  /**
+   * Update the fallback policy after a live configuration change - see
+   * extension.ts's configManager.onConfigChange handler.
+   */
+  public setAllowRuleBasedFallback(value: boolean): void {
+    this.allowRuleBasedFallback = value;
+  }
+
+  /**
    * Detect available AI providers in priority order
    * Priority: Copilot → Claude → Kiro → Generic → Rule-based
    */
@@ -135,21 +153,43 @@ export class AIProviderFactory {
     // detectProviders()'s own fix was meant to close.
     await this.detectProviders();
 
-    // Try with detected provider first
-    if (this.detectedProvider) {
+    const isRuleBased = (provider: AIProvider) => provider.getProviderName() === 'Rule-Based (Fallback)';
+    // Collected so the final error is diagnostic ("Copilot timed out") rather
+    // than the generic "no AI provider is available" - which reads as
+    // flatly wrong to a user whose provider WAS detected at activation and
+    // just failed/timed out on this specific request.
+    const attemptErrors: string[] = [];
+
+    // Try with detected provider first - but never the rule-based fallback
+    // directly here, even if it's what detectProviders() landed on (no real
+    // provider found last detection): whether it's allowed to run at all is
+    // decided once, uniformly, in the loop below alongside every other
+    // provider, not short-circuited early for this one case.
+    if (this.detectedProvider && !isRuleBased(this.detectedProvider)) {
       try {
         const result = await this.detectedProvider.transform(markdown, sourcePath, structuredError);
         return {
           result,
           provider: this.detectedProvider.getProviderName()
         };
-      } catch (error) {
+      } catch (error: any) {
         console.error(`[AIProviderFactory] Primary provider failed, trying fallbacks:`, error);
+        attemptErrors.push(`${this.detectedProvider.getProviderName()}: ${error.message}`);
       }
     }
 
-    // Try all providers as fallback (fresh transform, no correction context)
+    // Try all providers as fallback (fresh transform, no correction context).
+    // Skips this.detectedProvider itself - it's the exact same instance
+    // already attempted above, so retrying it here would just wait out a
+    // second identical timeout for a provider that's already known to have
+    // failed, roughly doubling the wait before the user sees any error.
     for (const provider of this.providers) {
+      if (provider === this.detectedProvider) {
+        continue;
+      }
+      if (isRuleBased(provider) && !this.allowRuleBasedFallback) {
+        continue; // Never silently degrade unless explicitly opted in.
+      }
       try {
         if (await provider.isAvailable()) {
           const result = await provider.transform(markdown, sourcePath);
@@ -159,12 +199,21 @@ export class AIProviderFactory {
             provider: provider.getProviderName()
           };
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(`[AIProviderFactory] Fallback provider ${provider.getProviderName()} failed:`, error);
+        attemptErrors.push(`${provider.getProviderName()}: ${error.message}`);
       }
     }
 
-    throw new Error('All AI providers failed to transform document');
+    const detail = attemptErrors.length > 0 ? ` Attempt(s): ${attemptErrors.join('; ')}.` : '';
+    throw new Error(
+      this.allowRuleBasedFallback
+        ? `All AI providers failed to transform document.${detail}`
+        : `AI transformation failed and the rule-based fallback is disabled (speckit.allowRuleBasedFallback ` +
+          `is off).${detail} Turn that setting on to process with reduced quality instead of failing, or ` +
+          `investigate the attempt(s) above (e.g. a timeout means the provider was detected fine but didn't ` +
+          `respond in time).`
+    );
   }
 
   /**

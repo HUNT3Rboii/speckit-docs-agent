@@ -144,6 +144,26 @@ export class NotificationService implements INotificationService {
   }
 
   /**
+   * Warn that a file was processed with the rule-based (non-AI) fallback -
+   * no AI summarization, diagrams, glossary, or (for tasks.md) friendly
+   * task descriptions. Unlike warn() (output-channel log only, easy to miss
+   * since nothing prompts the user to go look), this also shows a popup:
+   * a document silently degrading to the crude fallback with zero visible
+   * indication was the exact failure mode Requirement-driven fixes here are
+   * meant to close.
+   */
+  public fallbackWarning(sourcePath: string): void {
+    const message = `${sourcePath} was processed with the rule-based fallback (no AI provider available or the AI request failed) - PDF/board content will be lower quality than usual for this file.`;
+    this.warn(message);
+
+    vscode.window.showWarningMessage(message, 'Show Logs').then(selection => {
+      if (selection === 'Show Logs') {
+        this.showLogs();
+      }
+    });
+  }
+
+  /**
    * Log info message
    */
   public info(message: string, ...args: any[]): void {

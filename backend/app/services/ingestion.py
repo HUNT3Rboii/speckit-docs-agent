@@ -38,7 +38,12 @@ class IngestionService:
             return "spec"
         if filename == "plan.md" or filename == "design.md":
             return "plan"
-        if "/tasks/" in lower_path or (source_tool_value == "kiro" and filename == "tasks.md"):
+        # Speckit's own tasks.md lives flat at specs/NNN-feature/tasks.md (no
+        # "/tasks/" directory segment) - matching on the filename alone
+        # covers that case as well as Kiro's identically-named file, so the
+        # source_tool_value branch that used to gate this to Kiro only is no
+        # longer needed.
+        if "/tasks/" in lower_path or filename == "tasks.md":
             return "task"
         if filename == "constitution.md":
             return "constitution"

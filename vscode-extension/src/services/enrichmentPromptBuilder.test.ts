@@ -257,6 +257,41 @@ describe('EnrichmentPromptBuilder', () => {
     });
   });
 
+  describe('task_list document type', () => {
+    it('does not mention taskDescriptions for a regular document', () => {
+      const markdown = '# Spec';
+      const prompt = builder.buildPrompt(markdown, 'document');
+
+      expect(prompt).not.toContain('taskDescriptions');
+      expect(prompt).not.toContain('Task Descriptions Guidance');
+    });
+
+    it('requests a taskDescriptions array and explains the schema for task_list', () => {
+      const markdown = '# Tasks\n\n- [ ] T001 Do the thing';
+      const prompt = builder.buildPrompt(markdown, 'task_list');
+
+      expect(prompt).toContain('taskDescriptions: TaskDescription[]');
+      expect(prompt).toContain('interface TaskDescription');
+      expect(prompt).toContain('Task Descriptions Guidance');
+      expect(prompt).toContain('taskKey');
+    });
+
+    it('asks for a plain-English rewrite rather than the raw checklist text', () => {
+      const markdown = '# Tasks';
+      const prompt = builder.buildPrompt(markdown, 'task_list');
+
+      expect(prompt.toLowerCase()).toContain('user-friendly');
+      expect(prompt).toContain('Do not just copy the raw text verbatim');
+    });
+
+    it('adds a task-descriptions completeness check to the self-check section', () => {
+      const markdown = '# Tasks';
+      const prompt = builder.buildPrompt(markdown, 'task_list');
+
+      expect(prompt).toContain('Task Descriptions Completeness Check');
+    });
+  });
+
   describe('prompt structure', () => {
     it('should have sections in logical order', () => {
       const markdown = '# Test';

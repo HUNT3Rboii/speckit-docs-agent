@@ -20,6 +20,7 @@ export class EnrichmentPromptBuilder {
    * @returns Complete prompt string for AI transformation
    */
   public buildPrompt(markdown: string, documentType: string = 'document'): string {
+    const isTaskList = documentType === 'task_list';
     return `# Task: Transform Markdown Document to Enriched JSON
 
 You are transforming a markdown document into a structured, enriched JSON format with evidence-based citations. Your output will be validated to ensure every claim you make is grounded in the actual source text.
@@ -42,8 +43,8 @@ Generate a single JSON object containing:
 3. **Diagrams** with evidence-cited components (where content warrants visualization)
 4. **Glossary** with evidence-cited terms (technical terms from the document)
 5. **Summaries** (executive summary and optional section summaries)
-
-${this.getSchemaSection()}
+${isTaskList ? '6. **Task descriptions** (a user-friendly one-sentence description for every checklist task item - see Task Descriptions Guidance below)\n' : ''}
+${this.getSchemaSection(isTaskList)}
 
 ${this.getEvidenceRequirementsSection()}
 
@@ -53,7 +54,9 @@ ${this.getGlossaryGuidanceSection()}
 
 ${this.getSummaryGuidanceSection()}
 
-${this.getSelfCheckInstructionsSection()}
+${isTaskList ? this.getTaskDescriptionsGuidanceSection() : ''}
+
+${this.getSelfCheckInstructionsSection(isTaskList)}
 
 ${this.getExamplesSection()}
 
@@ -67,7 +70,7 @@ Begin your transformation now:`;
   /**
    * Generate the complete JSON schema section
    */
-  private getSchemaSection(): string {
+  private getSchemaSection(includeTaskDescriptions: boolean = false): string {
     return `## Required JSON Schema
 
 \`\`\`typescript
@@ -78,7 +81,7 @@ interface EnrichedJSON {
   diagrams: Diagram[];              // AI-generated diagrams with evidence (0-10 diagrams)
   glossary: GlossaryEntry[];        // Term definitions with evidence (max 30 terms)
   summaries: Summaries;             // Executive and section summaries
-}
+${includeTaskDescriptions ? '  taskDescriptions: TaskDescription[]; // REQUIRED: one entry per checklist task item, see Task Descriptions Guidance\n' : ''}}
 
 interface Section {
   heading: string;                  // Section heading text (MUST match original heading)
@@ -130,7 +133,12 @@ interface Summaries {
   executiveSummary: string;         // 2-4 sentence document overview
   perSection?: Record<string, string>; // Optional: 1-2 sentence summary per section heading (for sections > 200 words)
 }
-\`\`\``;
+${includeTaskDescriptions ? `
+interface TaskDescription {
+  taskKey: string;                  // The task's ID exactly as it appears in the source (e.g. "T001")
+  description: string;              // Short, user-friendly one-sentence description of what the task involves
+}
+` : ''}\`\`\``;
   }
 
   /**
@@ -383,9 +391,41 @@ Example:
   }
 
   /**
+   * Generate task-descriptions guidance section (task-list documents only).
+   * The backend's Kanban board parses each checklist line's raw trailing
+   * text verbatim (e.g. "Implement POST /api/carts/{id}/items endpoint in
+   * src/api/routes/cart.py") as the card's description - this section asks
+   * the AI to also produce a plain-English rewrite per task, keyed by task
+   * ID, which the backend prefers over the raw text when present.
+   */
+  private getTaskDescriptionsGuidanceSection(): string {
+    return `## Task Descriptions Guidance (REQUIRED for task lists)
+
+This document is a task list (tasks.md). Besides the standard output above, produce a top-level \`taskDescriptions\` array with ONE entry for EVERY checklist task line in the source - lines matching the pattern \`- [ ] T0xx ...\` or \`- [x] T0xx ...\` (optionally preceded by \`[P]\`/\`[StoryName]\` tags). Do not skip any task, and do not invent tasks that aren't in the source.
+
+For each task:
+- \`taskKey\`: the task's ID exactly as written (e.g. "T001", "T012") - do not renumber or reformat it.
+- \`description\`: rewrite the raw checklist text into a short, clear, user-friendly ONE-SENTENCE description of what the task actually involves, in plain English. Do not just copy the raw text verbatim - explain it the way you'd describe it to someone skimming a project board, expanding file paths and jargon into plain language where it helps. Stay factual and grounded in what the task line actually says; don't invent scope the task doesn't have.
+
+Example:
+Raw checklist line: \`- [ ] T012 [P] [US2] Implement POST /api/carts/{id}/items endpoint in src/api/routes/cart.py\`
+Good \`description\`: "Add the API endpoint that lets a user add an item to their shopping cart."
+Bad \`description\` (just the raw text): "Implement POST /api/carts/{id}/items endpoint in src/api/routes/cart.py"
+
+\`\`\`json
+{
+  "taskDescriptions": [
+    { "taskKey": "T001", "description": "Set up the initial project folder structure and configuration." },
+    { "taskKey": "T002", "description": "Configure the linter so code style is checked automatically." }
+  ]
+}
+\`\`\``;
+  }
+
+  /**
    * Generate self-check instructions section
    */
-  private getSelfCheckInstructionsSection(): string {
+  private getSelfCheckInstructionsSection(includeTaskDescriptions: boolean = false): string {
     return `## Self-Check Instructions (REQUIRED)
 
 Before returning your JSON output, verify the following:
@@ -429,8 +469,15 @@ Before returning your JSON output, verify the following:
 ✓ Confirm field types match the schema (strings, arrays, objects)
 ✓ Confirm enum values (SectionType, DiagramType) are valid
 ✓ Confirm components[] and evidence fields are present for all diagrams/glossary
+${includeTaskDescriptions ? `
+### 5. Task Descriptions Completeness Check
 
-### 5. Common Mistakes to Avoid
+✓ Go through every checklist task line in the source (\`- [ ] T0xx ...\` / \`- [x] T0xx ...\`)
+✓ Confirm every single one has a matching entry in taskDescriptions[] by taskKey
+✓ Confirm each description is a genuine plain-English rewrite, not the raw checklist text copied verbatim
+✓ If any task is missing from taskDescriptions[], ADD IT now
+` : ''}
+### ${includeTaskDescriptions ? '6' : '5'}. Common Mistakes to Avoid
 
 ❌ Paraphrasing evidence instead of copying verbatim
 ❌ Dropping a clause from the MIDDLE of an otherwise-verbatim sentence to
@@ -440,6 +487,7 @@ Before returning your JSON output, verify the following:
 ❌ Creating glossary entries without evidence
 ❌ Invalid Mermaid syntax
 ❌ Wrong SectionType or DiagramType enum values
+${includeTaskDescriptions ? '❌ Copying the raw checklist text verbatim into a taskDescriptions[] description instead of rewriting it in plain English\n❌ Missing a taskDescriptions[] entry for a task that exists in the source' : ''}
 
 If you find any of these issues, FIX THEM before returning your JSON.`;
   }
