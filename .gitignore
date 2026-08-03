@@ -76,3 +76,21 @@ pdf-output/
 
 # Speckit Auto-AI: local-only task-progress signal files, never meant to be committed
 .speckit-auto-ai/
+
+# GitHub Speckit tooling scaffolding: command/agent definitions speckit init
+# generates (speckit.*.agent.md, speckit.*.prompt.md), plus
+# copilot-instructions.md - in a Speckit + Speckit Auto-AI project this ends
+# up entirely tool-generated too (Speckit's own <!-- SPECKIT ... --> block
+# plus this extension's auto-injected progress-tracking block), both
+# reproducible locally by their respective tools rather than needing to be
+# committed. If you ever hand-write real custom instructions into
+# copilot-instructions.md and want that specific version shared via git,
+# force-add it past this rule: `git add -f .github/copilot-instructions.md`
+# - once tracked that way it behaves like a normal file from then on.
+.github/agents/
+.github/prompts/
+.github/copilot-instructions.md
+
+# Kiro tooling scaffolding (specs, settings, task summaries)
+.kiro/
+.kiro-task-*.md
