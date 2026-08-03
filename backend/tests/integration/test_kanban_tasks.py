@@ -338,3 +338,114 @@ class TestKanbanTaskEndpoints:
         project_id = _project_id(client)
         assert client.get(f"/api/projects/{project_id}/kanban-tasks").status_code == 401
         assert client.patch("/api/kanban-tasks/1", json={"board_status": "done"}).status_code == 401
+
+
+class TestKanbanTaskProgressReport:
+    """
+    The live-progress endpoint an external agent (GitHub Copilot running
+    /speckit.implement, relayed via the VS Code extension's progress-file
+    watcher) reports task start/finish to - looked up by natural key
+    (source_path, task_key) since the reporting agent never knows our
+    internal numeric task id.
+    """
+
+    def test_reports_progress_by_source_path_and_task_key(self, client):
+        project_id = _project_id(client)
+        _process_tasks(client)
+
+        # The URL uses the project *name* ("demo-project"), matching how the
+        # extension actually calls this (see
+        # test_reports_progress_resolves_project_by_name_like_the_extension_does)
+        # - the real id is only used below to verify via the frontend-facing
+        # GET endpoint, which (unlike this one) does expect the literal id.
+        response = client.post(
+            "/api/projects/demo-project/kanban-tasks/report-progress",
+            json={"source_path": "specs/demo/tasks.md", "task_key": "T001", "board_status": "in_progress"},
+            headers=AUTH_HEADERS,
+        )
+        assert response.status_code == 200
+        assert response.json()["task"]["board_status"] == "in_progress"
+
+        tasks = client.get(f"/api/projects/{project_id}/kanban-tasks", headers=AUTH_HEADERS).json()["tasks"]
+        assert next(t for t in tasks if t["task_key"] == "T001")["board_status"] == "in_progress"
+
+    def test_reports_progress_does_not_touch_phase(self, client):
+        project_id = _project_id(client)
+        _process_tasks(client)
+        tasks = client.get(f"/api/projects/{project_id}/kanban-tasks", headers=AUTH_HEADERS).json()["tasks"]
+        original_phase = next(t for t in tasks if t["task_key"] == "T001")["phase"]
+
+        client.post(
+            "/api/projects/demo-project/kanban-tasks/report-progress",
+            json={"source_path": "specs/demo/tasks.md", "task_key": "T001", "board_status": "done"},
+            headers=AUTH_HEADERS,
+        )
+
+        tasks_after = client.get(f"/api/projects/{project_id}/kanban-tasks", headers=AUTH_HEADERS).json()["tasks"]
+        assert next(t for t in tasks_after if t["task_key"] == "T001")["phase"] == original_phase
+
+    def test_reports_progress_404s_for_a_task_not_yet_synced(self, client):
+        _project_id(client)  # "demo-project" exists...
+        # ...but no _process_tasks() call, so the board doesn't know about this task yet.
+        response = client.post(
+            "/api/projects/demo-project/kanban-tasks/report-progress",
+            json={"source_path": "specs/demo/tasks.md", "task_key": "T001", "board_status": "in_progress"},
+            headers=AUTH_HEADERS,
+        )
+        assert response.status_code == 404
+
+    def test_reports_progress_is_scoped_per_project(self, client):
+        _project_id(client, "project-a")
+        _project_id(client, "project-b")
+        _process_tasks(client, project_id="project-a")
+
+        response = client.post(
+            "/api/projects/project-b/kanban-tasks/report-progress",
+            json={"source_path": "specs/demo/tasks.md", "task_key": "T001", "board_status": "done"},
+            headers=AUTH_HEADERS,
+        )
+        assert response.status_code == 404
+
+    def test_reports_progress_rejects_an_invalid_status_value(self, client):
+        project_id = _project_id(client)
+        _process_tasks(client)
+
+        response = client.post(
+            f"/api/projects/{project_id}/kanban-tasks/report-progress",
+            json={"source_path": "specs/demo/tasks.md", "task_key": "T001", "board_status": "not-a-real-status"},
+            headers=AUTH_HEADERS,
+        )
+        assert response.status_code == 422
+
+    def test_reports_progress_requires_api_key(self, client):
+        project_id = _project_id(client)
+        response = client.post(
+            f"/api/projects/{project_id}/kanban-tasks/report-progress",
+            json={"source_path": "specs/demo/tasks.md", "task_key": "T001", "board_status": "done"},
+        )
+        assert response.status_code == 401
+
+    def test_reports_progress_resolves_project_by_name_like_the_extension_does(self, client):
+        """The VS Code extension calls this endpoint with the workspace/repo
+        root folder *name* in the URL (see transformPipeline.ts's
+        detectProvenance/projectRoot), not our internal "proj-N" id - the
+        same convention /api/process and /api/processing-status already
+        use. Regression coverage for a real bug: this endpoint originally
+        used the path parameter as a literal id lookup with no name->id
+        resolution, so every real call from the extension 404'd silently
+        (never caught by the other tests above, since they all passed the
+        real id directly rather than mirroring the extension's actual
+        calling convention)."""
+        project_id = _project_id(client, "demo-project")
+        _process_tasks(client, project_id="demo-project")
+
+        response = client.post(
+            "/api/projects/demo-project/kanban-tasks/report-progress",
+            json={"source_path": "specs/demo/tasks.md", "task_key": "T001", "board_status": "in_progress"},
+            headers=AUTH_HEADERS,
+        )
+        assert response.status_code == 200
+        assert response.json()["task"]["board_status"] == "in_progress"
+
+        tasks = client.get(f"/api/projects/{project_id}/kanban-tasks", headers=AUTH_HEADERS).json()["tasks"]
+        assert next(t for t in tasks if t["task_key"] == "T001")["board_status"] == "in_progress"

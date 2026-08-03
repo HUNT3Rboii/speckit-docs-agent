@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -10,6 +11,13 @@ try:
 except ImportError:
     psycopg2 = None
     RealDictCursor = None
+
+# Tooling/config directories no project ever wants converted to PDFs -
+# excluded by default for every new project (server-side, so it applies
+# regardless of any given client's own exclude-pattern config). The user
+# can still remove any of these via the Exceptions tab; removal is
+# permanent since this only ever runs once, at project creation.
+DEFAULT_EXCLUDED_PATHS = (".specify/templates", ".github", ".claude")
 
 
 class PostgresArtifactRepository:
@@ -210,11 +218,13 @@ class PostgresArtifactRepository:
                         (project_id, name, repo_url),
                     )
                     result = cursor.fetchone()
-                    conn.commit()
                     if result:
+                        self._seed_default_exceptions(cursor, project_id)
+                        conn.commit()
                         return dict(result)
                     # Another concurrent call already created this name -
                     # return that row instead.
+                    conn.commit()
                     cursor.execute("SELECT id, name, repo_url FROM projects WHERE name = %s", (name,))
                     return dict(cursor.fetchone())
 
@@ -225,8 +235,25 @@ class PostgresArtifactRepository:
                     (project_id, name, repo_url),
                 )
                 result = cursor.fetchone()
+                self._seed_default_exceptions(cursor, project_id)
                 conn.commit()
                 return dict(result)
+
+    def _seed_default_exceptions(self, cursor, project_id: str) -> None:
+        """Seeds DEFAULT_EXCLUDED_PATHS for a brand-new project. Only ever
+        called right after a genuinely new project row was inserted (never
+        on the "get" branch of get-or-create), so this runs exactly once
+        per project - any later removal via the Exceptions tab is
+        permanent."""
+        now = datetime.now(timezone.utc).isoformat()
+        for default_path in DEFAULT_EXCLUDED_PATHS:
+            cursor.execute(
+                """
+                INSERT INTO excluded_paths (project_id, source_path, created_at) VALUES (%s, %s, %s)
+                ON CONFLICT (project_id, source_path) DO NOTHING
+                """,
+                (project_id, default_path, now),
+            )
 
     def next_artifact_id(self) -> str:
         """Atomically reserve and return the next global artifact id
@@ -474,6 +501,23 @@ class PostgresArtifactRepository:
                     (artifact_id,),
                 )
                 return [self._row_to_kanban_task(row) for row in cursor.fetchall()]
+
+    def get_kanban_task_by_key(
+        self, project_id: str, source_path: str, task_key: str
+    ) -> Optional[Dict[str, Any]]:
+        """Looks up a task by its natural key (source_path, task_key) rather
+        than our internal numeric id - used by the live progress-report
+        endpoint, whose caller (an external agent working through tasks.md)
+        only ever knows a task by that key, never our DB id."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {self._KANBAN_TASK_COLUMNS} FROM kanban_tasks "
+                    "WHERE project_id = %s AND source_path = %s AND task_key = %s",
+                    (project_id, source_path, task_key),
+                )
+                row = cursor.fetchone()
+                return self._row_to_kanban_task(row) if row else None
 
     def upsert_kanban_task(self, task: Dict[str, Any], now: str) -> Dict[str, Any]:
         """Insert or update by (artifact_id, task_key). created_at is only

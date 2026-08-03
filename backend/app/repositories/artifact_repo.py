@@ -3,7 +3,15 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+# Tooling/config directories no project ever wants converted to PDFs -
+# excluded by default for every new project (server-side, so it applies
+# regardless of any given client's own exclude-pattern config). The user
+# can still remove any of these via the Exceptions tab; removal is
+# permanent since this only ever runs once, at project creation.
+DEFAULT_EXCLUDED_PATHS = (".specify/templates", ".github", ".claude")
 
 
 class ArtifactRepository:
@@ -181,6 +189,12 @@ class ArtifactRepository:
                     "INSERT INTO projects (id, name, repo_url) VALUES (?, ?, ?)",
                     (project_id, name, repo_url),
                 )
+                now = datetime.now(timezone.utc).isoformat()
+                for default_path in DEFAULT_EXCLUDED_PATHS:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO excluded_paths (project_id, source_path, created_at) VALUES (?, ?, ?)",
+                        (project_id, default_path, now),
+                    )
                 connection.commit()
                 return {"id": project_id, "name": name, "repo_url": repo_url}
             except sqlite3.IntegrityError:
@@ -379,6 +393,21 @@ class ArtifactRepository:
                 (artifact_id,),
             ).fetchall()
         return [self._row_to_kanban_task(row) for row in rows]
+
+    def get_kanban_task_by_key(
+        self, project_id: str, source_path: str, task_key: str
+    ) -> Optional[Dict[str, Any]]:
+        """Looks up a task by its natural key (source_path, task_key) rather
+        than our internal numeric id - used by the live progress-report
+        endpoint, whose caller (an external agent working through tasks.md)
+        only ever knows a task by that key, never our DB id."""
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT {self._KANBAN_TASK_COLUMNS} FROM kanban_tasks "
+                "WHERE project_id = ? AND source_path = ? AND task_key = ?",
+                (project_id, source_path, task_key),
+            ).fetchone()
+        return self._row_to_kanban_task(row) if row else None
 
     def upsert_kanban_task(self, task: Dict[str, Any], now: str) -> Dict[str, Any]:
         """Insert or update by (artifact_id, task_key). created_at is only

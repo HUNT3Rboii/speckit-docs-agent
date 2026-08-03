@@ -57,6 +57,7 @@ export class ConfigurationManager {
         '**/node_modules/**',
         '**/.git/**',
         '**/.vscode/**',
+        '**/.github/**',
         '**/.ai-requests/**',
         '**/.ai-responses/**',
         '**/dist/**',
@@ -80,6 +81,7 @@ export class ConfigurationManager {
       10
     );
     const allowRuleBasedFallback = config.get<boolean>('allowRuleBasedFallback') ?? false;
+    const enableCopilotProgressTracking = config.get<boolean>('enableCopilotProgressTracking') ?? true;
 
     return {
       backendUrl,
@@ -90,7 +92,8 @@ export class ConfigurationManager {
       enableDebugLogging,
       debounceMs,
       maxConcurrentProcessing,
-      allowRuleBasedFallback
+      allowRuleBasedFallback,
+      enableCopilotProgressTracking
     };
   }
 

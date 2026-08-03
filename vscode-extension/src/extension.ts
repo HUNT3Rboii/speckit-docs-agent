@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { ConfigurationManager } from './services/config';
 import { FileWatcher } from './services/fileWatcher';
 import { AIProviderFactory } from './services/aiProviderFactory';
@@ -11,6 +12,9 @@ import { JSONParser } from './services/jsonParser';
 import { BackendClient } from './services/backendClient';
 import { NotificationService } from './services/notificationService';
 import { TransformPipeline } from './services/transformPipeline';
+import { CopilotInstructionsService } from './services/copilotInstructionsService';
+import { GitignoreService } from './services/gitignoreService';
+import { ProgressFileWatcher } from './services/progressFileWatcher';
 
 // Global service instances
 let configManager: ConfigurationManager;
@@ -20,6 +24,9 @@ let jsonParser: JSONParser;
 let backendClient: BackendClient;
 let notificationService: NotificationService;
 let transformPipeline: TransformPipeline;
+let copilotInstructionsService: CopilotInstructionsService;
+let gitignoreService: GitignoreService;
+let progressFileWatcher: ProgressFileWatcher;
 
 /**
  * Extension activation
@@ -108,6 +115,15 @@ export async function activate(context: vscode.ExtensionContext) {
       config.maxConcurrentProcessing
     );
 
+    // Live Kanban task-progress tracking: auto-provision Copilot
+    // instructions + a progress-signal watcher for any Speckit project in
+    // this workspace (see copilotInstructionsMerge.ts for exactly what
+    // Copilot is asked to do).
+    copilotInstructionsService = new CopilotInstructionsService();
+    gitignoreService = new GitignoreService();
+    progressFileWatcher = new ProgressFileWatcher();
+    await setupCopilotProgressTracking(config);
+
     // Initialize file watcher
     fileWatcher = new FileWatcher({
       includePatterns: config.includePatterns,
@@ -144,6 +160,10 @@ export async function activate(context: vscode.ExtensionContext) {
       // Update pipeline settings
       transformPipeline.setMaxConcurrent(newConfig.maxConcurrentProcessing);
       aiFactory.setAllowRuleBasedFallback(newConfig.allowRuleBasedFallback);
+
+      // Re-evaluate live progress tracking (starts/stops the watcher if the
+      // setting was just toggled; re-provisioning is a no-op if already done).
+      await setupCopilotProgressTracking(newConfig);
 
       // Restart file watcher with new patterns
       await fileWatcher.stop();
@@ -184,6 +204,57 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 /**
+ * Sets up (or, if disabled, tears down) live Kanban task-progress tracking:
+ * for every workspace folder that looks like a Speckit project (has a
+ * .specify/ directory), auto-provisions .github/copilot-instructions.md +
+ * a .gitignore entry, then watches that folder's
+ * .speckit-auto-ai/progress/ for signals to relay to the backend. Called
+ * both at activation and on every config change, so toggling
+ * speckit.enableCopilotProgressTracking takes effect immediately without
+ * requiring a window reload.
+ */
+async function setupCopilotProgressTracking(config: { enableCopilotProgressTracking: boolean }): Promise<void> {
+  progressFileWatcher.dispose();
+
+  if (!config.enableCopilotProgressTracking) {
+    return;
+  }
+
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  for (const folder of folders) {
+    const specifyDirUri = vscode.Uri.joinPath(folder.uri, '.specify');
+    try {
+      await vscode.workspace.fs.stat(specifyDirUri);
+    } catch {
+      continue; // Not a Speckit project (no .specify/) - nothing to provision here.
+    }
+
+    const wasAdded = await copilotInstructionsService.ensureInstructions(folder.uri);
+    await gitignoreService.ensureProgressDirIgnored(folder.uri);
+
+    if (wasAdded) {
+      notificationService.info(`Added live task-progress-tracking instructions to ${folder.name}'s .github/copilot-instructions.md`);
+      vscode.window.showInformationMessage(
+        `Speckit Auto-AI added Copilot instructions for live task-progress tracking to "${folder.name}" ` +
+          `(.github/copilot-instructions.md). If you have an existing Copilot Chat conversation open, start ` +
+          `a new one for it to pick up the change.`,
+        'Show Logs'
+      ).then(selection => {
+        if (selection === 'Show Logs') {
+          notificationService.showLogs();
+        }
+      });
+    }
+
+    const projectId = path.basename(folder.uri.fsPath);
+    progressFileWatcher.start(folder, (signal) => {
+      notificationService.debug(`Progress signal for ${signal.task_key} (${signal.source_path}): ${signal.status}`);
+      void backendClient.reportKanbanProgress(projectId, signal.source_path, signal.task_key, signal.status);
+    });
+  }
+}
+
+/**
  * Extension deactivation
  */
 export async function deactivate() {
@@ -193,6 +264,11 @@ export async function deactivate() {
     // Stop file watcher
     if (fileWatcher) {
       await fileWatcher.stop();
+    }
+
+    // Stop the progress-signal watcher
+    if (progressFileWatcher) {
+      progressFileWatcher.dispose();
     }
 
     // Dispose services

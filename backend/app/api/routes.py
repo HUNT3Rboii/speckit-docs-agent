@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_api_key, get_output_dir, get_project_name, get_repository
-from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ExceptionCreate, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
+from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ExceptionCreate, KanbanTaskProgressReport, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
 from app.services.agent_transform import AgentTransformService
 from app.services.ingestion import IngestionService
 from app.services.path_matching import path_matches_exception
@@ -251,6 +251,45 @@ def update_kanban_task_status(
     )
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    return {"task": task}
+
+
+@router.post("/api/projects/{project_id}/kanban-tasks/report-progress")
+def report_kanban_task_progress(
+    project_id: str, payload: KanbanTaskProgressReport, _=Depends(require_api_key)
+) -> Dict[str, Any]:
+    """
+    Best-effort live progress signal for a single task, relayed by the VS
+    Code extension's local progress-file watcher (see
+    progressFileWatcher.ts) from signals an external agent - e.g. GitHub
+    Copilot running /speckit.implement - drops while it works through a
+    tasks.md. Looked up by (project_id, source_path, task_key) since the
+    reporting agent only ever knows a task's natural key, never our
+    internal numeric id.
+
+    project_id here is actually the workspace/repo root folder *name* (see
+    transformPipeline.ts's detectProvenance/projectRoot), same as every
+    other endpoint the extension calls (/api/process,
+    /api/processing-status) - it must go through the same
+    _resolve_or_create_project name->id resolution those use, or this would
+    look up kanban_tasks under the literal folder-name string instead of
+    the real "proj-N" id those rows are actually stored under, 404ing on
+    every single call.
+
+    A task the board doesn't know about yet (e.g. the file hasn't been
+    through the pipeline a first time) 404s rather than being silently
+    created - a progress report isn't itself enough information to
+    fabricate a whole task row (phase, description, etc.).
+    """
+    from app.api.process_routes import _resolve_or_create_project
+
+    repo, _, _, _, _, _ = get_services()
+    resolved_project_id = _resolve_or_create_project(repo, project_id)
+    existing = repo.get_kanban_task_by_key(resolved_project_id, payload.source_path, payload.task_key)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    now = datetime.now(timezone.utc).isoformat()
+    task = repo.update_kanban_task_status(existing["id"], payload.board_status, now)
     return {"task": task}
 
 

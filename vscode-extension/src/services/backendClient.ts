@@ -112,6 +112,31 @@ export class BackendClient implements IBackendClient {
   }
 
   /**
+   * Relay a live task-progress signal (see progressFileWatcher.ts) to the
+   * backend. Best-effort, like reportStep(): a task the board doesn't know
+   * about yet (404, e.g. tasks.md hasn't been processed once already) or a
+   * flaky/offline backend must never throw or otherwise disrupt anything -
+   * this is a side-channel convenience signal, not part of the critical
+   * processing pipeline.
+   */
+  public async reportKanbanProgress(
+    projectId: string,
+    sourcePath: string,
+    taskKey: string,
+    boardStatus: string
+  ): Promise<void> {
+    try {
+      await this.makeRequest(`/api/projects/${encodeURIComponent(projectId)}/kanban-tasks/report-progress`, {
+        source_path: sourcePath,
+        task_key: taskKey,
+        board_status: boardStatus
+      });
+    } catch (error) {
+      console.log('[BackendClient] reportKanbanProgress failed (non-fatal):', error);
+    }
+  }
+
+  /**
    * Check backend health/availability
    */
   public async checkHealth(): Promise<boolean> {

@@ -102,3 +102,65 @@ describe('BackendClient.reportStep', () => {
     ).resolves.toEqual({ excluded: false });
   });
 });
+
+describe('BackendClient.reportKanbanProgress', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('POSTs to the project-scoped report-progress endpoint with the task key and status', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ task: { id: 1, board_status: 'in_progress' } })
+    });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await client.reportKanbanProgress('proj-1', 'specs/demo/tasks.md', 'T003', 'in_progress');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:8000/api/projects/proj-1/kanban-tasks/report-progress');
+    expect(JSON.parse(options.body)).toEqual({
+      source_path: 'specs/demo/tasks.md',
+      task_key: 'T003',
+      board_status: 'in_progress'
+    });
+  });
+
+  it('URL-encodes the project id', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await client.reportKanbanProgress('my project', 'specs/demo/tasks.md', 'T003', 'done');
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:8000/api/projects/my%20project/kanban-tasks/report-progress');
+  });
+
+  it('never throws when the task is not yet known to the board (404)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => 'Task not found'
+    }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(
+      client.reportKanbanProgress('proj-1', 'specs/demo/tasks.md', 'T003', 'in_progress')
+    ).resolves.toBeUndefined();
+  });
+
+  it('never throws when the backend is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network down')) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(
+      client.reportKanbanProgress('proj-1', 'specs/demo/tasks.md', 'T003', 'done')
+    ).resolves.toBeUndefined();
+  });
+});

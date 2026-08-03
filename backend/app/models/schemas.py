@@ -35,6 +35,19 @@ class KanbanTaskStatusUpdate(BaseModel):
     phase_order: Optional[int] = None
 
 
+class KanbanTaskProgressReport(BaseModel):
+    """
+    Live progress signal for a task, identified by (project_id, source_path,
+    task_key) rather than our internal numeric id - the reporting agent
+    (GitHub Copilot, relayed via the VS Code extension's progress-file
+    watcher) only ever knows a task by its natural key from tasks.md, never
+    our DB id.
+    """
+    source_path: str
+    task_key: str
+    board_status: str = Field(..., pattern="^(todo|in_progress|done)$")
+
+
 class ArtifactIngestStructuredRequest(BaseModel):
     project_id: str
     source_path: str

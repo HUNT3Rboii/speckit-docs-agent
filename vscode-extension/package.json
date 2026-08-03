@@ -92,6 +92,7 @@
             "**/node_modules/**",
             "**/.git/**",
             "**/.vscode/**",
+            "**/.github/**",
             "**/.ai-requests/**",
             "**/.ai-responses/**",
             "**/dist/**",
@@ -134,6 +135,12 @@
           "default": false,
           "description": "Allow falling back to a lower-quality rule-based transform when no AI provider is available or the AI request fails. When off (default), processing fails with a clear error instead, so you notice and fix AI availability rather than silently getting a degraded PDF/board.",
           "order": 9
+        },
+        "speckit.enableCopilotProgressTracking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-provision .github/copilot-instructions.md (and a .gitignore entry) with live task-progress-tracking instructions in Speckit projects, and watch for the resulting signal files, so the Kanban board can show a task as \"In Progress\" while Copilot works on it, not just \"Done\" once its checkbox is saved.",
+          "order": 10
         }
       }
     }

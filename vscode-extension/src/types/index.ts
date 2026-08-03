@@ -282,6 +282,15 @@ export interface ExtensionConfig {
    * lower-quality PDF/board that looks like it "just worked".
    */
   allowRuleBasedFallback: boolean;
+  /**
+   * Auto-provision .github/copilot-instructions.md (and a .gitignore entry)
+   * with live task-progress-tracking instructions in any workspace that
+   * looks like a Speckit project, and watch for the resulting signal files
+   * so the Kanban board can show "In Progress" while Copilot works through
+   * a tasks.md, not just "Done" once a checkbox is saved. On by default;
+   * off entirely skips writing to those project files.
+   */
+  enableCopilotProgressTracking: boolean;
 }
 
 /**

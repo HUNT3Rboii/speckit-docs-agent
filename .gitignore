@@ -73,3 +73,6 @@ pdf-output/
 # Compiled files
 *.pyc
 *.pyo
+
+# Speckit Auto-AI: local-only task-progress signal files, never meant to be committed
+.speckit-auto-ai/
