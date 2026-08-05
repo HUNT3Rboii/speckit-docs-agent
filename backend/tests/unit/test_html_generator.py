@@ -174,7 +174,10 @@ class TestGenerateCoverPage:
         assert "My Title" in html
         assert "My summary" in html
         assert "a.md" in html
-        assert "abc" in html
+        # "commit" is deliberately no longer rendered on the cover page -
+        # passing it in metadata (as older callers still may) must not
+        # raise, but it should simply be dropped, not displayed.
+        assert "abc" not in html
 
     def test_includes_project_framework_and_model_when_provided(self, generator):
         html = generator.generate_cover_page(
@@ -223,7 +226,7 @@ class TestGenerateCoverPage:
 
 
 class TestGenerateHtmlProvenanceFields:
-    def test_project_framework_and_model_flow_through_generate_html(self, generator, sample_enriched_json):
+    def test_project_and_model_flow_through_generate_html(self, generator, sample_enriched_json):
         html = generator.generate_html(
             sample_enriched_json,
             {},
@@ -232,8 +235,12 @@ class TestGenerateHtmlProvenanceFields:
             model_used="Anthropic — Claude Sonnet 5",
         )
         assert "speckit-docs-agent" in html
-        assert "claude-code" in html
         assert "Anthropic — Claude Sonnet 5" in html
+        # "Authored With" (the framework label) is deliberately no longer
+        # rendered on the cover page - passing authoring_framework (as
+        # older callers still may) must not raise, but it should simply be
+        # dropped, not displayed.
+        assert "claude-code" not in html
 
     def test_generate_html_still_works_without_provenance_fields(self, generator, sample_enriched_json):
         """Existing callers (and the legacy pipeline) don't pass these -
@@ -267,6 +274,17 @@ class TestSectionRenderingByType:
         assert "task-checkbox checked" in html
         assert "Write spec" in html
         assert "Implement feature" in html
+
+    def test_checked_task_renders_a_green_checkmark_not_a_blue_fill(self, generator, sample_enriched_json):
+        html = generator.generate_html(sample_enriched_json, {})
+        # A checked item gets an actual checkmark glyph inside its span,
+        # not just an empty box styled with a solid blue background.
+        assert '<span class="task-checkbox checked">✓</span>' in html
+        assert "background-color: #0066cc" not in html
+
+    def test_unchecked_task_renders_an_empty_box(self, generator, sample_enriched_json):
+        html = generator.generate_html(sample_enriched_json, {})
+        assert '<span class="task-checkbox"></span>' in html
 
     def test_design_decision_section_uses_callout_wrapper(self, generator, sample_enriched_json):
         html = generator.generate_html(sample_enriched_json, {})

@@ -147,7 +147,7 @@ class HTMLGeneratorService:
         }
 
         section {
-            margin-bottom: 0.5in;
+            margin-bottom: 0.35in;
             page-break-inside: avoid;
         }
 
@@ -156,6 +156,20 @@ class HTMLGeneratorService:
             margin-bottom: 0.2in;
             color: #1a1a1a;
             page-break-after: avoid;
+        }
+
+        /* A section's own heading is its first element - its margin-top
+           would otherwise stack on top of the previous section's own
+           margin-bottom, doubling the visual gap between sections
+           (0.35in + 0.3in = 0.65in) to something inconsistent with the
+           spacing everywhere else. */
+        section > h1:first-child,
+        section > h2:first-child,
+        section > h3:first-child,
+        section > h4:first-child,
+        section > h5:first-child,
+        section > h6:first-child {
+            margin-top: 0;
         }
 
         h1 {
@@ -242,6 +256,8 @@ class HTMLGeneratorService:
 
         .diagram-image {
             max-width: 100%;
+            max-height: 8in;
+            width: auto;
             height: auto;
             border: 1px solid #ddd;
             padding: 0.15in;
@@ -323,14 +339,21 @@ class HTMLGeneratorService:
         }
 
         .task-checkbox {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             width: 0.2in;
             height: 0.2in;
             margin-right: 0.1in;
             border: 1px solid #999;
+            font-size: 12px;
+            line-height: 1;
         }
 
         .task-checkbox.checked {
-            background-color: #0066cc;
+            border-color: #22863a;
+            color: #22863a;
+            font-weight: bold;
         }
 
         /* Lists */
@@ -448,10 +471,8 @@ class HTMLGeneratorService:
         metadata = {
             "type": artifact_type,
             "source": source_path,
-            "commit": commit_hash or "N/A",
             "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "project": project_root,
-            "framework": authoring_framework,
             "model": model_used,
         }
 
@@ -502,25 +523,23 @@ class HTMLGeneratorService:
         Args:
             title: Document title
             summary: Executive summary or abstract to display
-            metadata: Dict with optional "project", "framework", "model", "type",
-                "source", "commit", "generated" keys - any falsy/absent value is
-                simply omitted from the rendered metadata block (keeps this
-                backward compatible with callers that don't pass the newer keys)
+            metadata: Dict with optional "project", "model", "type", "source",
+                "generated" keys - any falsy/absent value is simply omitted
+                from the rendered metadata block (keeps this backward
+                compatible with callers that don't pass the newer keys)
 
         Returns:
             HTML string for the cover page section
         """
         labels = {
             "project": "Project",
-            "framework": "Authored With",
             "model": "Enriched By",
             "type": "Type",
             "source": "Source",
-            "commit": "Commit",
             "generated": "Generated",
         }
         meta_items = []
-        for key in ("project", "framework", "model", "type", "source", "commit", "generated"):
+        for key in ("project", "model", "type", "source", "generated"):
             value = metadata.get(key)
             if value:
                 meta_items.append(
@@ -712,8 +731,9 @@ class HTMLGeneratorService:
                 checked = match.group(1).lower() == "x"
                 text = match.group(2)
                 css_class = "task-checkbox checked" if checked else "task-checkbox"
+                checkmark = "✓" if checked else ""
                 items.append(
-                    f'<div class="task-item"><span class="{css_class}"></span>'
+                    f'<div class="task-item"><span class="{css_class}">{checkmark}</span>'
                     f"<span>{self._escape_html(text)}</span></div>"
                 )
             elif line.strip():
