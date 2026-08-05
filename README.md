@@ -18,7 +18,7 @@ Automatically generate polished PDF documentation from markdown files using AI-p
 
 ## ⚡ Quick Start
 
-### Step 1: Start the Backend
+### Step 1: Start Everything
 
 Pick one:
 
@@ -26,9 +26,9 @@ Pick one:
 ```powershell
 .\START-EVERYTHING.ps1
 ```
-Starts FastAPI + PostgreSQL on `http://localhost:8000`. Rebuilds the image every time (`--build`), since the Dockerfile installs Node.js + mmdc for diagram rendering.
+Starts FastAPI + PostgreSQL on `http://localhost:8000` and the frontend dashboard on `http://localhost:5173` (installing frontend dependencies first if this is a fresh clone). Rebuilds the backend image every time (`--build`), since the Dockerfile installs Node.js + mmdc for diagram rendering.
 
-**Local / fast dev loop** (no Docker, SQLite, diagrams fall back to the Kroki API since mmdc isn't installed locally):
+**Local / fast dev loop, backend only** (no Docker, SQLite, diagrams fall back to the Kroki API since mmdc isn't installed locally):
 ```powershell
 cd backend
 $env:DOC_AGENT_DB_PATH="$PWD\doc_agent.sqlite3"
@@ -283,8 +283,7 @@ VS Code Settings (`Ctrl+,` or `Cmd+,` → search "Speckit"):
 ├── infra/
 │   └── docker-compose.yml
 │
-├── START-EVERYTHING.ps1     # Build + start Docker backend
-├── START-ALL-DOCKER.ps1     # Backend + frontend (Docker)
+├── START-EVERYTHING.ps1     # Build + start Docker backend + frontend
 ├── INSTALL-EXTENSION.ps1    # Uninstall, rebuild, test, reinstall extension
 └── README.md
 ```

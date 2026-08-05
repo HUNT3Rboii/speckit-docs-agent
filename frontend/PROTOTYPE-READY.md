@@ -51,21 +51,21 @@ Create `frontend/.env.development`:
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000
-VITE_API_KEY=dev-api-key
+VITE_API_KEY=dev-key
 ```
 
 ### 3. Start Development Server
 
 ```powershell
-# From project root
-.\START-FRONTEND.ps1
+# From project root (also starts the backend)
+.\START-EVERYTHING.ps1
 
-# OR from frontend directory
+# OR frontend only
 cd frontend
 npm run dev
 ```
 
-The app will be available at **http://localhost:3000**
+The app will be available at **http://localhost:5173**
 
 ### 4. Make Sure Backend is Running
 
