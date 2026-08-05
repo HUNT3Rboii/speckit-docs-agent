@@ -101,11 +101,14 @@ export class NotificationService implements INotificationService {
   }
 
   /**
-   * Show error notification
+   * Show error notification. `onRetry`, when provided, adds a "Retry"
+   * action that re-runs whatever failed - the caller (TransformPipeline)
+   * owns what "retry" actually means (re-processing the same file), this
+   * service only surfaces the button and invokes the callback.
    */
-  public error(error: Error): void {
+  public error(error: Error, onRetry?: () => void): void {
     const message = `Speckit processing failed: ${error.message}`;
-    
+
     this.logError(message, error);
     this.statusBarItem.text = `$(error) Speckit: Error`;
     this.statusBarItem.show();
@@ -113,12 +116,11 @@ export class NotificationService implements INotificationService {
     // Hide status after 5 seconds
     setTimeout(() => this.statusBarItem.hide(), 5000);
 
-    vscode.window.showErrorMessage(
-      message,
-      'Show Details',
-      'Show Logs'
-    ).then(selection => {
-      if (selection === 'Show Details') {
+    const actions = onRetry ? ['Retry', 'Show Details', 'Show Logs'] : ['Show Details', 'Show Logs'];
+    vscode.window.showErrorMessage(message, ...actions).then(selection => {
+      if (selection === 'Retry') {
+        onRetry?.();
+      } else if (selection === 'Show Details') {
         this.outputChannel.show();
       } else if (selection === 'Show Logs') {
         this.showLogs();

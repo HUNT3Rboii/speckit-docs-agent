@@ -433,8 +433,8 @@ export interface NotificationService {
   success(result: IngestResponse): void;
   /** Show partial-success notification (some diagrams/glossary entries were dropped) */
   partial?(response: ProcessResponse): void;
-  /** Show error notification */
-  error(error: Error): void;
+  /** Show error notification. `onRetry`, when provided, adds a "Retry" action. */
+  error(error: Error, onRetry?: () => void): void;
   /** Show progress for multiple files */
   progress(current: number, total: number): void;
 }

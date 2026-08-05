@@ -242,7 +242,9 @@ export class TransformPipeline implements ITransformPipeline {
         return { success: false, error, cancelled: true };
       }
 
-      this.notificationService.error(error);
+      this.notificationService.error(error, () => {
+        void this.process(fileUri);
+      });
 
       return {
         success: false,
