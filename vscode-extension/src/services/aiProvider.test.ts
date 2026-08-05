@@ -211,6 +211,15 @@ describe('BaseAIProvider.parseJSON', () => {
     expect(result.abstract).toBe('See C:\\Users\\dev\\index.md');
   });
 
+  it('repairs a missing comma between array elements instead of throwing', () => {
+    // The second real failure mode observed in production, hit right
+    // after the escape repair above fixed the first problem and parsing
+    // continued deeper into the document.
+    const raw = '{"title": "T", "sections": [{"heading": "A"} {"heading": "B"}]}';
+    const result = provider.parseJSONFor(raw) as any;
+    expect(result.sections).toEqual([{ heading: 'A' }, { heading: 'B' }]);
+  });
+
   it('throws the original error when the input is unrepairable', () => {
     expect(() => provider.parseJSONFor('not json at all')).toThrow();
   });

@@ -5,7 +5,7 @@
 
 import { AIProvider, StructuredError, StructuredJSON } from '../types';
 import { EnrichmentPromptBuilder } from './enrichmentPromptBuilder';
-import { fixInvalidJSONEscapes } from './jsonParser';
+import { repairAIGeneratedJSON } from './jsonParser';
 
 /**
  * Base implementation with common functionality for all AI providers
@@ -186,38 +186,39 @@ Return ONLY the corrected JSON object, no explanations.`;
 
   /**
    * Parse an extracted JSON string into a StructuredJSON, repairing the
-   * most common real-world mistake first: unescaped backslashes from
-   * literal Windows paths (e.g. "C:\Users\...") that smaller models
-   * frequently emit without doubling the backslash, which JSON.parse
-   * rejects as "Bad escaped character". Previously every provider called
-   * JSON.parse() directly with no repair attempt, so this exact class of
-   * error burned a full correction-retry cycle (re-sending the whole
-   * document to the AI again) every time instead of being fixed for free
-   * with a string-level repair.
+   * most common real-world mistakes first: unescaped backslashes from
+   * literal Windows paths (e.g. "C:\Users\...") and missing commas
+   * between array/object elements, both of which smaller models
+   * frequently produce on long structured output. Previously every
+   * provider called JSON.parse() directly with no repair attempt, so
+   * these exact classes of error burned a full correction-retry cycle
+   * (re-sending the whole document to the AI again) every time instead of
+   * being fixed for free with a string-level repair.
    */
   protected parseJSON(jsonStr: string): StructuredJSON {
     try {
       return JSON.parse(jsonStr) as StructuredJSON;
     } catch (firstError: any) {
-      const repaired = fixInvalidJSONEscapes(jsonStr);
+      const repaired = repairAIGeneratedJSON(jsonStr);
       try {
         return JSON.parse(repaired) as StructuredJSON;
       } catch (secondError: any) {
         if (repaired === jsonStr) {
-          // The repair made no changes at all (e.g. the error wasn't a
-          // "Bad escaped character" it knows how to target) - the original
-          // error, with context, is all there is to report.
+          // The repair made no changes at all (e.g. the error wasn't one
+          // of the classes it knows how to target) - the original error,
+          // with context, is all there is to report.
           throw new Error(this.describeJSONParseError(jsonStr, firstError));
         }
         // The repair DID change something but the result is still invalid
-        // for a different reason (truncation, more escapes than the
-        // repair's iteration cap, etc.) - surface both with context,
-        // since silently re-throwing just the stale original *message*
-        // here previously made a successful-but-insufficient repair
-        // indistinguishable from no repair happening at all, with no way
-        // to tell which from the log alone.
+        // for a different reason (truncation, an error class it doesn't
+        // handle, more issues than the repair's iteration cap, etc.) -
+        // surface both with context, since silently re-throwing just the
+        // stale original *message* here previously made a
+        // successful-but-insufficient repair indistinguishable from no
+        // repair happening at all, with no way to tell which from the log
+        // alone.
         throw new Error(
-          `${this.describeJSONParseError(jsonStr, firstError)} | after escape repair, still invalid: ${this.describeJSONParseError(repaired, secondError)}`
+          `${this.describeJSONParseError(jsonStr, firstError)} | after repair, still invalid: ${this.describeJSONParseError(repaired, secondError)}`
         );
       }
     }

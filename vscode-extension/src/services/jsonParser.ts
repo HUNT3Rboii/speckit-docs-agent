@@ -5,43 +5,72 @@
 
 import { JSONParser as IJSONParser, StructuredJSON, ValidationResult, SectionType } from '../types';
 
-const MAX_ESCAPE_REPAIR_ITERATIONS = 200;
+const MAX_JSON_REPAIR_ITERATIONS = 200;
 
 /**
- * Fixes backslashes that aren't part of a valid JSON escape sequence - by
- * far the most common real-world way AI-generated JSON breaks in this
- * project, since the markdown being transformed is full of literal Windows
- * paths (e.g. "C:\Users\...") that smaller models frequently emit without
- * doubling the backslash, which JSON.parse rejects as "Bad escaped
- * character" (its error message includes the exact position of the
- * offending character).
+ * Iteratively repairs the most common real-world ways AI-generated JSON
+ * breaks in this project. Re-parses after each single fix and only ever
+ * touches exactly what JSON.parse's own error reports for that attempt -
+ * never a blanket find/replace across the whole string - so a fix can
+ * never be applied somewhere it wasn't actually needed.
  *
- * Deliberately does NOT use a blanket "backslash not followed by bfnrtu"
- * regex: n/t/r/f/b/u are all individually valid JSON escapes, and this
- * project's own path segments collide with several of them (\frontend,
- * \backend, \tests, \node_modules, \temp) - a naive regex would silently
- * mangle those into control characters instead of leaving them alone,
- * without JSON.parse ever complaining. Repeatedly re-parsing and fixing
- * only the exact position JSON.parse itself flags means only genuinely
- * broken escapes (e.g. "\U" from "C:\Users", not valid JSON) ever get
- * touched.
+ * Handles two error classes, one fix per iteration, in whatever order
+ * JSON.parse encounters them:
+ *
+ *  - "Bad escaped character in JSON at position N": an unescaped
+ *    backslash, almost always from a literal Windows path (e.g.
+ *    "C:\Users\...") that the model didn't double. Deliberately does NOT
+ *    use a blanket "backslash not followed by bfnrtu" regex: n/t/r/f/b/u
+ *    are all individually valid JSON escapes, and this project's own path
+ *    segments collide with several of them (\frontend, \backend, \tests,
+ *    \node_modules, \temp) - a blanket regex would silently mangle those
+ *    into control characters, since JSON.parse never even complains about
+ *    them. Fixing only the exact position JSON.parse flags means only
+ *    genuinely broken escapes (e.g. "\U" from "C:\Users") ever get touched.
+ *  - "Expected ',' or ']'/'}' after array element/property value in JSON
+ *    at position N": a missing comma between elements - common with
+ *    smaller models on long structured output (observed in practice on a
+ *    ~17KB response, well past where the first escape fix landed).
  */
-export function fixInvalidJSONEscapes(jsonStr: string): string {
+export function repairAIGeneratedJSON(jsonStr: string): string {
   let result = jsonStr;
-  for (let i = 0; i < MAX_ESCAPE_REPAIR_ITERATIONS; i++) {
+  for (let i = 0; i < MAX_JSON_REPAIR_ITERATIONS; i++) {
     try {
       JSON.parse(result);
       return result;
     } catch (error: any) {
-      const match = /Bad escaped character in JSON at position (\d+)/.exec(error?.message ?? '');
-      if (!match) {
-        return result; // a different kind of error - nothing more this function can fix
+      const message = error?.message ?? '';
+
+      const escapeMatch = /Bad escaped character in JSON at position (\d+)/.exec(message);
+      if (escapeMatch) {
+        const pos = parseInt(escapeMatch[1], 10);
+        if (result[pos - 1] !== '\\') {
+          return result; // unexpected shape - bail rather than risk corrupting further
+        }
+        result = result.slice(0, pos - 1) + '\\' + result.slice(pos - 1);
+        continue;
       }
-      const pos = parseInt(match[1], 10);
-      if (result[pos - 1] !== '\\') {
-        return result; // unexpected shape - bail rather than risk corrupting further
+
+      const missingCommaMatch = /Expected ',' or '[\]}]' after (?:array element|property value) in JSON at position (\d+)/.exec(message);
+      if (missingCommaMatch) {
+        const pos = parseInt(missingCommaMatch[1], 10);
+        const rest = result.slice(pos);
+        if (!/\S/.test(rest)) {
+          // V8 reports this exact same message for truncated input (ran
+          // out of string while still inside an object/array) as it does
+          // for a genuine missing comma between two elements - nothing
+          // (or only whitespace) after `pos` means there's no real next
+          // element to separate, so this is truncation/a missing closing
+          // bracket. Inserting a comma here would only make it worse (a
+          // trailing comma with nothing valid after it); leave it for the
+          // caller's brace/bracket-balancing fallback instead.
+          return result;
+        }
+        result = result.slice(0, pos) + ',' + rest;
+        continue;
       }
-      result = result.slice(0, pos - 1) + '\\' + result.slice(pos - 1);
+
+      return result; // an error kind this function doesn't know how to target
     }
   }
   return result;
@@ -214,9 +243,9 @@ export class JSONParser implements IJSONParser {
   private repairAndParse(jsonStr: string): StructuredJSON {
     let repaired = jsonStr;
 
-    // Fix invalid backslash escapes (e.g. unescaped Windows paths) first -
-    // this is the single most common failure mode in practice.
-    repaired = fixInvalidJSONEscapes(repaired);
+    // Fix invalid backslash escapes and missing commas first - these are
+    // by far the most common failure modes in practice.
+    repaired = repairAIGeneratedJSON(repaired);
 
     // Fix trailing commas in objects
     repaired = repaired.replace(/,(\s*})/g, '$1');

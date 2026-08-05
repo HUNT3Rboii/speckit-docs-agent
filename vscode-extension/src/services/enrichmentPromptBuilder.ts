@@ -463,21 +463,34 @@ Before returning your JSON output, verify the following:
 ✓ Check for common errors: unmatched brackets, missing arrows, invalid keywords
 ✓ Ensure proper line breaks (use \\n in JSON string)
 
-### 4. Schema Compliance Check
+### 4. JSON String Escaping Check
+
+✓ The source document contains literal backslashes - Windows file paths
+  (e.g. "C:\\Users\\name\\project"), relative script invocations (e.g.
+  ".\\script.ps1"), or similar. EVERY backslash you copy into a JSON
+  string value MUST be written as TWO backslashes ("\\\\"), or the JSON
+  is invalid and your entire response will be rejected.
+✓ Go through every string value you're about to output and check: does it
+  contain a single "\\" anywhere? If so, double it before returning.
+✓ Example: the source text "C:\\Users\\dev\\file.md" must appear in your
+  JSON string as "C:\\\\Users\\\\dev\\\\file.md" - copying it with single
+  backslashes is the single most common reason a response fails to parse.
+
+### 5. Schema Compliance Check
 
 ✓ Confirm all required fields are present
 ✓ Confirm field types match the schema (strings, arrays, objects)
 ✓ Confirm enum values (SectionType, DiagramType) are valid
 ✓ Confirm components[] and evidence fields are present for all diagrams/glossary
 ${includeTaskDescriptions ? `
-### 5. Task Descriptions Completeness Check
+### 6. Task Descriptions Completeness Check
 
 ✓ Go through every checklist task line in the source (\`- [ ] T0xx ...\` / \`- [x] T0xx ...\`)
 ✓ Confirm every single one has a matching entry in taskDescriptions[] by taskKey
 ✓ Confirm each description is a genuine plain-English rewrite, not the raw checklist text copied verbatim
 ✓ If any task is missing from taskDescriptions[], ADD IT now
 ` : ''}
-### ${includeTaskDescriptions ? '6' : '5'}. Common Mistakes to Avoid
+### ${includeTaskDescriptions ? '7' : '6'}. Common Mistakes to Avoid
 
 ❌ Paraphrasing evidence instead of copying verbatim
 ❌ Dropping a clause from the MIDDLE of an otherwise-verbatim sentence to
@@ -487,6 +500,8 @@ ${includeTaskDescriptions ? `
 ❌ Creating glossary entries without evidence
 ❌ Invalid Mermaid syntax
 ❌ Wrong SectionType or DiagramType enum values
+❌ Writing a single backslash ("\\") from a file path into a JSON string
+   instead of doubling it ("\\\\") - this breaks JSON parsing entirely
 ${includeTaskDescriptions ? '❌ Copying the raw checklist text verbatim into a taskDescriptions[] description instead of rewriting it in plain English\n❌ Missing a taskDescriptions[] entry for a task that exists in the source' : ''}
 
 If you find any of these issues, FIX THEM before returning your JSON.`;

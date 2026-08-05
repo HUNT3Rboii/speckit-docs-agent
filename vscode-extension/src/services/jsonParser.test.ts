@@ -4,7 +4,7 @@
  * client-side, before the network round trip to the backend.
  */
 
-import { JSONParser, fixInvalidJSONEscapes } from './jsonParser';
+import { JSONParser, repairAIGeneratedJSON } from './jsonParser';
 import { StructuredJSON } from '../types';
 
 function baseDoc(overrides: Partial<StructuredJSON> = {}): StructuredJSON {
@@ -77,26 +77,26 @@ describe('JSONParser', () => {
     });
   });
 
-  describe('fixInvalidJSONEscapes', () => {
+  describe('repairAIGeneratedJSON', () => {
     // Operates on a full JSON document (re-parsing to locate each broken
-    // escape by the position JSON.parse itself reports), not a bare
+    // spot by the position JSON.parse itself reports), not a bare
     // fragment - a bare string has nothing valid to parse up to in the
     // first place, so there's no "position" to anchor a fix to.
 
     it('doubles a backslash followed by a non-escape character', () => {
       const raw = '{"a": "C:\\Users\\dev"}';
-      const fixed = fixInvalidJSONEscapes(raw);
+      const fixed = repairAIGeneratedJSON(raw);
       expect(JSON.parse(fixed).a).toBe('C:\\Users\\dev');
     });
 
     it('leaves already-syntactically-valid JSON unchanged', () => {
       const raw = '{"a": "tab\\tnewline\\nquote\\"slash\\\\end"}';
-      expect(fixInvalidJSONEscapes(raw)).toBe(raw);
+      expect(repairAIGeneratedJSON(raw)).toBe(raw);
     });
 
     it('leaves \\uXXXX unicode escapes unchanged', () => {
       const raw = '{"a": "caf\\u00e9"}';
-      expect(fixInvalidJSONEscapes(raw)).toBe(raw);
+      expect(repairAIGeneratedJSON(raw)).toBe(raw);
     });
 
     it('does not touch a syntactically-valid escape even when it collides with a real word (documented limitation)', () => {
@@ -106,7 +106,43 @@ describe('JSONParser', () => {
       // that's also a valid escape char) is a known, accepted limitation;
       // see this function's doc comment.
       const raw = '{"a": "C:\\frontend"}';
-      expect(fixInvalidJSONEscapes(raw)).toBe(raw);
+      expect(repairAIGeneratedJSON(raw)).toBe(raw);
+    });
+
+    it('inserts a missing comma between array elements', () => {
+      const raw = '{"a": [{"x": 1} {"x": 2}]}';
+      const fixed = repairAIGeneratedJSON(raw);
+      expect(JSON.parse(fixed).a).toEqual([{ x: 1 }, { x: 2 }]);
+    });
+
+    it('inserts a missing comma between object properties', () => {
+      const raw = '{"a": 1 "b": 2}';
+      const fixed = repairAIGeneratedJSON(raw);
+      expect(JSON.parse(fixed)).toEqual({ a: 1, b: 2 });
+    });
+
+    it('repairs an unescaped path AND a missing comma in the same document', () => {
+      // Mirrors what was actually observed in production: the escape fix
+      // gets applied first, then parsing continues further into the
+      // document and hits a separate missing-comma problem.
+      const raw = '{"path": "C:\\Users\\dev", "items": [{"x": 1} {"x": 2}]}';
+      const fixed = repairAIGeneratedJSON(raw);
+      const parsed = JSON.parse(fixed);
+      expect(parsed.path).toBe('C:\\Users\\dev');
+      expect(parsed.items).toEqual([{ x: 1 }, { x: 2 }]);
+    });
+
+    it('does not insert a comma for truncated input missing its closing brace', () => {
+      // V8 reports the exact same "Expected ',' or '}' after property
+      // value" message for input that just ran out (nothing left to
+      // parse) as it does for a genuine missing comma between two real
+      // elements - the only way to tell them apart is checking whether
+      // anything actually follows the reported position. Getting this
+      // wrong previously inserted a trailing comma right before the
+      // caller's brace-balancing fallback appended the missing "}",
+      // producing "{...1},}" - a NEW syntax error instead of a fix.
+      const raw = '{"title": "T", "nested": {"a": 1}';
+      expect(repairAIGeneratedJSON(raw)).toBe(raw);
     });
   });
 
