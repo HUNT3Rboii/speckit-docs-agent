@@ -28,6 +28,16 @@ Write-Host ""
 
 # Step 2: Start Frontend
 Write-Host "[2/2] Starting Frontend..." -ForegroundColor Yellow
+if (-not (Test-Path "frontend/node_modules")) {
+    Write-Host "      Installing frontend dependencies (first run)..." -ForegroundColor Gray
+    Push-Location frontend
+    npm install
+    Pop-Location
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "      [FAIL] npm install failed" -ForegroundColor Red
+        exit 1
+    }
+}
 Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$PWD\frontend'; Write-Host 'Frontend Dev Server' -ForegroundColor Cyan; Write-Host ''; npm run dev"
 Write-Host "      Waiting for frontend to initialize..." -ForegroundColor Gray
 Start-Sleep -Seconds 5
