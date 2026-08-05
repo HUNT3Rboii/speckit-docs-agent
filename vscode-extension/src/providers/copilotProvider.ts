@@ -233,6 +233,25 @@ export class CopilotProvider extends BaseAIProvider {
     } finally {
       cancellationSource.cancel();
       cancellationSource.dispose();
+      await this.closeChatSession();
+    }
+  }
+
+  /**
+   * vscode.lm.sendRequest() is meant to be used headlessly, but in
+   * practice it can leave the Chat view open/focused after a request -
+   * this extension never wants a visible chat session left behind for
+   * something that ran in the background, so close it once the request
+   * (success or failure) is done. Best-effort: the command may not exist
+   * in every VS Code version, and there may be nothing open to close, so
+   * any failure here is swallowed rather than affecting the actual
+   * transform result.
+   */
+  private async closeChatSession(): Promise<void> {
+    try {
+      await vscode.commands.executeCommand('workbench.action.chat.close');
+    } catch (error) {
+      this.log('Could not close chat session (non-fatal):', error);
     }
   }
 }

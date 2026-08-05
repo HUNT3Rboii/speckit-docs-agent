@@ -46,6 +46,8 @@ Generate a single JSON object containing:
 ${isTaskList ? '6. **Task descriptions** (a user-friendly one-sentence description for every checklist task item - see Task Descriptions Guidance below)\n' : ''}
 ${this.getSchemaSection(isTaskList)}
 
+${this.getSectionContentGuidanceSection()}
+
 ${this.getEvidenceRequirementsSection()}
 
 ${this.getDiagramGuidanceSection()}
@@ -139,6 +141,35 @@ interface TaskDescription {
   description: string;              // Short, user-friendly one-sentence description of what the task involves
 }
 ` : ''}\`\`\``;
+  }
+
+  /**
+   * Generate section-content formatting guidance. Nothing in the prompt
+   * previously told the model to use markdown table syntax for naturally
+   * tabular source content (comparison tables, parameter/config lists,
+   * etc.) - it would flatten everything into prose/bullet lists instead,
+   * even though the backend's renderer already fully supports markdown
+   * tables (python-markdown's "tables" extension, with matching CSS) and
+   * simply never received any to render.
+   */
+  private getSectionContentGuidanceSection(): string {
+    return `## Section Content Formatting Guidance
+
+Each section's \`content\` is rendered as markdown, including tables - use real markdown table syntax (\`| Col |\` rows with a \`|---|\` separator row) whenever the source content is naturally tabular: comparisons, parameter/argument lists, configuration options, side-by-side values, or anything else structured as rows and columns. Do NOT flatten tabular data into prose paragraphs or bullet lists just because the source uses a different format (e.g. a definition list, or one bullet per row) - if it has the shape of a table, render it as one.
+
+Bad (flattening a naturally tabular config list into prose):
+\`\`\`
+The backendUrl setting defaults to http://localhost:8000 and controls the API URL. The apiKey setting defaults to dev-key and is used for authentication. The debounceMs setting defaults to 500 and controls the file-change delay in milliseconds.
+\`\`\`
+
+Good (the same content as a markdown table):
+\`\`\`markdown
+| Setting | Default | Description |
+|---|---|---|
+| backendUrl | http://localhost:8000 | The API URL |
+| apiKey | dev-key | Used for authentication |
+| debounceMs | 500 | File-change delay in milliseconds |
+\`\`\``;
   }
 
   /**

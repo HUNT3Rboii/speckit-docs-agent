@@ -164,3 +164,82 @@ describe('BackendClient.reportKanbanProgress', () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe('BackendClient.process', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  function minimalRequest() {
+    return {
+      project_id: 'proj-1',
+      source_path: 'specs/demo/spec.md',
+      source_markdown: '# Demo',
+      enriched_json: {
+        title: 'Demo',
+        abstract: 'A demo doc.',
+        sections: [],
+        diagrams: [],
+        glossary: [],
+        summaries: { executiveSummary: 'Demo.' }
+      },
+      retry_count: 0
+    } as any;
+  }
+
+  it('does not retry when the request times out - a slow-but-working request should not be resubmitted', async () => {
+    // Mirrors what AbortSignal.timeout() firing actually produces: fetch
+    // rejects with a DOMException named "TimeoutError". Previously this
+    // wasn't recognized as non-retriable, so retryWithBackoff retried it
+    // up to 3 times - each doomed to the exact same timeout for the exact
+    // same reason, with no way to cancel the still-running server-side
+    // work, producing ~90+ seconds of apparent "stuck" before finally
+    // failing regardless.
+    const timeoutError = new Error('The operation was aborted due to timeout');
+    timeoutError.name = 'TimeoutError';
+    const fetchMock = jest.fn().mockRejectedValue(timeoutError);
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.process(minimalRequest())).rejects.toThrow(/timed out/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does retry on a real server error (5xx), unlike a timeout', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'unavailable' })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ok' }) });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const result = await client.process(minimalRequest());
+
+    expect(result).toEqual({ status: 'ok' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses a longer timeout than the default 30s for /api/process specifically', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'ok' }) }) as any;
+    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await client.process(minimalRequest());
+
+    expect(timeoutSpy).toHaveBeenCalledWith(180000);
+  });
+
+  it('reportStep still uses the shorter default timeout, not the /api/process one', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'ok' }) }) as any;
+    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai');
+
+    expect(timeoutSpy).toHaveBeenCalledWith(30000);
+  });
+});

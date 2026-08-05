@@ -15,6 +15,23 @@ import {
 /**
  * Client for Speckit backend API with retry logic
  */
+/** Default timeout for lightweight endpoints (health checks, step pings). */
+const DEFAULT_TIMEOUT_MS = 30000;
+
+/**
+ * /api/process does real, potentially slow server-side work - evidence
+ * validation, diagram rendering (mmdc, per diagram), and WeasyPrint PDF
+ * generation - for a document with several diagrams this routinely takes
+ * well past 30 seconds. The old 30s timeout, combined with timeouts being
+ * (incorrectly) treated as retriable, meant a legitimately-slow-but-
+ * working request could never succeed: every attempt got cut off at the
+ * same 30s mark, retried, and cut off again, producing ~90+ seconds of
+ * apparent silence before finally failing outright - this is what showed
+ * up as the pipeline "getting stuck" after using up its correction
+ * attempts.
+ */
+const PROCESS_TIMEOUT_MS = 180000;
+
 export class BackendClient implements IBackendClient {
   private backendUrl: string;
   private apiKey: string;
@@ -67,7 +84,7 @@ export class BackendClient implements IBackendClient {
    */
   public async process(request: ProcessRequest): Promise<ProcessResponse> {
     return await this.retryWithBackoff(async () => {
-      const response = await this.makeRequest('/api/process', request);
+      const response = await this.makeRequest('/api/process', request, PROCESS_TIMEOUT_MS);
       return response as ProcessResponse;
     });
   }
@@ -200,21 +217,41 @@ export class BackendClient implements IBackendClient {
   /**
    * Make HTTP request to backend
    */
-  private async makeRequest(endpoint: string, payload: any): Promise<any> {
+  private async makeRequest(endpoint: string, payload: any, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<any> {
     const url = `${this.backendUrl}${endpoint}`;
-    
+
     console.log('[BackendClient] Making request to:', url);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30000) // 30 second timeout
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error: any) {
+      // A client-side timeout means the server is (probably) still working,
+      // not that the request failed - retrying fires an entirely new
+      // request while the old one may still be running server-side with no
+      // way to cancel it, so a slow-but-legitimate submission could end up
+      // being processed multiple times concurrently for no benefit (every
+      // retry hits the exact same timeout for the exact same reason).
+      // Surfacing it immediately, once, is both faster and safer than
+      // retrying something retrying can't fix.
+      if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+        const timeoutError: any = new Error(
+          `Request to ${endpoint} timed out after ${timeoutMs}ms`
+        );
+        timeoutError.cause = 'NO_RETRY';
+        throw timeoutError;
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
-      
+
       // Check if this is a client error (4xx) - don't retry
       if (response.status >= 400 && response.status < 500) {
         const error: any = new Error(`Client error ${response.status}: ${errorText}`);
