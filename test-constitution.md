@@ -7,10 +7,10 @@ Modified principles:
 - principle 3 name placeholder → III. Backend Contract Fidelity
 - principle 4 name placeholder → IV. Secret Safety and Idempotence
 - principle 5 name placeholder → V. Observable, Re-runnable Operations
-
+ 
 Added sections:
 - Security and Configuration
-- Execution and Quality Gates
+- Execution and Quality Gates  
 
 Removed sections:
 - Placeholder template comments and tokens
