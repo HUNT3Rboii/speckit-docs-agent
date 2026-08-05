@@ -44,6 +44,20 @@ Start-Sleep -Seconds 5
 Write-Host "      [OK] Frontend started" -ForegroundColor Green
 Write-Host ""
 
+# Optional friendly-hostname reverse proxy (http://speckit.local instead of
+# http://localhost:5173). Opt-in: only starts it if the one-time hosts-file
+# entry is already present, otherwise skips silently and just prints a tip.
+$hostsPath = "$env:WINDIR\System32\drivers\etc\hosts"
+$hasFriendlyHost = (Test-Path $hostsPath) -and (Select-String -Path $hostsPath -Pattern "speckit\.local" -Quiet -ErrorAction SilentlyContinue)
+if ($hasFriendlyHost) {
+    Write-Host "      Starting friendly-URL proxy (http://speckit.local -> :5173)..." -ForegroundColor Green
+    Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$PWD\frontend'; npm run dev:proxy"
+} else {
+    Write-Host "      Tip: run as Administrator to use http://speckit.local instead of a port:" -ForegroundColor DarkGray
+    Write-Host "        Add-Content `"$hostsPath`" `"`n127.0.0.1  speckit.local`"" -ForegroundColor DarkGray
+}
+Write-Host ""
+
 # Summary
 Write-Host ("=" * 80) -ForegroundColor Green
 Write-Host "Backend + Frontend Started!" -ForegroundColor Green
@@ -52,7 +66,11 @@ Write-Host ""
 
 Write-Host "Services:" -ForegroundColor Yellow
 Write-Host "  Backend API (Docker):  http://localhost:8000" -ForegroundColor Cyan
-Write-Host "  Frontend UI:           http://localhost:5173" -ForegroundColor Cyan
+if ($hasFriendlyHost) {
+    Write-Host "  Frontend UI:           http://speckit.local (or http://localhost:5173)" -ForegroundColor Cyan
+} else {
+    Write-Host "  Frontend UI:           http://localhost:5173" -ForegroundColor Cyan
+}
 Write-Host ""
 
 Write-Host "How to Use:" -ForegroundColor Yellow
