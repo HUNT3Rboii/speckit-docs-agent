@@ -23,6 +23,12 @@
 
 $ErrorActionPreference = "Stop"
 
+# Spawned windows/elevated helpers below use whichever PowerShell is
+# actually installed - pwsh (7+) isn't present on every machine (e.g. a
+# stock Windows install only has the built-in powershell.exe), and
+# hardcoding "pwsh" would fail with "term not recognized" on those.
+$shellExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell' }
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Speckit Auto-AI - Start Everything" -ForegroundColor Cyan
@@ -73,22 +79,42 @@ if (-not (Test-Path "frontend/node_modules")) {
         exit 1
     }
 }
-Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$PWD\frontend'; Write-Host 'Frontend Dev Server' -ForegroundColor Cyan; Write-Host ''; npm run dev"
+Start-Process $shellExe -ArgumentList "-NoExit", "-Command", "cd '$PWD\frontend'; Write-Host 'Frontend Dev Server' -ForegroundColor Cyan; Write-Host ''; npm run dev"
 Write-Host "      Waiting for frontend to initialize..." -ForegroundColor Gray
 Start-Sleep -Seconds 5
 Write-Host "      [OK] Frontend started" -ForegroundColor Green
 
 # Optional friendly-hostname reverse proxy (http://speckit.local instead of
-# http://localhost:5173). Opt-in: only starts it if the one-time hosts-file
-# entry is already present, otherwise skips silently and just prints a tip.
+# http://localhost:5173). Adds the one-time hosts-file entry itself if it's
+# missing - Windows requires a single admin consent click to write to that
+# protected file (unavoidable), but nothing else is manual: no terminal to
+# open, no command to type. Declining the prompt (or elevation being
+# unavailable, e.g. a locked-down machine) just falls back to plain
+# localhost:5173, it doesn't fail the rest of the script.
 $hostsPath = "$env:WINDIR\System32\drivers\etc\hosts"
 $hasFriendlyHost = (Test-Path $hostsPath) -and (Select-String -Path $hostsPath -Pattern "speckit\.local" -Quiet -ErrorAction SilentlyContinue)
+
+if (-not $hasFriendlyHost) {
+    Write-Host "      Setting up http://speckit.local (approve the Windows admin prompt)..." -ForegroundColor Yellow
+    try {
+        $innerScript = 'Add-Content -Path "' + $hostsPath + '" -Value "`n127.0.0.1  speckit.local"'
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($innerScript))
+        Start-Process $shellExe -Verb RunAs -WindowStyle Hidden -ArgumentList @('-NoProfile', '-EncodedCommand', $encoded) -Wait -ErrorAction Stop
+        $hasFriendlyHost = (Test-Path $hostsPath) -and (Select-String -Path $hostsPath -Pattern "speckit\.local" -Quiet -ErrorAction SilentlyContinue)
+    } catch {
+        $hasFriendlyHost = $false
+    }
+
+    if ($hasFriendlyHost) {
+        Write-Host "      [OK] speckit.local added to hosts file" -ForegroundColor Green
+    } else {
+        Write-Host "      [WARN] Admin prompt declined or unavailable - using http://localhost:5173 instead" -ForegroundColor Yellow
+    }
+}
+
 if ($hasFriendlyHost) {
     Write-Host "      Starting friendly-URL proxy (http://speckit.local -> :5173)..." -ForegroundColor Green
-    Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$PWD\frontend'; npm run dev:proxy"
-} else {
-    Write-Host "      Tip: run as Administrator to use http://speckit.local instead of a port:" -ForegroundColor DarkGray
-    Write-Host "        Add-Content `"$hostsPath`" `"`n127.0.0.1  speckit.local`"" -ForegroundColor DarkGray
+    Start-Process $shellExe -ArgumentList "-NoExit", "-Command", "cd '$PWD\frontend'; npm run dev:proxy"
 }
 Write-Host ""
 
