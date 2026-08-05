@@ -199,12 +199,49 @@ Return ONLY the corrected JSON object, no explanations.`;
     try {
       return JSON.parse(jsonStr) as StructuredJSON;
     } catch (firstError: any) {
+      const repaired = fixInvalidJSONEscapes(jsonStr);
       try {
-        return JSON.parse(fixInvalidJSONEscapes(jsonStr)) as StructuredJSON;
-      } catch {
-        throw firstError; // the original error is more specific/useful than the repair attempt's
+        return JSON.parse(repaired) as StructuredJSON;
+      } catch (secondError: any) {
+        if (repaired === jsonStr) {
+          // The repair made no changes at all (e.g. the error wasn't a
+          // "Bad escaped character" it knows how to target) - the original
+          // error, with context, is all there is to report.
+          throw new Error(this.describeJSONParseError(jsonStr, firstError));
+        }
+        // The repair DID change something but the result is still invalid
+        // for a different reason (truncation, more escapes than the
+        // repair's iteration cap, etc.) - surface both with context,
+        // since silently re-throwing just the stale original *message*
+        // here previously made a successful-but-insufficient repair
+        // indistinguishable from no repair happening at all, with no way
+        // to tell which from the log alone.
+        throw new Error(
+          `${this.describeJSONParseError(jsonStr, firstError)} | after escape repair, still invalid: ${this.describeJSONParseError(repaired, secondError)}`
+        );
       }
     }
+  }
+
+  /**
+   * Builds a diagnostic message for a JSON.parse failure that includes a
+   * snippet of the actual content around the failure position (when the
+   * error reports one), not just the generic error text - "Bad escaped
+   * character at position 4999" alone gives no way to tell what's actually
+   * there without re-triggering with speckit.enableDebugLogging on and
+   * capturing a full raw response dump.
+   */
+  private describeJSONParseError(jsonStr: string, error: any): string {
+    const message = error?.message ?? String(error);
+    const match = /position (\d+)/.exec(message);
+    if (!match) {
+      return message;
+    }
+    const pos = parseInt(match[1], 10);
+    const start = Math.max(0, pos - 30);
+    const end = Math.min(jsonStr.length, pos + 30);
+    const snippet = jsonStr.slice(start, end).replace(/\n/g, '\\n');
+    return `${message} | near: ...${snippet}...`;
   }
 
   /**

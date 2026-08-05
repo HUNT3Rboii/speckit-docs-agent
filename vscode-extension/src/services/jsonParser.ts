@@ -5,7 +5,7 @@
 
 import { JSONParser as IJSONParser, StructuredJSON, ValidationResult, SectionType } from '../types';
 
-const MAX_ESCAPE_REPAIR_ITERATIONS = 50;
+const MAX_ESCAPE_REPAIR_ITERATIONS = 200;
 
 /**
  * Fixes backslashes that aren't part of a valid JSON escape sequence - by
