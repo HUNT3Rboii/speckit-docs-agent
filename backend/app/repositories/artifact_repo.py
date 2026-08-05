@@ -117,6 +117,17 @@ class ArtifactRepository:
             )
             connection.commit()
 
+            # Migration: an existing database created before tagging was
+            # added won't have this column yet - CREATE TABLE IF NOT EXISTS
+            # above is a no-op against an already-existing artifacts table,
+            # so it has to be added explicitly. SQLite has no
+            # "ADD COLUMN IF NOT EXISTS", so check first; safe to run every
+            # startup since it's a no-op once the column exists.
+            existing_columns = {row[1] for row in cursor.execute("PRAGMA table_info(artifacts)").fetchall()}
+            if "tags" not in existing_columns:
+                cursor.execute("ALTER TABLE artifacts ADD COLUMN tags TEXT")
+                connection.commit()
+
             # Enforce one project per name so two concurrent create_project()
             # calls for the same name can't both succeed. Best-effort: an
             # existing database that already has duplicate names (e.g. an
@@ -265,7 +276,7 @@ class ArtifactRepository:
     def get_artifact_by_id(self, artifact_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata FROM artifacts WHERE id = ?",
+                "SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata, tags FROM artifacts WHERE id = ?",
                 (artifact_id,),
             ).fetchone()
         if row is None:
@@ -275,7 +286,7 @@ class ArtifactRepository:
     def get_artifact_by_path(self, project_id: str, source_path: str) -> Optional[Dict[str, Any]]:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata FROM artifacts WHERE project_id = ? AND source_path = ?",
+                "SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata, tags FROM artifacts WHERE project_id = ? AND source_path = ?",
                 (project_id, source_path),
             ).fetchone()
         if row is None:
@@ -285,7 +296,7 @@ class ArtifactRepository:
     def list_artifacts(self, project_id: str) -> List[Dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata FROM artifacts WHERE project_id = ? ORDER BY id",
+                "SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata, tags FROM artifacts WHERE project_id = ? ORDER BY id",
                 (project_id,),
             ).fetchall()
         return [self._row_to_artifact(row) for row in rows]
@@ -514,6 +525,7 @@ class ArtifactRepository:
 
     def _row_to_artifact(self, row: Any) -> Dict[str, Any]:
         metadata = json.loads(row["metadata"] or "{}")
+        tags = json.loads(row["tags"] or "[]")
         return {
             "id": row["id"],
             "project_id": row["project_id"],
@@ -523,4 +535,23 @@ class ArtifactRepository:
             "status": row["status"],
             "content_hash": row["content_hash"],
             "metadata": metadata,
+            "tags": tags,
         }
+
+    def set_artifact_tags(self, artifact_id: str, tags: List[str]) -> Optional[List[str]]:
+        """Replace an artifact's full tag list. Tags live in their own
+        column specifically so upsert_artifact() (called every time the
+        source file is re-processed) can never touch - let alone wipe out -
+        tags the user added, since it doesn't reference this column at all.
+        Returns the normalized tag list, or None if the artifact doesn't
+        exist."""
+        normalized = sorted({t.strip() for t in tags if t.strip()})
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE artifacts SET tags = ? WHERE id = ?",
+                (json.dumps(normalized), artifact_id),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+        return normalized

@@ -71,11 +71,21 @@ class PostgresArtifactRepository:
                         status TEXT NOT NULL,
                         content_hash TEXT NOT NULL,
                         metadata JSONB DEFAULT '{}'::jsonb,
+                        tags TEXT[] NOT NULL DEFAULT '{}',
                         created_at TIMESTAMP DEFAULT NOW(),
                         updated_at TIMESTAMP DEFAULT NOW(),
                         UNIQUE(project_id, source_path)
                     )
                     """
+                )
+                # Migration: an existing database created before tagging was
+                # added won't have this column yet - CREATE TABLE IF NOT
+                # EXISTS above is a no-op against an already-existing
+                # artifacts table. Unlike SQLite, Postgres supports
+                # IF NOT EXISTS directly here, so no manual existence check
+                # is needed.
+                cursor.execute(
+                    "ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'"
                 )
                 cursor.execute(
                     """
@@ -323,7 +333,7 @@ class PostgresArtifactRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata
+                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata, tags
                     FROM artifacts
                     WHERE id = %s
                     """,
@@ -338,7 +348,7 @@ class PostgresArtifactRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata 
+                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata, tags
                     FROM artifacts 
                     WHERE project_id = %s AND source_path = %s
                     """,
@@ -353,7 +363,7 @@ class PostgresArtifactRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata
+                    SELECT id, project_id, source_path, source_tool, artifact_type, status, content_hash, metadata, tags
                     FROM artifacts
                     WHERE project_id = %s
                     ORDER BY id
@@ -644,4 +654,25 @@ class PostgresArtifactRepository:
             "status": row["status"],
             "content_hash": row["content_hash"],
             "metadata": metadata or {},
+            "tags": list(row["tags"]) if row.get("tags") is not None else [],
         }
+
+    def set_artifact_tags(self, artifact_id: str, tags: List[str]) -> Optional[List[str]]:
+        """Replace an artifact's full tag list. Tags live in their own
+        column specifically so upsert_artifact() (called every time the
+        source file is re-processed) can never touch - let alone wipe out -
+        tags the user added, since it doesn't reference this column at all.
+        Returns the normalized tag list, or None if the artifact doesn't
+        exist."""
+        normalized = sorted({t.strip() for t in tags if t.strip()})
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE artifacts SET tags = %s WHERE id = %s RETURNING id",
+                    (normalized, artifact_id),
+                )
+                result = cursor.fetchone()
+                conn.commit()
+                if result is None:
+                    return None
+        return normalized

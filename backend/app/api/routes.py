@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_api_key, get_output_dir, get_project_name, get_repository
-from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ExceptionCreate, KanbanTaskProgressReport, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
+from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ArtifactTagsUpdate, ExceptionCreate, KanbanTaskProgressReport, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
 from app.services.agent_transform import AgentTransformService
 from app.services.ingestion import IngestionService
 from app.services.path_matching import path_matches_exception
@@ -164,6 +164,19 @@ def list_artifacts(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any
 def list_versions(artifact_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
     repo, _, _, _, _, _ = get_services()
     return {"versions": repo.list_versions(artifact_id)}
+
+
+@router.put("/api/artifacts/{artifact_id}/tags")
+def set_artifact_tags(artifact_id: str, payload: ArtifactTagsUpdate, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Replace an artifact's full tag list, for organizing PDFs beyond the
+    fixed artifact_type categories. Stored in its own DB column that
+    upsert_artifact() never touches, so re-processing the source file
+    (which happens on every save) can't ever wipe out tags the user added."""
+    repo, _, _, _, _, _ = get_services()
+    tags = repo.set_artifact_tags(artifact_id, payload.tags)
+    if tags is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"artifact_id": artifact_id, "tags": tags}
 
 
 @router.get("/api/projects/{project_id}/exceptions")

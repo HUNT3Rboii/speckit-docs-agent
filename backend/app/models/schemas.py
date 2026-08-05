@@ -21,6 +21,13 @@ class ExceptionCreate(BaseModel):
     source_path: str
 
 
+class ArtifactTagsUpdate(BaseModel):
+    """Replaces an artifact's full tag list (not a partial add/remove) -
+    the frontend always sends the complete desired list, matching how
+    CategoryFilter-style multi-select UIs typically work."""
+    tags: List[str] = Field(default_factory=list)
+
+
 class KanbanTaskStatusUpdate(BaseModel):
     """
     Body for moving a Kanban card between columns and/or lanes (phases).
@@ -70,6 +77,7 @@ class ArtifactResponse(BaseModel):
     artifact_type: str
     status: str
     content_hash: str
+    tags: List[str] = Field(default_factory=list)
 
 
 class DocVersionResponse(BaseModel):
