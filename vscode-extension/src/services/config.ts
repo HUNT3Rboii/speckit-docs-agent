@@ -4,7 +4,10 @@
  */
 
 import * as vscode from 'vscode';
-import { ExtensionConfig } from '../types';
+import { CustomModelConfig, ExtensionConfig, ProviderId } from '../types';
+
+const VALID_PROVIDER_IDS: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
+const DEFAULT_PROVIDER_PRIORITY: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
 
 /**
  * Manages extension configuration with validation and change notifications
@@ -89,6 +92,14 @@ export class ConfigurationManager {
     );
     const allowRuleBasedFallback = config.get<boolean>('allowRuleBasedFallback') ?? false;
     const enableCopilotProgressTracking = config.get<boolean>('enableCopilotProgressTracking') ?? true;
+    const providerPriority = this.validateProviderPriority(config.get<string[]>('providerPriority'));
+    const customModel: CustomModelConfig = {
+      enabled: config.get<boolean>('customModel.enabled') ?? false,
+      name: this.validateString(config.get<string>('customModel.name'), ''),
+      baseUrl: this.validateString(config.get<string>('customModel.baseUrl'), ''),
+      apiKey: this.validateString(config.get<string>('customModel.apiKey'), ''),
+      modelName: this.validateString(config.get<string>('customModel.modelName'), '')
+    };
 
     return {
       backendUrl,
@@ -100,7 +111,9 @@ export class ConfigurationManager {
       debounceMs,
       maxConcurrentProcessing,
       allowRuleBasedFallback,
-      enableCopilotProgressTracking
+      enableCopilotProgressTracking,
+      providerPriority,
+      customModel
     };
   }
 
@@ -177,5 +190,22 @@ export class ConfigurationManager {
       return defaultValue;
     }
     return Math.max(min, Math.min(max, value));
+  }
+
+  /**
+   * Validate speckit.providerPriority: must be a non-empty array of known
+   * provider ids. Unknown entries (e.g. a typo in settings.json) are
+   * dropped rather than rejecting the whole list, since one bad entry
+   * shouldn't silently revert every other deliberately-chosen priority
+   * back to the default order too.
+   */
+  private validateProviderPriority(value: string[] | undefined): ProviderId[] {
+    if (!Array.isArray(value)) {
+      return DEFAULT_PROVIDER_PRIORITY;
+    }
+    const filtered = value.filter((id): id is ProviderId =>
+      (VALID_PROVIDER_IDS as string[]).includes(id)
+    );
+    return filtered.length > 0 ? filtered : DEFAULT_PROVIDER_PRIORITY;
   }
 }

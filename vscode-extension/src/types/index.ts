@@ -295,6 +295,48 @@ export interface ExtensionConfig {
    * off entirely skips writing to those project files.
    */
   enableCopilotProgressTracking: boolean;
+  /**
+   * Order in which AI providers are tried, by id. A provider id that's
+   * omitted entirely is never tried (this is how a specific provider gets
+   * disabled, not just deprioritized). "rule-based" is deliberately not a
+   * valid id here - it's governed separately by allowRuleBasedFallback,
+   * since it isn't a real AI provider to prioritize among the others.
+   */
+  providerPriority: ProviderId[];
+  /**
+   * A user-configured custom model - a local server (e.g. Ollama's
+   * OpenAI-compatible endpoint) or any other OpenAI-chat-completions-
+   * compatible API/key. Only tried at all if both `enabled` is true and
+   * "custom" appears in providerPriority.
+   */
+  customModel: CustomModelConfig;
+}
+
+/**
+ * Identifiers for the AI providers AIProviderFactory can try, in the order
+ * speckit.providerPriority controls. "custom" refers to the single
+ * user-configured CustomModelConfig, not a whole class of providers.
+ */
+export type ProviderId = 'copilot' | 'claude' | 'kiro' | 'generic' | 'custom';
+
+/**
+ * Settings for a user-configured custom AI model - any server speaking the
+ * OpenAI chat-completions API shape (POST {baseUrl}/chat/completions),
+ * which covers Ollama (via its built-in OpenAI-compatible endpoint),
+ * OpenAI itself, and most third-party/self-hosted model gateways.
+ */
+export interface CustomModelConfig {
+  enabled: boolean;
+  /** Display name shown in logs/notifications, e.g. "My Ollama (Llama 3)". */
+  name: string;
+  /** Base URL up to but not including "/chat/completions", e.g.
+   * "http://localhost:11434/v1" for a local Ollama server. */
+  baseUrl: string;
+  /** Sent as "Authorization: Bearer {apiKey}" when non-empty. Local
+   * servers like Ollama typically don't need one. */
+  apiKey: string;
+  /** The model name the endpoint expects in the request body, e.g. "llama3". */
+  modelName: string;
 }
 
 /**

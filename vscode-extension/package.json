@@ -152,6 +152,46 @@
           "default": "",
           "description": "Substring (case-insensitive) matched against the id/family/name of the Copilot models available to this extension, e.g. \"gpt-4o\" or \"o1\" - if it matches, that model is tried first instead of whichever one Copilot returns by default. Leave empty to use the default. See \"Speckit: Show Extension Logs\" for the exact ids/families available in your session.",
           "order": 11
+        },
+        "speckit.providerPriority": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["copilot", "claude", "kiro", "generic", "custom"]
+          },
+          "default": ["copilot", "claude", "kiro", "generic", "custom"],
+          "description": "Order in which AI providers are tried. Reorder this list to change which one is tried first, or remove an id entirely to disable that provider (e.g. remove \"generic\" to never fall through to a non-Copilot/Claude/Kiro language model). \"custom\" is the single model configured via speckit.customModel.* below. Rule-based fallback isn't in this list - see speckit.allowRuleBasedFallback.",
+          "order": 12
+        },
+        "speckit.customModel.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the custom model configured below. Only takes effect if \"custom\" is also present in speckit.providerPriority.",
+          "order": 13
+        },
+        "speckit.customModel.name": {
+          "type": "string",
+          "default": "",
+          "description": "Display name for the custom model, shown in logs/notifications (e.g. \"My Ollama (Llama 3)\"). Falls back to the model name if left empty.",
+          "order": 14
+        },
+        "speckit.customModel.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of an OpenAI-chat-completions-compatible endpoint, up to but not including \"/chat/completions\" - e.g. \"http://localhost:11434/v1\" for a local Ollama server (Ollama exposes this automatically), or \"https://api.openai.com/v1\" for OpenAI itself.",
+          "order": 15
+        },
+        "speckit.customModel.modelName": {
+          "type": "string",
+          "default": "",
+          "description": "The model name to send in each request's \"model\" field, exactly as the endpoint expects it (e.g. \"llama3\" for Ollama, \"gpt-4o-mini\" for OpenAI).",
+          "order": 16
+        },
+        "speckit.customModel.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Sent as \"Authorization: Bearer <apiKey>\" when non-empty. Leave empty for a local server (e.g. Ollama) that doesn't require one.",
+          "order": 17
         }
       }
     }

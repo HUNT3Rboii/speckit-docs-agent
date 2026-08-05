@@ -3,13 +3,23 @@
  * Detects and initializes AI providers with automatic fallback
  */
 
-import { AIProvider, CancellationSignal, StructuredError } from '../types';
+import { AIProvider, CancellationSignal, CustomModelConfig, ProviderId, StructuredError } from '../types';
 import { CopilotProvider } from '../providers/copilotProvider';
 import { ClaudeProvider } from '../providers/claudeProvider';
 import { KiroProvider } from '../providers/kiroProvider';
 import { GenericProvider } from '../providers/genericProvider';
+import { CustomModelProvider } from '../providers/customModelProvider';
 import { RuleBasedProvider } from '../providers/ruleBasedProvider';
 import { CancellationRequestedError } from './aiProvider';
+
+const DEFAULT_PROVIDER_PRIORITY: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
+const DEFAULT_CUSTOM_MODEL_CONFIG: CustomModelConfig = {
+  enabled: false,
+  name: '',
+  baseUrl: '',
+  apiKey: '',
+  modelName: ''
+};
 
 /**
  * Factory for creating and managing AI providers with fallback chain
@@ -27,7 +37,11 @@ export class AIProviderFactory {
    * or throws a clear, actionable error. When true, restores the old
    * "always eventually succeeds, possibly via rule-based" behavior.
    */
-  constructor(private allowRuleBasedFallback: boolean = false) {}
+  constructor(
+    private allowRuleBasedFallback: boolean = false,
+    private providerPriority: ProviderId[] = DEFAULT_PROVIDER_PRIORITY,
+    private customModelConfig: CustomModelConfig = DEFAULT_CUSTOM_MODEL_CONFIG
+  ) {}
 
   /**
    * Update the fallback policy after a live configuration change - see
@@ -38,8 +52,60 @@ export class AIProviderFactory {
   }
 
   /**
-   * Detect available AI providers in priority order
-   * Priority: Copilot → Claude → Kiro → Generic → Rule-based
+   * Update the try-order (speckit.providerPriority) after a live
+   * configuration change. Resets the detection cache so the new order
+   * actually takes effect on the next call, rather than sticking with
+   * whatever was cached under the old order.
+   */
+  public setProviderPriority(value: ProviderId[]): void {
+    this.providerPriority = value;
+    this.isDetected = false;
+  }
+
+  /**
+   * Update the custom model config (speckit.customModel.*) after a live
+   * configuration change. Resets the detection cache for the same reason
+   * as setProviderPriority - a newly-enabled/edited custom model should be
+   * picked up on the next transform, not require a window reload.
+   */
+  public setCustomModelConfig(value: CustomModelConfig): void {
+    this.customModelConfig = value;
+    this.isDetected = false;
+  }
+
+  /**
+   * Builds one provider instance for a given id. "custom" is always backed
+   * by the single currently-configured CustomModelConfig - there's only
+   * ever one custom model slot, not a whole class of them.
+   */
+  private buildProvider(id: ProviderId): AIProvider {
+    switch (id) {
+      case 'copilot':
+        return new CopilotProvider();
+      case 'claude':
+        return new ClaudeProvider();
+      case 'kiro':
+        return new KiroProvider();
+      case 'generic':
+        return new GenericProvider();
+      case 'custom':
+        return new CustomModelProvider(this.customModelConfig);
+    }
+  }
+
+  /**
+   * Builds the full provider list for the current speckit.providerPriority
+   * order, with RuleBasedProvider always appended last - it's governed
+   * separately by allowRuleBasedFallback, not by providerPriority, since
+   * it isn't a real AI provider to prioritize among the others.
+   */
+  private buildProviderList(): AIProvider[] {
+    return [...this.providerPriority.map((id) => this.buildProvider(id)), new RuleBasedProvider()];
+  }
+
+  /**
+   * Detect available AI providers in priority order (speckit.providerPriority,
+   * default Copilot → Claude → Kiro → Generic → Custom → Rule-based)
    */
   public async detectProviders(): Promise<AIProvider> {
     // Only trust the cache for a *real* provider. Detection normally runs
@@ -62,16 +128,10 @@ export class AIProviderFactory {
       return this.detectedProvider;
     }
 
-    console.log('[AIProviderFactory] Detecting available AI providers...');
+    console.log(`[AIProviderFactory] Detecting available AI providers (priority: ${this.providerPriority.join(', ')})...`);
 
     // Initialize all providers in priority order
-    this.providers = [
-      new CopilotProvider(),
-      new ClaudeProvider(),
-      new KiroProvider(),
-      new GenericProvider(),
-      new RuleBasedProvider()
-    ];
+    this.providers = this.buildProviderList();
 
     // Check each provider in priority order
     for (const provider of this.providers) {
@@ -102,14 +162,7 @@ export class AIProviderFactory {
    */
   public async getAllAvailableProviders(): Promise<AIProvider[]> {
     const available: AIProvider[] = [];
-
-    const allProviders = [
-      new CopilotProvider(),
-      new ClaudeProvider(),
-      new KiroProvider(),
-      new GenericProvider(),
-      new RuleBasedProvider()
-    ];
+    const allProviders = this.buildProviderList();
 
     for (const provider of allProviders) {
       try {

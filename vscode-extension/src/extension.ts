@@ -81,7 +81,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Initialize AI provider factory
-    aiFactory = new AIProviderFactory(config.allowRuleBasedFallback);
+    aiFactory = new AIProviderFactory(config.allowRuleBasedFallback, config.providerPriority, config.customModel);
     notificationService.info('Detecting AI providers...');
     const aiProvider = await aiFactory.detectProviders();
     notificationService.info(`AI Provider: ${aiProvider.getProviderName()}`);
@@ -181,6 +181,8 @@ export async function activate(context: vscode.ExtensionContext) {
       // Update pipeline settings
       transformPipeline.setMaxConcurrent(newConfig.maxConcurrentProcessing);
       aiFactory.setAllowRuleBasedFallback(newConfig.allowRuleBasedFallback);
+      aiFactory.setProviderPriority(newConfig.providerPriority);
+      aiFactory.setCustomModelConfig(newConfig.customModel);
 
       // Re-evaluate live progress tracking (starts/stops the watcher if the
       // setting was just toggled; re-provisioning is a no-op if already done).
