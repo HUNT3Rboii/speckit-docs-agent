@@ -3,7 +3,7 @@
  * **Validates: Requirements 2.1**
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '../api/client';
 import type { Artifact } from '../types/api';
 import { isProcessing } from '../utils/processingStatus';
@@ -47,5 +47,40 @@ export function useArtifacts(projectId: string) {
     retry: 2, // Retry failed requests up to 2 times
     enabled: !!projectId, // Only fetch when projectId is provided
     refetchInterval: (query) => getArtifactsRefetchInterval(query.state.data),
+  });
+}
+
+interface SetArtifactTagsVariables {
+  artifactId: string;
+  tags: string[];
+}
+
+/**
+ * Replaces an artifact's full tag list. Optimistic, same pattern as
+ * useUpdateKanbanTaskStatus, so editing tags feels instant rather than
+ * waiting on a round trip before the chips update.
+ */
+export function useSetArtifactTags(projectId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = ['artifacts', projectId];
+
+  return useMutation<string[], Error, SetArtifactTagsVariables, { previous?: Artifact[] }>({
+    mutationFn: ({ artifactId, tags }) => apiClient.setArtifactTags(artifactId, tags),
+    onMutate: async ({ artifactId, tags }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<Artifact[]>(queryKey);
+      queryClient.setQueryData<Artifact[]>(queryKey, (artifacts) =>
+        artifacts?.map((artifact) => (artifact.id === artifactId ? { ...artifact, tags } : artifact))
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
   });
 }

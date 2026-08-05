@@ -272,6 +272,21 @@ export class APIClient {
   }
 
   /**
+   * Replaces an artifact's full tag list (not a partial add/remove) -
+   * callers send the complete desired set.
+   * @param artifactId - ID of the artifact
+   * @param tags - the complete desired tag list
+   * @throws APIError on failure (404 if the artifact doesn't exist)
+   */
+  async setArtifactTags(artifactId: string, tags: string[]): Promise<string[]> {
+    const response = await this.axiosInstance.put<{ tags: string[] }>(
+      `/api/artifacts/${artifactId}/tags`,
+      { tags }
+    );
+    return response.data.tags;
+  }
+
+  /**
    * Downloads a PDF file for a specific document version
    * @param versionId - ID of the document version
    * @returns Promise resolving to Blob containing PDF data
@@ -284,7 +299,3 @@ export class APIClient {
     return response.data;
   }
 }
-
-// Export a singleton instance configured from environment variables
-import { config } from '../config/env';
-export const apiClient = new APIClient(config.apiBaseUrl, config.apiKey);

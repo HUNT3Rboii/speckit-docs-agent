@@ -23,6 +23,7 @@ describe('APIClient', () => {
     const mockInstance = {
       get: vi.fn(),
       post: vi.fn(),
+      put: vi.fn(),
       interceptors: {
         request: {
           use: vi.fn((onFulfilled) => {
@@ -124,6 +125,23 @@ describe('APIClient', () => {
 
       expect(mockInstance.get).toHaveBeenCalledWith(`/api/projects/${projectId}/artifacts`);
       expect(result).toEqual(mockArtifacts);
+    });
+  });
+
+  describe('setArtifactTags', () => {
+    it('should PUT the full tag list and return the normalized result', async () => {
+      const mockInstance = mockedAxios.create.mock.results[0].value;
+      const artifactId = 'artifact-1';
+      mockInstance.put.mockResolvedValue({
+        data: { artifact_id: artifactId, tags: ['important', 'release'] },
+      });
+
+      const result = await client.setArtifactTags(artifactId, ['release', 'important']);
+
+      expect(mockInstance.put).toHaveBeenCalledWith(`/api/artifacts/${artifactId}/tags`, {
+        tags: ['release', 'important'],
+      });
+      expect(result).toEqual(['important', 'release']);
     });
   });
 

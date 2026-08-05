@@ -31,6 +31,7 @@ export interface Artifact {
   content_hash: string;
   created_at: string;
   title?: string;
+  tags?: string[];
   metadata?: {
     current_step?: string | null;
     title?: string;

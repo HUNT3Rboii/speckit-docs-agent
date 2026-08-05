@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ArtifactCard } from './ArtifactCard';
 import type { Artifact } from '../types/api';
 import { formatDistanceToNow } from 'date-fns';
@@ -24,12 +25,24 @@ describe('ArtifactCard', () => {
     ...overrides,
   });
 
+  // ArtifactTags (rendered inside every card) uses useSetArtifactTags,
+  // which needs a QueryClient in context - a fresh one per render so
+  // mutation state never leaks between tests.
+  const renderCard = (artifact: Artifact, onClick: (id: string) => void) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ArtifactCard artifact={artifact} onClick={onClick} />
+      </QueryClientProvider>
+    );
+  };
+
   describe('rendering', () => {
     it('renders artifact title prominently', () => {
       const artifact = createMockArtifact({ title: 'Test Specification' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const title = screen.getByText('Test Specification');
       expect(title).toBeInTheDocument();
@@ -42,7 +55,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ source_path: sourcePath });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(sourcePath)).toBeInTheDocument();
     });
@@ -52,10 +65,10 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ title: undefined, source_path: sourcePath });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       // When no title, path should be shown in title and description
-      const cardContent = screen.getByRole('button');
+      const cardContent = screen.getByRole('button', { name: /^Open artifact/ });
       expect(cardContent).toBeInTheDocument();
       // The source path appears in both the title and description, so we check for the button
       expect(cardContent).toHaveAttribute('aria-label');
@@ -65,7 +78,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact();
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const card = screen.getByRole('button', { name: /Open artifact/ });
       expect(card).toBeInTheDocument();
@@ -75,9 +88,9 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ title: 'Test Title' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       expect(card).toHaveAttribute('tabIndex', '0');
       expect(card).toHaveAttribute('role', 'button');
       expect(card).toHaveAttribute('aria-label');
@@ -88,7 +101,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ created_at: now.toISOString() });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(/Created/)).toBeInTheDocument();
     });
@@ -99,7 +112,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'spec' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('spec');
       expect(badge).toBeInTheDocument();
@@ -109,7 +122,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'plan' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('plan');
       expect(badge).toBeInTheDocument();
@@ -119,7 +132,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'task' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('task');
       expect(badge).toBeInTheDocument();
@@ -129,7 +142,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'constitution' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('constitution');
       expect(badge).toBeInTheDocument();
@@ -139,7 +152,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'other' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('other');
       expect(badge).toBeInTheDocument();
@@ -149,7 +162,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'spec' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('spec');
       // spec should have blue classes: bg-blue-100 text-blue-800 border-blue-200
@@ -161,7 +174,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'plan' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('plan');
       // plan should have green classes: bg-green-100 text-green-800 border-green-200
@@ -173,7 +186,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'task' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('task');
       // task should have orange classes: bg-orange-100 text-orange-800 border-orange-200
@@ -185,7 +198,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'constitution' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('constitution');
       // constitution should have purple classes: bg-purple-100 text-purple-800 border-purple-200
@@ -197,7 +210,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ artifact_type: 'other' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const badge = screen.getByText('other');
       // other should have gray classes: bg-gray-100 text-gray-800 border-gray-200
@@ -212,7 +225,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ created_at: now.toISOString() });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const createdText = screen.getByText(/Created/);
       expect(createdText).toBeInTheDocument();
@@ -225,7 +238,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ created_at: oneHourAgo.toISOString() });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const createdText = screen.getByText(/Created/);
       expect(createdText.textContent).toMatch(/ago/);
@@ -236,7 +249,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ created_at: threeMonthsAgo.toISOString() });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const createdText = screen.getByText(/Created/);
       expect(createdText).toBeInTheDocument();
@@ -246,7 +259,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ created_at: '' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(/Unknown/)).toBeInTheDocument();
     });
@@ -255,7 +268,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ created_at: 'invalid-date' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(/Unknown/)).toBeInTheDocument();
     });
@@ -265,7 +278,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ created_at: fiveMinutesAgo.toISOString() });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       const createdText = screen.getByText(/Created/);
       expect(createdText.textContent).toContain('minute');
@@ -278,7 +291,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ source_path: shortPath });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(shortPath)).toBeInTheDocument();
     });
@@ -288,10 +301,10 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ source_path: longPath });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       // Should display the path in the card
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       expect(card).toBeInTheDocument();
       // The CardDescription contains the path
       expect(screen.getByText(longPath)).toBeInTheDocument();
@@ -302,7 +315,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ source_path: longPath });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       // Filename should be preserved
       expect(screen.getByText(/important-document\.md/)).toBeInTheDocument();
@@ -313,7 +326,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ source_path: filename });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(filename)).toBeInTheDocument();
     });
@@ -324,7 +337,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ source_path: longPath, title });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       // Should show title prominently
       expect(screen.getByText(title)).toBeInTheDocument();
@@ -339,9 +352,9 @@ describe('ArtifactCard', () => {
       const artifactId = 'artifact-456';
       const artifact = createMockArtifact({ id: artifactId });
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       fireEvent.click(card);
 
       expect(onClick).toHaveBeenCalledWith(artifactId);
@@ -350,26 +363,31 @@ describe('ArtifactCard', () => {
 
     it('calls onClick with correct artifact ID for different artifacts', () => {
       const onClick = vi.fn();
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       const { rerender } = render(
-        <ArtifactCard
-          artifact={createMockArtifact({ id: 'artifact-1' })}
-          onClick={onClick}
-        />
+        <QueryClientProvider client={queryClient}>
+          <ArtifactCard
+            artifact={createMockArtifact({ id: 'artifact-1' })}
+            onClick={onClick}
+          />
+        </QueryClientProvider>
       );
 
-      fireEvent.click(screen.getByRole('button'));
+      fireEvent.click(screen.getByRole('button', { name: /^Open artifact/ }));
       expect(onClick).toHaveBeenCalledWith('artifact-1');
 
       onClick.mockClear();
 
       rerender(
-        <ArtifactCard
-          artifact={createMockArtifact({ id: 'artifact-2' })}
-          onClick={onClick}
-        />
+        <QueryClientProvider client={queryClient}>
+          <ArtifactCard
+            artifact={createMockArtifact({ id: 'artifact-2' })}
+            onClick={onClick}
+          />
+        </QueryClientProvider>
       );
 
-      fireEvent.click(screen.getByRole('button'));
+      fireEvent.click(screen.getByRole('button', { name: /^Open artifact/ }));
       expect(onClick).toHaveBeenCalledWith('artifact-2');
     });
 
@@ -377,9 +395,9 @@ describe('ArtifactCard', () => {
       const onClick = vi.fn();
       const artifact = createMockArtifact({ id: 'artifact-789' });
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       fireEvent.keyDown(card, { key: 'Enter', code: 'Enter' });
 
       expect(onClick).toHaveBeenCalledWith('artifact-789');
@@ -389,9 +407,9 @@ describe('ArtifactCard', () => {
       const onClick = vi.fn();
       const artifact = createMockArtifact({ id: 'artifact-999' });
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       fireEvent.keyDown(card, { key: ' ', code: 'Space' });
 
       expect(onClick).toHaveBeenCalledWith('artifact-999');
@@ -401,9 +419,9 @@ describe('ArtifactCard', () => {
       const onClick = vi.fn();
       const artifact = createMockArtifact();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       fireEvent.keyDown(card, { key: 'a', code: 'KeyA' });
 
       expect(onClick).not.toHaveBeenCalled();
@@ -413,9 +431,9 @@ describe('ArtifactCard', () => {
       const onClick = vi.fn();
       const artifact = createMockArtifact();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       // Create a keyboard event with event properties
       const event = new KeyboardEvent('keydown', {
         key: ' ',
@@ -437,9 +455,9 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact();
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       expect(card).toHaveClass('hover:shadow-lg');
       expect(card).toHaveClass('cursor-pointer');
     });
@@ -448,9 +466,9 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact();
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       expect(card).toHaveClass('transition-all');
     });
   });
@@ -473,13 +491,13 @@ describe('ArtifactCard', () => {
         });
         const onClick = vi.fn();
 
-        render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+        renderCard(artifact, onClick);
 
         const badge = screen.getByText(type);
         expect(badge).toBeInTheDocument();
         expect(screen.getByText(`Test ${type}`)).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button'));
+        fireEvent.click(screen.getByRole('button', { name: /^Open artifact/ }));
         expect(onClick).toHaveBeenCalledWith(artifact.id);
       }
     );
@@ -490,10 +508,10 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ title: '' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       // Should fall back to truncated source path
-      expect(screen.getByRole('button')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Open artifact/ })).toBeInTheDocument();
     });
 
     it('handles very long artifact titles', () => {
@@ -501,7 +519,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ title: longTitle });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(longTitle)).toBeInTheDocument();
     });
@@ -511,7 +529,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ title: specialTitle });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(specialTitle)).toBeInTheDocument();
     });
@@ -521,7 +539,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ source_path: specialPath });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByText(specialPath)).toBeInTheDocument();
     });
@@ -530,9 +548,9 @@ describe('ArtifactCard', () => {
       const onClick = vi.fn();
       const artifact = createMockArtifact();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
 
       fireEvent.click(card);
       fireEvent.click(card);
@@ -555,10 +573,10 @@ describe('ArtifactCard', () => {
       };
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      expect(screen.getByRole('button')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button'));
+      expect(screen.getByRole('button', { name: /^Open artifact/ })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /^Open artifact/ }));
       expect(onClick).toHaveBeenCalledWith('test-id');
     });
   });
@@ -568,9 +586,9 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact();
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       expect(card).toHaveAttribute('aria-label');
     });
 
@@ -579,9 +597,9 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ title });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       expect(card.getAttribute('aria-label')).toContain(title);
     });
 
@@ -590,9 +608,9 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ title: undefined, source_path: sourcePath });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Open artifact/ });
       const ariaLabel = card.getAttribute('aria-label');
       expect(ariaLabel).toBeDefined();
       expect(ariaLabel).toContain('Open artifact');
@@ -604,9 +622,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact();
       const onClick = vi.fn();
 
-      const { container } = render(
-        <ArtifactCard artifact={artifact} onClick={onClick} />
-      );
+      const { container } = renderCard(artifact, onClick);
 
       expect(container.querySelector('[role="button"]')).toBeInTheDocument();
     });
@@ -616,7 +632,7 @@ describe('ArtifactCard', () => {
       const onClick = vi.fn();
 
       expect(() => {
-        render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+        renderCard(artifact, onClick);
       }).not.toThrow();
     });
   });
@@ -629,7 +645,7 @@ describe('ArtifactCard', () => {
       });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByTestId('processing-indicator')).toBeInTheDocument();
       expect(screen.getByText('Rendering diagrams')).toBeInTheDocument();
@@ -651,7 +667,7 @@ describe('ArtifactCard', () => {
       });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByTestId('stalled-indicator')).toBeInTheDocument();
       expect(screen.queryByTestId('processing-indicator')).not.toBeInTheDocument();
@@ -667,7 +683,7 @@ describe('ArtifactCard', () => {
       });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByTestId('failed-indicator')).toBeInTheDocument();
       expect(screen.getByText('Failed: PDF generation crashed')).toBeInTheDocument();
@@ -677,7 +693,7 @@ describe('ArtifactCard', () => {
       const artifact = createMockArtifact({ status: 'rendered' });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
       expect(screen.getByTestId('ready-indicator')).toBeInTheDocument();
       expect(screen.getByText(/Ready/)).toBeInTheDocument();
@@ -694,9 +710,9 @@ describe('ArtifactCard', () => {
       });
       const onClick = vi.fn();
 
-      render(<ArtifactCard artifact={artifact} onClick={onClick} />);
+      renderCard(artifact, onClick);
 
-      fireEvent.click(screen.getByRole('button'));
+      fireEvent.click(screen.getByRole('button', { name: /^Open artifact/ }));
       expect(onClick).toHaveBeenCalledWith(artifact.id);
     });
   });

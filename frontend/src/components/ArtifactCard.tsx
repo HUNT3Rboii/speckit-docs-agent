@@ -5,6 +5,7 @@ import { Loader2, AlertCircle, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { truncatePath } from '../utils/pathTruncate';
 import { getCategoryBadgeClasses } from '../utils/categoryColors';
 import { isActivelyProcessing, needsCorrection, stepLabel } from '../utils/processingStatus';
+import { ArtifactTags } from './ArtifactTags';
 import type { Artifact } from '../types/api';
 
 interface ArtifactCardProps {
@@ -81,6 +82,13 @@ export function ArtifactCard({ artifact, onClick }: ArtifactCardProps) {
             <span>Ready · Created {formatCreatedDate()}</span>
           </div>
         )}
+        <div className="mt-3">
+          <ArtifactTags
+            artifactId={artifact.id}
+            projectId={artifact.project_id}
+            tags={artifact.tags ?? []}
+          />
+        </div>
       </CardContent>
     </Card>
   );

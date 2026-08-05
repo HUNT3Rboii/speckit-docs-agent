@@ -2,6 +2,7 @@
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ArtifactListView } from "./ArtifactListView";
 import type { Artifact } from "../types/api";
 import * as useArtifactsModule from "../hooks/useArtifacts";
@@ -19,13 +20,21 @@ const createMockArtifact = (overrides?: Partial<Artifact>): Artifact => ({
   ...overrides,
 });
 
-const TestWrapper = ({ children }: { children: React.ReactNode }) => (
-  <MemoryRouter initialEntries={["/projects/test-project-123"]}>
-    <Routes>
-      <Route path="/projects/:projectId" element={children} />
-    </Routes>
-  </MemoryRouter>
-);
+// ArtifactCard renders ArtifactTags, which calls the real (unmocked)
+// useSetArtifactTags mutation hook - it needs a QueryClient in context even
+// though useArtifacts/useExceptions above are mocked directly.
+const TestWrapper = ({ children }: { children: React.ReactNode }) => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/projects/test-project-123"]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={children} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+};
 
 describe("ArtifactListView", () => {
   beforeEach(() => {
