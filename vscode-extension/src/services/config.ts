@@ -66,7 +66,14 @@ export class ConfigurationManager {
         '**/.specify/templates/**'
       ]
     );
-    const apiKey = config.get<string>('apiKey') ?? '';
+    // Defaults to the backend's own dev default (SPECKIT_EXT_API_KEY in
+    // infra/docker-compose.yml) so a fresh clone works out of the box for
+    // local dev - previously this fell back to '', which sends no
+    // Authorization header at all (getHeaders() only adds it when apiKey is
+    // truthy), so every backend call 401'd with no indication the API key
+    // was the actual problem. Matches frontend/src/config/env.ts's same
+    // 'dev-key' fallback for the same reason.
+    const apiKey = this.validateString(config.get<string>('apiKey'), 'dev-key');
     const enableDebugLogging = config.get<boolean>('enableDebugLogging') ?? false;
     const debounceMs = this.validateNumber(
       config.get<number>('debounceMs'),

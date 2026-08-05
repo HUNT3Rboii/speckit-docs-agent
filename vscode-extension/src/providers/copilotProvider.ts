@@ -12,6 +12,11 @@ import { BaseAIProvider } from '../services/aiProvider';
  */
 export class CopilotProvider extends BaseAIProvider {
   private model: vscode.LanguageModelChat | null = null;
+  /** Every Copilot-vendor model this extension can see, not just the one
+   * selected - transform() falls through to the next one on a rate limit
+   * rather than giving up on Copilot entirely when only one of possibly
+   * several available models is exhausted. */
+  private availableModels: vscode.LanguageModelChat[] = [];
 
   /**
    * Check if GitHub Copilot is available.
@@ -51,8 +56,15 @@ export class CopilotProvider extends BaseAIProvider {
       }
 
       if (models.length > 0) {
-        this.model = models[0];
-        this.log('Copilot model detected:', this.model.id);
+        this.availableModels = models;
+        // Always logged, not just when the vendor-scoped lookup came back
+        // empty above - previously this silently grabbed models[0] with no
+        // visibility into whether other Copilot models existed that could
+        // have been used instead (e.g. as a fallback when the first one is
+        // rate-limited).
+        this.log(`Copilot models available: ${models.map(m => `${m.family}/${m.id}`).join(', ')}`);
+        this.model = this.selectPreferredModel(models);
+        this.log('Using Copilot model:', this.model.id);
         return true;
       }
 
@@ -61,6 +73,36 @@ export class CopilotProvider extends BaseAIProvider {
       this.logError('Error detecting Copilot:', error);
       return false;
     }
+  }
+
+  /**
+   * Picks which of the available Copilot models to use first. Defaults to
+   * the first one VS Code returns, but honors speckit.preferredModelId (a
+   * substring matched case-insensitively against each model's id/family/
+   * name) when set, so a user hitting a rate limit on the default model
+   * can point this at a different one they have access to instead of
+   * waiting it out or falling back to a lower-quality transform.
+   */
+  private selectPreferredModel(models: vscode.LanguageModelChat[]): vscode.LanguageModelChat {
+    const preferred = vscode.workspace
+      .getConfiguration('speckit')
+      .get<string>('preferredModelId', '')
+      .trim()
+      .toLowerCase();
+
+    if (preferred) {
+      const match = models.find(m =>
+        m.id.toLowerCase().includes(preferred) ||
+        m.family?.toLowerCase().includes(preferred) ||
+        m.name?.toLowerCase().includes(preferred)
+      );
+      if (match) {
+        return match;
+      }
+      this.log(`No Copilot model matched speckit.preferredModelId "${preferred}" - using the first available model instead.`);
+    }
+
+    return models[0];
   }
 
   /**
@@ -73,14 +115,20 @@ export class CopilotProvider extends BaseAIProvider {
   }
 
   /**
-   * Transform markdown to structured JSON using Copilot
+   * Transform markdown to structured JSON using Copilot. Tries the
+   * selected model first, then falls through to any other available
+   * Copilot model on a rate-limit error specifically - other error types
+   * (timeout, malformed response, document too large) are assumed to
+   * affect every model equally and are thrown immediately rather than
+   * wasting time retrying across models that would likely hit the same
+   * problem.
    */
   public async transform(
     markdown: string,
     sourcePath: string,
     structuredError?: StructuredError
   ): Promise<StructuredJSON> {
-    if (!this.model) {
+    if (!this.model || this.availableModels.length === 0) {
       throw new Error('Copilot model not available. Call isAvailable() first.');
     }
 
@@ -88,6 +136,39 @@ export class CopilotProvider extends BaseAIProvider {
     this.setTimeout(this.computeTimeout(sanitized));
     const prompt = this.buildTransformPrompt(sanitized, structuredError, sourcePath);
 
+    const orderedModels = [this.model, ...this.availableModels.filter(m => m !== this.model)];
+    let lastError: any;
+
+    for (let i = 0; i < orderedModels.length; i++) {
+      const model = orderedModels[i];
+      try {
+        const parsed = await this.sendToModel(model, prompt, sourcePath);
+        this.model = model; // Remember which one actually worked for getProviderName()/next call.
+        return parsed;
+      } catch (error: any) {
+        lastError = error;
+        const isRateLimit = error.message?.toLowerCase().includes('rate limit');
+        const hasMoreModels = i < orderedModels.length - 1;
+        if (!isRateLimit || !hasMoreModels) {
+          throw error;
+        }
+        this.log(`${model.id} was rate-limited, trying next available Copilot model (${orderedModels[i + 1].id})...`);
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Sends the prompt to one specific model and returns the parsed result.
+   * Split out from transform() so it can be tried against multiple models
+   * in sequence without duplicating the send/timeout/parse logic.
+   */
+  private async sendToModel(
+    model: vscode.LanguageModelChat,
+    prompt: string,
+    sourcePath: string
+  ): Promise<StructuredJSON> {
     // Owned by this call (not a throwaway token) so it can be cancelled in
     // `finally` if we bail out via the timeout race below - otherwise the
     // streaming request keeps running in the background even after this
@@ -95,9 +176,8 @@ export class CopilotProvider extends BaseAIProvider {
     const cancellationSource = new vscode.CancellationTokenSource();
 
     try {
-      this.log('Sending request to Copilot...');
+      this.log(`Sending request to Copilot (${model.id})...`);
 
-      // Create chat request
       const messages = [
         vscode.LanguageModelChatMessage.User(prompt)
       ];
@@ -110,7 +190,7 @@ export class CopilotProvider extends BaseAIProvider {
       // error, and nothing ever surfacing to the user - indistinguishable
       // from the extension simply being frozen.
       const sendAndCollect = async (): Promise<string> => {
-        const response = await this.model!.sendRequest(messages, {}, cancellationSource.token);
+        const response = await model.sendRequest(messages, {}, cancellationSource.token);
         let responseText = '';
         for await (const fragment of response.text) {
           responseText += fragment;
@@ -134,7 +214,7 @@ export class CopilotProvider extends BaseAIProvider {
       // Add metadata
       parsed.source_path = sourcePath;
       parsed.ai_enhanced = true;
-      parsed.agent_source = this.getProviderName();
+      parsed.agent_source = `GitHub Copilot Chat — ${model.name}`;
 
       return parsed;
     } catch (error: any) {

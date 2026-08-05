@@ -14,13 +14,38 @@ export class ClaudeProvider extends BaseAIProvider {
   private model: vscode.LanguageModelChat | null = null;
 
   /**
-   * Check if Claude is available
+   * Check if Claude is available.
+   *
+   * Whether a Claude-providing extension (e.g. Claude Code) registers
+   * itself under vendor 'anthropic' the way this checks first is not
+   * something we control or can assume - if that lookup comes back empty,
+   * fall back to enumerating every model this extension CAN see (mirrors
+   * CopilotProvider/KiroProvider's same pattern) and log the result either
+   * way, so it's visible in the output channel whether no Claude model is
+   * registered at all vs. it's registered under an unexpected vendor id.
    */
   public async isAvailable(): Promise<boolean> {
     try {
-      const models = await vscode.lm.selectChatModels({
+      let models = await vscode.lm.selectChatModels({
         vendor: 'anthropic'
       });
+
+      if (models.length === 0) {
+        const allModels = await vscode.lm.selectChatModels();
+        this.log(
+          `No models found for vendor 'anthropic'. All models visible to this extension: ${
+            allModels.length > 0
+              ? allModels.map(m => `${m.vendor}/${m.family}/${m.id}`).join(', ')
+              : '(none - check that this extension has been granted language model access)'
+          }`
+        );
+        models = allModels.filter(model =>
+          model.vendor?.toLowerCase().includes('anthropic') ||
+          model.vendor?.toLowerCase().includes('claude') ||
+          model.id.toLowerCase().includes('claude') ||
+          model.name?.toLowerCase().includes('claude')
+        );
+      }
 
       if (models.length > 0) {
         this.model = models[0];

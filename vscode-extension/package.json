@@ -104,8 +104,8 @@
         },
         "speckit.apiKey": {
           "type": "string",
-          "default": "",
-          "description": "API key for backend authentication (optional, will migrate to secure storage)",
+          "default": "dev-key",
+          "description": "API key for backend authentication - must match SPECKIT_EXT_API_KEY in infra/docker-compose.yml (dev-key by default). Empty defeats auth entirely (no Authorization header is sent), so every backend call 401s.",
           "order": 5
         },
         "speckit.enableDebugLogging": {
@@ -141,6 +141,12 @@
           "default": true,
           "description": "Auto-provision .github/copilot-instructions.md (and a .gitignore entry) with live task-progress-tracking instructions in Speckit projects, and watch for the resulting signal files, so the Kanban board can show a task as \"In Progress\" while Copilot works on it, not just \"Done\" once its checkbox is saved.",
           "order": 10
+        },
+        "speckit.preferredModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Substring (case-insensitive) matched against the id/family/name of the Copilot models available to this extension, e.g. \"gpt-4o\" or \"o1\" - if it matches, that model is tried first instead of whichever one Copilot returns by default. Leave empty to use the default. See \"Speckit: Show Extension Logs\" for the exact ids/families available in your session.",
+          "order": 11
         }
       }
     }

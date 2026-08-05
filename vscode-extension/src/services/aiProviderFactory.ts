@@ -178,6 +178,15 @@ export class AIProviderFactory {
       }
     }
 
+    // Providers whose isAvailable() returned false - previously silent, so
+    // "why didn't it fall back to Claude?" had no answer short of adding
+    // console.log breakpoints. Tracked separately from attemptErrors (which
+    // is specifically providers that WERE tried and failed) and surfaced in
+    // the final error below, so the answer ("Claude: not detected") is
+    // right there in the same message the user already sees, not buried in
+    // a DevTools console they'd have to know to open.
+    const skippedProviders: string[] = [];
+
     // Try all providers as fallback (fresh transform, no correction context).
     // Skips this.detectedProvider itself - it's the exact same instance
     // already attempted above, so retrying it here would just wait out a
@@ -190,15 +199,28 @@ export class AIProviderFactory {
       if (isRuleBased(provider) && !this.allowRuleBasedFallback) {
         continue; // Never silently degrade unless explicitly opted in.
       }
+
+      let available: boolean;
       try {
-        if (await provider.isAvailable()) {
-          const result = await provider.transform(markdown, sourcePath);
-          console.log(`[AIProviderFactory] Fallback successful with: ${provider.getProviderName()}`);
-          return {
-            result,
-            provider: provider.getProviderName()
-          };
-        }
+        available = await provider.isAvailable();
+      } catch (error: any) {
+        console.error(`[AIProviderFactory] Error checking availability of ${provider.getProviderName()}:`, error);
+        skippedProviders.push(`${provider.getProviderName()} (error checking availability: ${error.message})`);
+        continue;
+      }
+
+      if (!available) {
+        skippedProviders.push(provider.getProviderName());
+        continue;
+      }
+
+      try {
+        const result = await provider.transform(markdown, sourcePath);
+        console.log(`[AIProviderFactory] Fallback successful with: ${provider.getProviderName()}`);
+        return {
+          result,
+          provider: provider.getProviderName()
+        };
       } catch (error: any) {
         console.error(`[AIProviderFactory] Fallback provider ${provider.getProviderName()} failed:`, error);
         attemptErrors.push(`${provider.getProviderName()}: ${error.message}`);
@@ -206,13 +228,15 @@ export class AIProviderFactory {
     }
 
     const detail = attemptErrors.length > 0 ? ` Attempt(s): ${attemptErrors.join('; ')}.` : '';
+    const skippedDetail = skippedProviders.length > 0 ? ` Not available: ${skippedProviders.join(', ')}.` : '';
     throw new Error(
       this.allowRuleBasedFallback
-        ? `All AI providers failed to transform document.${detail}`
+        ? `All AI providers failed to transform document.${detail}${skippedDetail}`
         : `AI transformation failed and the rule-based fallback is disabled (speckit.allowRuleBasedFallback ` +
-          `is off).${detail} Turn that setting on to process with reduced quality instead of failing, or ` +
-          `investigate the attempt(s) above (e.g. a timeout means the provider was detected fine but didn't ` +
-          `respond in time).`
+          `is off).${detail}${skippedDetail} Turn that setting on to process with reduced quality instead of ` +
+          `failing, or investigate the attempt(s) above (e.g. a timeout means the provider was detected fine ` +
+          `but didn't respond in time; "not available" means that provider was never even reachable in this ` +
+          `VS Code session - run "Speckit: Show Extension Logs" for the specific model-detection diagnostics).`
     );
   }
 
