@@ -5,6 +5,48 @@
 
 import { JSONParser as IJSONParser, StructuredJSON, ValidationResult, SectionType } from '../types';
 
+const MAX_ESCAPE_REPAIR_ITERATIONS = 50;
+
+/**
+ * Fixes backslashes that aren't part of a valid JSON escape sequence - by
+ * far the most common real-world way AI-generated JSON breaks in this
+ * project, since the markdown being transformed is full of literal Windows
+ * paths (e.g. "C:\Users\...") that smaller models frequently emit without
+ * doubling the backslash, which JSON.parse rejects as "Bad escaped
+ * character" (its error message includes the exact position of the
+ * offending character).
+ *
+ * Deliberately does NOT use a blanket "backslash not followed by bfnrtu"
+ * regex: n/t/r/f/b/u are all individually valid JSON escapes, and this
+ * project's own path segments collide with several of them (\frontend,
+ * \backend, \tests, \node_modules, \temp) - a naive regex would silently
+ * mangle those into control characters instead of leaving them alone,
+ * without JSON.parse ever complaining. Repeatedly re-parsing and fixing
+ * only the exact position JSON.parse itself flags means only genuinely
+ * broken escapes (e.g. "\U" from "C:\Users", not valid JSON) ever get
+ * touched.
+ */
+export function fixInvalidJSONEscapes(jsonStr: string): string {
+  let result = jsonStr;
+  for (let i = 0; i < MAX_ESCAPE_REPAIR_ITERATIONS; i++) {
+    try {
+      JSON.parse(result);
+      return result;
+    } catch (error: any) {
+      const match = /Bad escaped character in JSON at position (\d+)/.exec(error?.message ?? '');
+      if (!match) {
+        return result; // a different kind of error - nothing more this function can fix
+      }
+      const pos = parseInt(match[1], 10);
+      if (result[pos - 1] !== '\\') {
+        return result; // unexpected shape - bail rather than risk corrupting further
+      }
+      result = result.slice(0, pos - 1) + '\\' + result.slice(pos - 1);
+    }
+  }
+  return result;
+}
+
 /**
  * Parses and validates AI-generated JSON with robust error handling
  */
@@ -171,6 +213,10 @@ export class JSONParser implements IJSONParser {
    */
   private repairAndParse(jsonStr: string): StructuredJSON {
     let repaired = jsonStr;
+
+    // Fix invalid backslash escapes (e.g. unescaped Windows paths) first -
+    // this is the single most common failure mode in practice.
+    repaired = fixInvalidJSONEscapes(repaired);
 
     // Fix trailing commas in objects
     repaired = repaired.replace(/,(\s*})/g, '$1');

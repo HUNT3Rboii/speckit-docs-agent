@@ -38,6 +38,10 @@ class TestProvider extends BaseAIProvider {
   public getTimeout(): number {
     return this.timeout;
   }
+
+  public parseJSONFor(jsonStr: string): StructuredJSON {
+    return this.parseJSON(jsonStr);
+  }
 }
 
 describe('BaseAIProvider.createCorrectionPrompt', () => {
@@ -181,5 +185,33 @@ describe('BaseAIProvider.computeTimeout', () => {
 
   it('does not mutate the timeout until setTimeout is actually called', () => {
     expect(provider.getTimeout()).toBe(15000);
+  });
+});
+
+describe('BaseAIProvider.parseJSON', () => {
+  let provider: TestProvider;
+
+  beforeEach(() => {
+    provider = new TestProvider();
+  });
+
+  it('parses already-valid JSON directly', () => {
+    const result = provider.parseJSONFor('{"title": "T"}');
+    expect(result.title).toBe('T');
+  });
+
+  it('repairs an unescaped Windows path instead of throwing', () => {
+    // This is the exact failure mode every provider hit in practice: a
+    // model emits a literal "C:\Users\..." path without doubling the
+    // backslash, and a raw JSON.parse() rejects "\U" as a bad escape -
+    // previously that error propagated all the way up and burned a full
+    // AI correction-retry cycle instead of being fixed for free here.
+    const raw = '{"title": "T", "abstract": "See C:\\Users\\dev\\index.md"}';
+    const result = provider.parseJSONFor(raw);
+    expect(result.abstract).toBe('See C:\\Users\\dev\\index.md');
+  });
+
+  it('throws the original error when the input is unrepairable', () => {
+    expect(() => provider.parseJSONFor('not json at all')).toThrow();
   });
 });

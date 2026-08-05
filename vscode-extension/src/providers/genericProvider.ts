@@ -85,7 +85,7 @@ export class GenericProvider extends BaseAIProvider {
 
       // Extract and parse JSON
       const jsonStr = this.extractJSON(responseText);
-      const parsed = JSON.parse(jsonStr) as StructuredJSON;
+      const parsed = this.parseJSON(jsonStr);
 
       // Add metadata
       parsed.source_path = sourcePath;

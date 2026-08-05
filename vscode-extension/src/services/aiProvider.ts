@@ -5,6 +5,7 @@
 
 import { AIProvider, StructuredError, StructuredJSON } from '../types';
 import { EnrichmentPromptBuilder } from './enrichmentPromptBuilder';
+import { fixInvalidJSONEscapes } from './jsonParser';
 
 /**
  * Base implementation with common functionality for all AI providers
@@ -181,6 +182,29 @@ Return ONLY the corrected JSON object, no explanations.`;
     }
 
     return cleaned.trim();
+  }
+
+  /**
+   * Parse an extracted JSON string into a StructuredJSON, repairing the
+   * most common real-world mistake first: unescaped backslashes from
+   * literal Windows paths (e.g. "C:\Users\...") that smaller models
+   * frequently emit without doubling the backslash, which JSON.parse
+   * rejects as "Bad escaped character". Previously every provider called
+   * JSON.parse() directly with no repair attempt, so this exact class of
+   * error burned a full correction-retry cycle (re-sending the whole
+   * document to the AI again) every time instead of being fixed for free
+   * with a string-level repair.
+   */
+  protected parseJSON(jsonStr: string): StructuredJSON {
+    try {
+      return JSON.parse(jsonStr) as StructuredJSON;
+    } catch (firstError: any) {
+      try {
+        return JSON.parse(fixInvalidJSONEscapes(jsonStr)) as StructuredJSON;
+      } catch {
+        throw firstError; // the original error is more specific/useful than the repair attempt's
+      }
+    }
   }
 
   /**
