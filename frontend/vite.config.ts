@@ -11,12 +11,6 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  server: {
-    // Requests arrive here via dev-proxy.js (http://speckit.local -> this
-    // dev server) with the original Host header intact, so Vite's host
-    // check needs to allow it explicitly or every proxied request 403s.
-    allowedHosts: ['speckit.local'],
-  },
   test: {
     globals: true,
     environment: 'jsdom',
