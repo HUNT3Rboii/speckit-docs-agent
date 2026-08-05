@@ -3,12 +3,13 @@
  * Detects and initializes AI providers with automatic fallback
  */
 
-import { AIProvider, StructuredError } from '../types';
+import { AIProvider, CancellationSignal, StructuredError } from '../types';
 import { CopilotProvider } from '../providers/copilotProvider';
 import { ClaudeProvider } from '../providers/claudeProvider';
 import { KiroProvider } from '../providers/kiroProvider';
 import { GenericProvider } from '../providers/genericProvider';
 import { RuleBasedProvider } from '../providers/ruleBasedProvider';
+import { CancellationRequestedError } from './aiProvider';
 
 /**
  * Factory for creating and managing AI providers with fallback chain
@@ -137,11 +138,15 @@ export class AIProviderFactory {
   public async transformWithFallback(
     markdown: string,
     sourcePath: string,
-    structuredError?: StructuredError
+    structuredError?: StructuredError,
+    cancellation?: CancellationSignal
   ): Promise<{
     result: any;
     provider: string;
   }> {
+    if (cancellation?.isCancellationRequested) {
+      throw new CancellationRequestedError();
+    }
     // Always defer to detectProviders() rather than checking
     // this.detectedProvider directly - detectProviders() already knows how
     // to decide when its own cache is trustworthy (a real provider) versus
@@ -167,12 +172,19 @@ export class AIProviderFactory {
     // provider, not short-circuited early for this one case.
     if (this.detectedProvider && !isRuleBased(this.detectedProvider)) {
       try {
-        const result = await this.detectedProvider.transform(markdown, sourcePath, structuredError);
+        const result = await this.detectedProvider.transform(markdown, sourcePath, structuredError, cancellation);
         return {
           result,
           provider: this.detectedProvider.getProviderName()
         };
       } catch (error: any) {
+        // A cancellation means the user asked to stop - falling back to
+        // try yet another provider would defeat the entire point of
+        // stopping now, so propagate it immediately instead of treating
+        // it as "this provider failed, try the next one".
+        if (error instanceof CancellationRequestedError) {
+          throw error;
+        }
         console.error(`[AIProviderFactory] Primary provider failed, trying fallbacks:`, error);
         attemptErrors.push(`${this.detectedProvider.getProviderName()}: ${error.message}`);
       }
@@ -215,13 +227,16 @@ export class AIProviderFactory {
       }
 
       try {
-        const result = await provider.transform(markdown, sourcePath);
+        const result = await provider.transform(markdown, sourcePath, undefined, cancellation);
         console.log(`[AIProviderFactory] Fallback successful with: ${provider.getProviderName()}`);
         return {
           result,
           provider: provider.getProviderName()
         };
       } catch (error: any) {
+        if (error instanceof CancellationRequestedError) {
+          throw error;
+        }
         console.error(`[AIProviderFactory] Fallback provider ${provider.getProviderName()} failed:`, error);
         attemptErrors.push(`${provider.getProviderName()}: ${error.message}`);
       }

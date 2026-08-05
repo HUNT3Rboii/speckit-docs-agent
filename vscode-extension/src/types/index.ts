@@ -139,6 +139,10 @@ export interface ProcessResult {
   partial?: boolean;
   /** Diagram titles / glossary terms dropped for lacking grounded evidence */
   droppedItems?: Record<string, string[]>;
+  /** True if this result is from the user cancelling (speckit.stopProcessing),
+   * not a genuine failure - callers should not offer "retry" the same way
+   * they would for an actual error. */
+  cancelled?: boolean;
 }
 
 /**
@@ -324,6 +328,19 @@ export interface ExtensionState {
 }
 
 /**
+ * Minimal, vscode-independent shape of a cancellation signal - structurally
+ * compatible with vscode.CancellationToken (a real one can be passed
+ * anywhere this type is expected without importing `vscode` here), which
+ * keeps this file and aiProvider.ts free of the vscode dependency that
+ * would otherwise make their logic untestable under this project's Jest
+ * config (see aiProvider.test.ts's own note on this).
+ */
+export interface CancellationSignal {
+  readonly isCancellationRequested: boolean;
+  onCancellationRequested(listener: () => void): { dispose(): void };
+}
+
+/**
  * AI Provider interface
  */
 export interface AIProvider {
@@ -336,12 +353,15 @@ export interface AIProvider {
    * the prompt asks the AI to correct only the flagged items (missing
    * headings / ungrounded diagram or glossary evidence / invalid Mermaid
    * syntax) from a previous /api/process retry_needed response, rather than
-   * re-transforming from scratch.
+   * re-transforming from scratch. `cancellation`, when provided and already
+   * (or later) triggered, aborts the in-flight request instead of waiting
+   * it out.
    */
   transform(
     markdown: string,
     sourcePath: string,
-    structuredError?: StructuredError
+    structuredError?: StructuredError,
+    cancellation?: CancellationSignal
   ): Promise<StructuredJSON>;
 }
 

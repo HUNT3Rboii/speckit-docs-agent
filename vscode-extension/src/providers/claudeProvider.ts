@@ -4,8 +4,8 @@
  */
 
 import * as vscode from 'vscode';
-import { StructuredError, StructuredJSON } from '../types';
-import { BaseAIProvider } from '../services/aiProvider';
+import { CancellationSignal, StructuredError, StructuredJSON } from '../types';
+import { BaseAIProvider, CancellationRequestedError } from '../services/aiProvider';
 
 /**
  * Claude (Anthropic) provider implementation
@@ -74,8 +74,11 @@ export class ClaudeProvider extends BaseAIProvider {
   public async transform(
     markdown: string,
     sourcePath: string,
-    structuredError?: StructuredError
+    structuredError?: StructuredError,
+    cancellation?: CancellationSignal
   ): Promise<StructuredJSON> {
+    this.throwIfCancelled(cancellation);
+
     if (!this.model) {
       throw new Error('Claude model not available. Call isAvailable() first.');
     }
@@ -84,16 +87,24 @@ export class ClaudeProvider extends BaseAIProvider {
     this.setTimeout(this.computeTimeout(sanitized));
     const prompt = this.buildTransformPrompt(sanitized, structuredError, sourcePath);
 
+    // Owned by this call (not a throwaway token) so it can actually be
+    // cancelled - either in `finally` if the timeout race below wins, or
+    // via the caller's own cancellation signal (speckit.stopProcessing) -
+    // otherwise the streaming request keeps running in the background
+    // even after this function has returned/thrown.
+    const cancellationSource = new vscode.CancellationTokenSource();
+    const externalCancelListener = cancellation?.onCancellationRequested(() =>
+      cancellationSource.cancel()
+    );
+
     try {
       this.log('Sending request to Claude...');
 
-      // Create chat request
       const messages = [
         vscode.LanguageModelChatMessage.User(prompt)
       ];
 
-      // Send request with timeout
-      const responsePromise = this.model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+      const responsePromise = this.model.sendRequest(messages, {}, cancellationSource.token);
       const timeoutPromise = this.createTimeoutPromise<vscode.LanguageModelChatResponse>(
         this.timeout,
         'Claude request timed out'
@@ -120,8 +131,15 @@ export class ClaudeProvider extends BaseAIProvider {
 
       return parsed;
     } catch (error: any) {
+      if (cancellation?.isCancellationRequested) {
+        throw new CancellationRequestedError();
+      }
       this.logError('Claude transformation failed:', error);
       throw new Error(`Claude transformation failed: ${error.message}`);
+    } finally {
+      cancellationSource.cancel();
+      cancellationSource.dispose();
+      externalCancelListener?.dispose();
     }
   }
 }

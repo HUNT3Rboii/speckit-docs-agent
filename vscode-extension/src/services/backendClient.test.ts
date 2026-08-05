@@ -7,6 +7,8 @@
  */
 
 import { BackendClient } from './backendClient';
+import { CancellationRequestedError } from './aiProvider';
+import { CancellationSignal } from '../types';
 
 describe('BackendClient.reportStep', () => {
   const originalFetch = global.fetch;
@@ -241,5 +243,44 @@ describe('BackendClient.process', () => {
     await client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai');
 
     expect(timeoutSpy).toHaveBeenCalledWith(30000);
+  });
+
+  it('aborts the in-flight request and throws CancellationRequestedError (not retried) when the caller cancels', () => {
+    // Mirrors what speckit.stopProcessing does: cancel a signal that's
+    // already been handed to an in-flight process() call, and expect the
+    // actual HTTP request to abort rather than being left to run to
+    // completion in the background.
+    const fetchMock = jest.fn().mockImplementation((_url: string, options: any) => {
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          const err: any = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    });
+    global.fetch = fetchMock as any;
+
+    let requested = false;
+    let cancelListener: (() => void) | undefined;
+    const cancellation: CancellationSignal = {
+      get isCancellationRequested() {
+        return requested;
+      },
+      onCancellationRequested: (listener) => {
+        cancelListener = listener;
+        return { dispose: () => undefined };
+      }
+    };
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const promise = client.process(minimalRequest(), cancellation);
+
+    requested = true;
+    cancelListener?.();
+
+    return expect(promise).rejects.toThrow(CancellationRequestedError).then(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -1,5 +1,5 @@
-import { BaseAIProvider } from './aiProvider';
-import { StructuredError, StructuredJSON } from '../types';
+import { BaseAIProvider, CancellationRequestedError } from './aiProvider';
+import { CancellationSignal, StructuredError, StructuredJSON } from '../types';
 
 /**
  * Minimal concrete subclass exposing the protected prompt-building methods
@@ -41,6 +41,10 @@ class TestProvider extends BaseAIProvider {
 
   public parseJSONFor(jsonStr: string): StructuredJSON {
     return this.parseJSON(jsonStr);
+  }
+
+  public throwIfCancelledFor(cancellation?: CancellationSignal): void {
+    this.throwIfCancelled(cancellation);
   }
 }
 
@@ -222,5 +226,33 @@ describe('BaseAIProvider.parseJSON', () => {
 
   it('throws the original error when the input is unrepairable', () => {
     expect(() => provider.parseJSONFor('not json at all')).toThrow();
+  });
+});
+
+describe('BaseAIProvider.throwIfCancelled', () => {
+  let provider: TestProvider;
+
+  beforeEach(() => {
+    provider = new TestProvider();
+  });
+
+  it('does nothing when no cancellation signal is given', () => {
+    expect(() => provider.throwIfCancelledFor(undefined)).not.toThrow();
+  });
+
+  it('does nothing when cancellation has not been requested', () => {
+    const signal: CancellationSignal = {
+      isCancellationRequested: false,
+      onCancellationRequested: () => ({ dispose: () => undefined })
+    };
+    expect(() => provider.throwIfCancelledFor(signal)).not.toThrow();
+  });
+
+  it('throws CancellationRequestedError when cancellation was already requested', () => {
+    const signal: CancellationSignal = {
+      isCancellationRequested: true,
+      onCancellationRequested: () => ({ dispose: () => undefined })
+    };
+    expect(() => provider.throwIfCancelledFor(signal)).toThrow(CancellationRequestedError);
   });
 });

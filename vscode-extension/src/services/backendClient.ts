@@ -5,12 +5,14 @@
 
 import {
   BackendClient as IBackendClient,
+  CancellationSignal,
   StructuredJSON,
   IngestResponse,
   IngestRequest,
   ProcessRequest,
   ProcessResponse
 } from '../types';
+import { CancellationRequestedError } from './aiProvider';
 
 /**
  * Client for Speckit backend API with retry logic
@@ -82,9 +84,9 @@ export class BackendClient implements IBackendClient {
    * corrected payload and incremented retry_count -- this method only
    * handles the HTTP round trip and network-level retry/backoff.
    */
-  public async process(request: ProcessRequest): Promise<ProcessResponse> {
+  public async process(request: ProcessRequest, cancellation?: CancellationSignal): Promise<ProcessResponse> {
     return await this.retryWithBackoff(async () => {
-      const response = await this.makeRequest('/api/process', request, PROCESS_TIMEOUT_MS);
+      const response = await this.makeRequest('/api/process', request, PROCESS_TIMEOUT_MS, cancellation);
       return response as ProcessResponse;
     });
   }
@@ -217,7 +219,12 @@ export class BackendClient implements IBackendClient {
   /**
    * Make HTTP request to backend
    */
-  private async makeRequest(endpoint: string, payload: any, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<any> {
+  private async makeRequest(
+    endpoint: string,
+    payload: any,
+    timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    cancellation?: CancellationSignal
+  ): Promise<any> {
     const url = `${this.backendUrl}${endpoint}`;
 
     console.log('[BackendClient] Making request to:', url);
@@ -228,9 +235,17 @@ export class BackendClient implements IBackendClient {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(timeoutMs)
+        signal: this.buildAbortSignal(timeoutMs, cancellation)
       });
     } catch (error: any) {
+      // The user cancelling (speckit.stopProcessing) aborts the same
+      // signal a timeout would - check which one actually happened so
+      // cancellation is reported (and handled) as a cancellation, not a
+      // generic timeout error.
+      if (cancellation?.isCancellationRequested) {
+        throw new CancellationRequestedError();
+      }
+
       // A client-side timeout means the server is (probably) still working,
       // not that the request failed - retrying fires an entirely new
       // request while the old one may still be running server-side with no
@@ -267,6 +282,28 @@ export class BackendClient implements IBackendClient {
   }
 
   /**
+   * Builds a single AbortSignal that fires on whichever comes first: the
+   * request's own timeout, or the caller's cancellation (if provided) -
+   * so speckit.stopProcessing actually aborts an in-flight HTTP request
+   * instead of only preventing a *future* one.
+   */
+  private buildAbortSignal(timeoutMs: number, cancellation?: CancellationSignal): AbortSignal {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    if (!cancellation) {
+      return timeoutSignal;
+    }
+
+    const cancelController = new AbortController();
+    if (cancellation.isCancellationRequested) {
+      cancelController.abort();
+    } else {
+      cancellation.onCancellationRequested(() => cancelController.abort());
+    }
+
+    return AbortSignal.any([timeoutSignal, cancelController.signal]);
+  }
+
+  /**
    * Get request headers
    */
   private getHeaders(): Record<string, string> {
@@ -292,6 +329,12 @@ export class BackendClient implements IBackendClient {
         return await fn();
       } catch (error: any) {
         lastError = error;
+
+        // Don't retry on cancellation - the user asked everything to stop,
+        // not for another attempt.
+        if (error instanceof CancellationRequestedError) {
+          throw error;
+        }
 
         // Don't retry on client errors (4xx)
         if (error.cause === 'NO_RETRY' || (error.message && error.message.includes('Client error'))) {

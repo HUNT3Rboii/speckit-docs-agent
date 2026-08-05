@@ -27,6 +27,8 @@ let transformPipeline: TransformPipeline;
 let copilotInstructionsService: CopilotInstructionsService;
 let gitignoreService: GitignoreService;
 let progressFileWatcher: ProgressFileWatcher;
+let processingStatusBarItem: vscode.StatusBarItem;
+let processingStatusBarInterval: ReturnType<typeof setInterval> | undefined;
 
 /**
  * Extension activation
@@ -114,6 +116,25 @@ export async function activate(context: vscode.ExtensionContext) {
       notificationService,
       config.maxConcurrentProcessing
     );
+
+    // Status bar item: visible only while something is actually
+    // processing, click to stop everything currently in flight. Polls
+    // rather than being event-driven since it's a lightweight UI concern
+    // and TransformPipeline already exposes exactly the state needed
+    // (getActiveFiles()) without requiring an event-emitter refactor.
+    processingStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    processingStatusBarItem.command = 'speckit.stopProcessing';
+    context.subscriptions.push(processingStatusBarItem);
+    processingStatusBarInterval = setInterval(() => {
+      const activeCount = transformPipeline.getActiveFiles().length;
+      if (activeCount === 0) {
+        processingStatusBarItem.hide();
+        return;
+      }
+      processingStatusBarItem.text = `$(sync~spin) Speckit: Processing (${activeCount})`;
+      processingStatusBarItem.tooltip = 'Click to stop all in-progress Speckit processing';
+      processingStatusBarItem.show();
+    }, 1000);
 
     // Live Kanban task-progress tracking: auto-provision Copilot
     // instructions + a progress-signal watcher for any Speckit project in
@@ -271,6 +292,10 @@ export async function deactivate() {
       progressFileWatcher.dispose();
     }
 
+    if (processingStatusBarInterval) {
+      clearInterval(processingStatusBarInterval);
+    }
+
     // Dispose services
     if (notificationService) {
       notificationService.info('Extension deactivating...');
@@ -355,6 +380,21 @@ function registerCommands(context: vscode.ExtensionContext): void {
           }
         });
       }
+    })
+  );
+
+  // Command: Stop Processing
+  context.subscriptions.push(
+    vscode.commands.registerCommand('speckit.stopProcessing', () => {
+      const activeFiles = transformPipeline.getActiveFiles();
+      if (activeFiles.length === 0) {
+        vscode.window.showInformationMessage('Speckit: nothing is currently processing.');
+        return;
+      }
+      const cancelledCount = transformPipeline.stopProcessing();
+      vscode.window.showInformationMessage(
+        `Speckit: stopping ${cancelledCount} in-progress file${cancelledCount === 1 ? '' : 's'}.`
+      );
     })
   );
 

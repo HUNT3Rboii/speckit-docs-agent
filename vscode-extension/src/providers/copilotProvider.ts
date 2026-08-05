@@ -4,8 +4,8 @@
  */
 
 import * as vscode from 'vscode';
-import { StructuredError, StructuredJSON } from '../types';
-import { BaseAIProvider } from '../services/aiProvider';
+import { CancellationSignal, StructuredError, StructuredJSON } from '../types';
+import { BaseAIProvider, CancellationRequestedError } from '../services/aiProvider';
 
 /**
  * GitHub Copilot provider implementation
@@ -126,8 +126,11 @@ export class CopilotProvider extends BaseAIProvider {
   public async transform(
     markdown: string,
     sourcePath: string,
-    structuredError?: StructuredError
+    structuredError?: StructuredError,
+    cancellation?: CancellationSignal
   ): Promise<StructuredJSON> {
+    this.throwIfCancelled(cancellation);
+
     if (!this.model || this.availableModels.length === 0) {
       throw new Error('Copilot model not available. Call isAvailable() first.');
     }
@@ -142,7 +145,7 @@ export class CopilotProvider extends BaseAIProvider {
     for (let i = 0; i < orderedModels.length; i++) {
       const model = orderedModels[i];
       try {
-        const parsed = await this.sendToModel(model, prompt, sourcePath);
+        const parsed = await this.sendToModel(model, prompt, sourcePath, cancellation);
         this.model = model; // Remember which one actually worked for getProviderName()/next call.
         return parsed;
       } catch (error: any) {
@@ -167,13 +170,20 @@ export class CopilotProvider extends BaseAIProvider {
   private async sendToModel(
     model: vscode.LanguageModelChat,
     prompt: string,
-    sourcePath: string
+    sourcePath: string,
+    cancellation?: CancellationSignal
   ): Promise<StructuredJSON> {
     // Owned by this call (not a throwaway token) so it can be cancelled in
     // `finally` if we bail out via the timeout race below - otherwise the
     // streaming request keeps running in the background even after this
-    // function has already thrown a timeout error.
+    // function has already thrown a timeout error. Also linked to the
+    // caller's own cancellation signal (speckit.stopProcessing), so
+    // stopping the pipeline actually aborts this in-flight LM request
+    // instead of just abandoning the promise while it keeps running.
     const cancellationSource = new vscode.CancellationTokenSource();
+    const externalCancelListener = cancellation?.onCancellationRequested(() =>
+      cancellationSource.cancel()
+    );
 
     try {
       this.log(`Sending request to Copilot (${model.id})...`);
@@ -218,6 +228,15 @@ export class CopilotProvider extends BaseAIProvider {
 
       return parsed;
     } catch (error: any) {
+      // If cancellation is what actually caused this to fail (rather than
+      // a real rate-limit/timeout/parse error), report it as a
+      // cancellation - VS Code's own error for an aborted LM request isn't
+      // a stable, documented type to match against, but the caller's own
+      // flag is authoritative regardless of what error came back.
+      if (cancellation?.isCancellationRequested) {
+        throw new CancellationRequestedError();
+      }
+
       // Handle rate limiting
       if (error.message?.includes('rate limit')) {
         throw new Error('Copilot rate limit exceeded. Please try again later.');
@@ -233,6 +252,7 @@ export class CopilotProvider extends BaseAIProvider {
     } finally {
       cancellationSource.cancel();
       cancellationSource.dispose();
+      externalCancelListener?.dispose();
       await this.closeChatSession();
     }
   }

@@ -55,6 +55,11 @@
         "command": "speckit.toggleAutoProcess",
         "title": "Speckit: Toggle Auto-Processing",
         "category": "Speckit"
+      },
+      {
+        "command": "speckit.stopProcessing",
+        "title": "Speckit: Stop Processing",
+        "category": "Speckit"
       }
     ],
     "configuration": {

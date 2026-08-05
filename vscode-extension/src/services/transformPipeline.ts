@@ -21,6 +21,7 @@ import { NotificationService } from './notificationService';
 import { ContentHashService } from './contentHashService';
 import { ProjectFrameworkDetector } from './projectFrameworkDetector';
 import { DiagramCoverageChecker } from './diagramCoverageChecker';
+import { CancellationRequestedError } from './aiProvider';
 
 /**
  * Safety cap on client-side correction attempts. The backend's own
@@ -44,6 +45,10 @@ export class TransformPipeline implements ITransformPipeline {
   private processingQueue: Map<string, Promise<ProcessResult>>;
   private contentCache: Map<string, string>;
   private maxConcurrent: number;
+  /** One cancellation source per in-flight file, keyed by its fsPath - lets
+   * speckit.stopProcessing (and the status bar item) cancel a specific file
+   * or everything currently running. */
+  private cancellationSources: Map<string, vscode.CancellationTokenSource>;
 
   constructor(
     aiFactory: AIProviderFactory,
@@ -65,6 +70,38 @@ export class TransformPipeline implements ITransformPipeline {
     this.processingQueue = new Map();
     this.contentCache = new Map();
     this.maxConcurrent = maxConcurrent;
+    this.cancellationSources = new Map();
+  }
+
+  /**
+   * Cancel one in-flight file's processing, or every currently in-flight
+   * file if no path is given. Returns how many were actually cancelled (0
+   * if the given path isn't currently processing, or nothing is).
+   */
+  public stopProcessing(filePath?: string): number {
+    if (filePath) {
+      const source = this.cancellationSources.get(filePath);
+      if (!source) {
+        return 0;
+      }
+      source.cancel();
+      return 1;
+    }
+
+    let count = 0;
+    for (const source of this.cancellationSources.values()) {
+      source.cancel();
+      count++;
+    }
+    return count;
+  }
+
+  /**
+   * Files currently being processed (readable file paths, for a status
+   * bar item / stop-picker to show what's actually running).
+   */
+  public getActiveFiles(): string[] {
+    return Array.from(this.cancellationSources.keys());
   }
 
   /**
@@ -83,8 +120,11 @@ export class TransformPipeline implements ITransformPipeline {
     // Wait if too many concurrent processes
     await this.waitForCapacity();
 
+    const cancellationSource = new vscode.CancellationTokenSource();
+    this.cancellationSources.set(filePath, cancellationSource);
+
     // Create processing promise
-    const processPromise = this.executeProcess(fileUri);
+    const processPromise = this.executeProcess(fileUri, cancellationSource.token);
 
     // Add to queue
     this.processingQueue.set(filePath, processPromise);
@@ -92,6 +132,8 @@ export class TransformPipeline implements ITransformPipeline {
     // Remove from queue when done
     processPromise.finally(() => {
       this.processingQueue.delete(filePath);
+      this.cancellationSources.delete(filePath);
+      cancellationSource.dispose();
     });
 
     return processPromise;
@@ -100,10 +142,17 @@ export class TransformPipeline implements ITransformPipeline {
   /**
    * Execute the complete processing workflow
    */
-  private async executeProcess(fileUri: vscode.Uri): Promise<ProcessResult> {
+  private async executeProcess(
+    fileUri: vscode.Uri,
+    cancellation: vscode.CancellationToken
+  ): Promise<ProcessResult> {
     const fileName = fileUri.fsPath.split(/[/\\]/).pop() || 'unknown';
 
     try {
+      if (cancellation.isCancellationRequested) {
+        throw new CancellationRequestedError();
+      }
+
       this.notificationService.processing(fileName);
 
       // Step 1: Read file content
@@ -150,7 +199,8 @@ export class TransformPipeline implements ITransformPipeline {
         projectId,
         fileName,
         projectRoot,
-        authoringFramework
+        authoringFramework,
+        cancellation
       );
 
       if (response.status === 'retry_needed') {
@@ -187,6 +237,11 @@ export class TransformPipeline implements ITransformPipeline {
         droppedItems: response.dropped_items
       };
     } catch (error: any) {
+      if (error instanceof CancellationRequestedError) {
+        this.notificationService.info(`Cancelled: ${fileName}`);
+        return { success: false, error, cancelled: true };
+      }
+
       this.notificationService.error(error);
 
       return {
@@ -209,7 +264,8 @@ export class TransformPipeline implements ITransformPipeline {
     projectId: string,
     fileName: string,
     projectRoot: string,
-    authoringFramework: string
+    authoringFramework: string,
+    cancellation: vscode.CancellationToken
   ): Promise<{ response: ProcessResponse; provider: string }> {
     let structuredError: StructuredError | undefined;
     let retryCount = 0;
@@ -217,6 +273,10 @@ export class TransformPipeline implements ITransformPipeline {
     let triedDiagramGapFill = false;
 
     for (let attempt = 1; attempt <= MAX_CLIENT_CORRECTION_ATTEMPTS; attempt++) {
+      if (cancellation.isCancellationRequested) {
+        throw new CancellationRequestedError();
+      }
+
       this.notificationService.info(
         structuredError
           ? `Correcting and resubmitting (retry ${retryCount}): ${fileName}`
@@ -248,10 +308,18 @@ export class TransformPipeline implements ITransformPipeline {
       let enrichedJson: StructuredJSON;
       let usedProvider: string;
       try {
-        const outcome = await this.transformWithAI(content, fileUri, structuredError);
+        const outcome = await this.transformWithAI(content, fileUri, structuredError, cancellation);
         enrichedJson = outcome.result;
         usedProvider = outcome.provider;
       } catch (error: any) {
+        // A cancellation must propagate immediately, not get folded into
+        // the "AI response failed, ask for a correction" retry path below
+        // - that would resubmit yet another AI request right after the
+        // user asked everything to stop.
+        if (error instanceof CancellationRequestedError) {
+          throw error;
+        }
+
         // A malformed/truncated AI response (the provider's own JSON.parse
         // throwing, e.g. a missing comma between array elements - a real,
         // observed failure mode with smaller models on a large enough
@@ -330,7 +398,8 @@ export class TransformPipeline implements ITransformPipeline {
           const { result: filledJson, provider: filledProvider } = await this.transformWithAI(
             content,
             fileUri,
-            gapFillError
+            gapFillError,
+            cancellation
           );
           provider = filledProvider;
           const gapFillResult = this.tryParseAndValidate(
@@ -357,16 +426,19 @@ export class TransformPipeline implements ITransformPipeline {
         attempt,
         MAX_CLIENT_CORRECTION_ATTEMPTS
       );
-      const response = await this.backendClient.process({
-        project_id: projectId,
-        source_path: sourcePath,
-        source_markdown: content,
-        enriched_json: validated,
-        retry_count: retryCount,
-        project_root: projectRoot,
-        authoring_framework: authoringFramework,
-        model_used: provider
-      });
+      const response = await this.backendClient.process(
+        {
+          project_id: projectId,
+          source_path: sourcePath,
+          source_markdown: content,
+          enriched_json: validated,
+          retry_count: retryCount,
+          project_root: projectRoot,
+          authoring_framework: authoringFramework,
+          model_used: provider
+        },
+        cancellation
+      );
 
       if (response.status === 'retry_needed' && response.structured_error) {
         structuredError = response.structured_error;
@@ -431,14 +503,15 @@ export class TransformPipeline implements ITransformPipeline {
   private async transformWithAI(
     markdown: string,
     fileUri: vscode.Uri,
-    structuredError?: StructuredError
+    structuredError?: StructuredError,
+    cancellation?: vscode.CancellationToken
   ): Promise<{
     result: StructuredJSON;
     provider: string;
   }> {
     try {
       const sourcePath = vscode.workspace.asRelativePath(fileUri);
-      const outcome = await this.aiFactory.transformWithFallback(markdown, sourcePath, structuredError);
+      const outcome = await this.aiFactory.transformWithFallback(markdown, sourcePath, structuredError, cancellation);
       if (outcome.provider === 'Rule-Based (Fallback)') {
         // Previously silent: every real provider's detection/transform
         // failure (unavailable, timeout, rate limit, malformed response)
@@ -450,6 +523,12 @@ export class TransformPipeline implements ITransformPipeline {
       }
       return outcome;
     } catch (error: any) {
+      // Preserve cancellation as-is - wrapping it in a generic Error here
+      // would make it indistinguishable from a real failure to every
+      // caller up the stack that checks `instanceof CancellationRequestedError`.
+      if (error instanceof CancellationRequestedError) {
+        throw error;
+      }
       throw new Error(`AI transformation failed: ${error.message}`);
     }
   }

@@ -3,9 +3,24 @@
  * Defines common functionality for all AI providers
  */
 
-import { AIProvider, StructuredError, StructuredJSON } from '../types';
+import { AIProvider, CancellationSignal, StructuredError, StructuredJSON } from '../types';
 import { EnrichmentPromptBuilder } from './enrichmentPromptBuilder';
 import { repairAIGeneratedJSON } from './jsonParser';
+
+/**
+ * Thrown when the user cancels an in-flight transform (via
+ * speckit.stopProcessing or the status bar item). Distinct from a normal
+ * Error so callers up the stack (TransformPipeline) can tell "the user
+ * asked to stop" apart from "something actually went wrong" and report it
+ * accordingly, instead of showing a scary-looking failure notification for
+ * something the user asked for.
+ */
+export class CancellationRequestedError extends Error {
+  constructor() {
+    super('Processing was cancelled.');
+    this.name = 'CancellationRequestedError';
+  }
+}
 
 /**
  * Base implementation with common functionality for all AI providers
@@ -30,8 +45,21 @@ export abstract class BaseAIProvider implements AIProvider {
   public abstract transform(
     markdown: string,
     sourcePath: string,
-    structuredError?: StructuredError
+    structuredError?: StructuredError,
+    cancellation?: CancellationSignal
   ): Promise<StructuredJSON>;
+
+  /**
+   * Throws a recognizable "Cancelled" error if cancellation has already
+   * been requested. Callers check this before starting expensive work
+   * (rather than only reacting to it via a listener) so an already-stale
+   * request never even starts a new AI call.
+   */
+  protected throwIfCancelled(cancellation?: CancellationSignal): void {
+    if (cancellation?.isCancellationRequested) {
+      throw new CancellationRequestedError();
+    }
+  }
 
   /**
    * Build the single-call enrichment prompt (title/abstract/sections with all
