@@ -309,28 +309,38 @@ export interface ExtensionConfig {
    */
   providerPriority: ProviderId[];
   /**
-   * A user-configured custom model - a local server (e.g. Ollama's
+   * User-configured custom models - each a local server (e.g. Ollama's
    * OpenAI-compatible endpoint) or any other OpenAI-chat-completions-
-   * compatible API/key. Only tried at all if both `enabled` is true and
-   * "custom" appears in providerPriority.
+   * compatible API/key. Any number of entries may be configured; only
+   * `enabled: true` ones are tried at all, and only if "custom" appears in
+   * providerPriority - tried in this array's own order, as a group, at the
+   * point "custom" is reached (see AIProviderFactory.buildProviderList).
    */
-  customModel: CustomModelConfig;
+  customModels: CustomModelEntry[];
 }
 
 /**
  * Identifiers for the AI providers AIProviderFactory can try, in the order
- * speckit.providerPriority controls. "custom" refers to the single
- * user-configured CustomModelConfig, not a whole class of providers.
+ * speckit.providerPriority controls. "custom" expands to every enabled
+ * entry in speckit.customModels, tried in that array's own order - not a
+ * single fixed provider.
  */
 export type ProviderId = 'copilot' | 'claude' | 'kiro' | 'generic' | 'custom';
 
 /**
- * Settings for a user-configured custom AI model - any server speaking the
- * OpenAI chat-completions API shape (POST {baseUrl}/chat/completions),
- * which covers Ollama (via its built-in OpenAI-compatible endpoint),
- * OpenAI itself, and most third-party/self-hosted model gateways.
+ * One user-configured custom AI model - any server speaking the OpenAI
+ * chat-completions API shape (POST {baseUrl}/chat/completions), which
+ * covers Ollama (via its built-in OpenAI-compatible endpoint), OpenAI
+ * itself, and most third-party/self-hosted model gateways. One entry in
+ * speckit.customModels; there can be any number of these.
  */
-export interface CustomModelConfig {
+export interface CustomModelEntry {
+  /** Stable identifier for this entry (not shown to the user) - lets
+   * "Speckit: Discover Models for Custom Provider" and settings updates
+   * target one specific entry in the array without relying on array index
+   * (which shifts if entries are reordered/removed) or name (which the
+   * user can freely edit/duplicate). */
+  id: string;
   enabled: boolean;
   /** Display name shown in logs/notifications, e.g. "My Ollama (Llama 3)". */
   name: string;
@@ -340,8 +350,18 @@ export interface CustomModelConfig {
   /** Sent as "Authorization: Bearer {apiKey}" when non-empty. Local
    * servers like Ollama typically don't need one. */
   apiKey: string;
-  /** The model name the endpoint expects in the request body, e.g. "llama3". */
+  /** The model name actually sent in each request's "model" field, e.g.
+   * "llama3.1:70b". Must be one the endpoint recognizes - a typo here
+   * (e.g. the product name "ollama" instead of a real model id) fails at
+   * request time with no earlier warning, which is exactly what
+   * "Speckit: Discover Models for Custom Provider" (populating `models`
+   * below from the endpoint's own /models listing) exists to prevent. */
   modelName: string;
+  /** Model ids last discovered from this endpoint's GET {baseUrl}/models,
+   * via the "Speckit: Discover Models for Custom Provider" command -
+   * purely a reference list to pick modelName from; absent until that
+   * command has been run at least once for this entry. */
+  models?: string[];
 }
 
 /**

@@ -11,11 +11,11 @@
  * no vscode import and is fully unit-testable.
  */
 
-import { CancellationSignal, CustomModelConfig, StructuredError, StructuredJSON } from '../types';
+import { CancellationSignal, CustomModelEntry, StructuredError, StructuredJSON } from '../types';
 import { BaseAIProvider, CancellationRequestedError } from '../services/aiProvider';
 
 export class CustomModelProvider extends BaseAIProvider {
-  constructor(private settings: CustomModelConfig) {
+  constructor(private settings: CustomModelEntry) {
     super();
   }
 

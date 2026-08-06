@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { CustomModelConfig, ExtensionConfig, ProviderId } from '../types';
+import { CustomModelEntry, ExtensionConfig, ProviderId } from '../types';
 
 const VALID_PROVIDER_IDS: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
 const DEFAULT_PROVIDER_PRIORITY: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
@@ -93,13 +93,7 @@ export class ConfigurationManager {
     const allowRuleBasedFallback = config.get<boolean>('allowRuleBasedFallback') ?? false;
     const enableCopilotProgressTracking = config.get<boolean>('enableCopilotProgressTracking') ?? true;
     const providerPriority = this.validateProviderPriority(config.get<string[]>('providerPriority'));
-    const customModel: CustomModelConfig = {
-      enabled: config.get<boolean>('customModel.enabled') ?? false,
-      name: this.validateString(config.get<string>('customModel.name'), ''),
-      baseUrl: this.validateString(config.get<string>('customModel.baseUrl'), ''),
-      apiKey: this.validateString(config.get<string>('customModel.apiKey'), ''),
-      modelName: this.validateString(config.get<string>('customModel.modelName'), '')
-    };
+    const customModels = this.validateCustomModels(config);
 
     return {
       backendUrl,
@@ -113,7 +107,7 @@ export class ConfigurationManager {
       allowRuleBasedFallback,
       enableCopilotProgressTracking,
       providerPriority,
-      customModel
+      customModels
     };
   }
 
@@ -211,5 +205,64 @@ export class ConfigurationManager {
       ...new Set(value.filter((id): id is ProviderId => (VALID_PROVIDER_IDS as string[]).includes(id)))
     ];
     return filtered.length > 0 ? filtered : DEFAULT_PROVIDER_PRIORITY;
+  }
+
+  /**
+   * Validate speckit.customModels: an array of custom-model entries, any
+   * number of which may be enabled at once (see CustomModelEntry). Falls
+   * back to synthesizing a single entry from the old speckit.customModel.*
+   * flat settings (from before multiple custom models were supported) so
+   * an existing setup keeps working without the user having to redo it -
+   * a one-time runtime fallback only, never written back to settings.json.
+   */
+  private validateCustomModels(config: vscode.WorkspaceConfiguration): CustomModelEntry[] {
+    const raw = config.get<any[]>('customModels');
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw
+        .map((entry, index) => this.normalizeCustomModelEntry(entry, index))
+        .filter((entry): entry is CustomModelEntry => entry !== null);
+    }
+
+    const legacyEnabled = config.get<boolean>('customModel.enabled');
+    const legacyBaseUrl = this.validateString(config.get<string>('customModel.baseUrl'), '');
+    const legacyModelName = this.validateString(config.get<string>('customModel.modelName'), '');
+    if (!legacyEnabled && !legacyBaseUrl && !legacyModelName) {
+      return [];
+    }
+    return [
+      {
+        id: 'legacy',
+        enabled: legacyEnabled ?? false,
+        name: this.validateString(config.get<string>('customModel.name'), ''),
+        baseUrl: legacyBaseUrl,
+        apiKey: this.validateString(config.get<string>('customModel.apiKey'), ''),
+        modelName: legacyModelName
+      }
+    ];
+  }
+
+  /**
+   * Normalizes one speckit.customModels array entry, tolerating a
+   * malformed member (e.g. hand-edited settings.json) by dropping it
+   * rather than rejecting the whole list - same philosophy as
+   * validateProviderPriority. `id` defaults to a positional placeholder if
+   * missing, since it only needs to be stable enough for this one
+   * getConfig() call, not persisted identity.
+   */
+  private normalizeCustomModelEntry(entry: any, index: number): CustomModelEntry | null {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+    return {
+      id: this.validateString(entry.id, `custom-${index}`),
+      enabled: Boolean(entry.enabled),
+      name: this.validateString(entry.name, ''),
+      baseUrl: this.validateString(entry.baseUrl, ''),
+      apiKey: this.validateString(entry.apiKey, ''),
+      modelName: this.validateString(entry.modelName, ''),
+      models: Array.isArray(entry.models)
+        ? entry.models.filter((m: unknown): m is string => typeof m === 'string')
+        : undefined
+    };
   }
 }

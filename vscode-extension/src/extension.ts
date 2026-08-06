@@ -15,6 +15,8 @@ import { TransformPipeline } from './services/transformPipeline';
 import { CopilotInstructionsService } from './services/copilotInstructionsService';
 import { GitignoreService } from './services/gitignoreService';
 import { ProgressFileWatcher } from './services/progressFileWatcher';
+import { discoverModels } from './services/modelDiscoveryService';
+import { CustomModelEntry } from './types';
 
 // Global service instances
 let configManager: ConfigurationManager;
@@ -82,7 +84,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Initialize AI provider factory
-    aiFactory = new AIProviderFactory(config.allowRuleBasedFallback, config.providerPriority, config.customModel);
+    aiFactory = new AIProviderFactory(config.allowRuleBasedFallback, config.providerPriority, config.customModels);
     notificationService.info('Detecting AI providers...');
     const aiProvider = await aiFactory.detectProviders();
     notificationService.info(`AI Provider: ${aiProvider.getProviderName()}`);
@@ -199,7 +201,7 @@ export async function activate(context: vscode.ExtensionContext) {
       transformPipeline.setMaxConcurrent(newConfig.maxConcurrentProcessing);
       aiFactory.setAllowRuleBasedFallback(newConfig.allowRuleBasedFallback);
       aiFactory.setProviderPriority(newConfig.providerPriority);
-      aiFactory.setCustomModelConfig(newConfig.customModel);
+      aiFactory.setCustomModels(newConfig.customModels);
 
       // Re-evaluate live progress tracking (starts/stops the watcher if the
       // setting was just toggled; re-provisioning is a no-op if already done).
@@ -452,13 +454,92 @@ function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('speckit.toggleAutoProcess', async () => {
       const config = configManager.getConfig();
       const newValue = !config.autoProcess;
-      
+
       await configManager.updateConfig('autoProcess', newValue);
-      
+
       const status = newValue ? 'enabled' : 'disabled';
       vscode.window.showInformationMessage(`Auto-processing ${status}`);
-      
+
       notificationService.info(`Auto-processing ${status}`);
+    })
+  );
+
+  // Command: Discover Models for Custom Provider - queries a configured
+  // custom model's GET {baseUrl}/models listing so the user can pick a
+  // real, valid model id instead of typing one by hand (a typo there, e.g.
+  // the product name "ollama" instead of an actual model id, only fails at
+  // request time with no earlier warning otherwise - the actual root cause
+  // of a live "my custom model isn't being used" report).
+  context.subscriptions.push(
+    vscode.commands.registerCommand('speckit.discoverCustomModels', async () => {
+      const config = configManager.getConfig();
+      if (config.customModels.length === 0) {
+        const selection = await vscode.window.showWarningMessage(
+          'No custom models configured yet. Add at least one entry to speckit.customModels first.',
+          'Open Settings'
+        );
+        if (selection === 'Open Settings') {
+          void vscode.commands.executeCommand('workbench.action.openSettings', 'speckit.customModels');
+        }
+        return;
+      }
+
+      let target: CustomModelEntry;
+      if (config.customModels.length === 1) {
+        target = config.customModels[0];
+      } else {
+        const picked = await vscode.window.showQuickPick(
+          config.customModels.map((entry) => ({
+            label: entry.name || entry.baseUrl || entry.id,
+            description: entry.baseUrl,
+            entry
+          })),
+          { placeHolder: 'Which custom provider should be queried for its available models?' }
+        );
+        if (!picked) {
+          return;
+        }
+        target = picked.entry;
+      }
+
+      if (!target.baseUrl.trim()) {
+        vscode.window.showErrorMessage(
+          `"${target.name || target.id}" has no baseUrl configured - set it in speckit.customModels first.`
+        );
+        return;
+      }
+
+      notificationService.info(`Discovering models at ${target.baseUrl}...`);
+      let models: string[];
+      try {
+        models = await discoverModels(target.baseUrl, target.apiKey);
+      } catch (error: any) {
+        notificationService.error(
+          new Error(`Model discovery failed for "${target.name || target.id}": ${error.message}`)
+        );
+        return;
+      }
+      notificationService.info(`Found ${models.length} model(s) at ${target.baseUrl}: ${models.join(', ')}`);
+
+      const pickedModel = await vscode.window.showQuickPick(models, {
+        placeHolder: `Select the model to use for "${target.name || target.id}" (currently: ${target.modelName || 'none'})`
+      });
+
+      // Persist the discovered list either way (so it's visible for next
+      // time even if the user closes the picker without choosing), and
+      // update modelName only if they actually picked one.
+      const updated = config.customModels.map((entry) =>
+        entry.id === target.id ? { ...entry, models, modelName: pickedModel ?? entry.modelName } : entry
+      );
+      await configManager.updateConfig('customModels', updated);
+
+      if (pickedModel) {
+        vscode.window.showInformationMessage(`"${target.name || target.id}" will now use model "${pickedModel}".`);
+      } else {
+        vscode.window.showInformationMessage(
+          `Saved ${models.length} discovered model(s) for "${target.name || target.id}" - model selection unchanged.`
+        );
+      }
     })
   );
 }

@@ -3,7 +3,7 @@
  * Detects and initializes AI providers with automatic fallback
  */
 
-import { AIProvider, CancellationSignal, CustomModelConfig, ProviderId, StructuredError } from '../types';
+import { AIProvider, CancellationSignal, CustomModelEntry, ProviderId, StructuredError } from '../types';
 import { CopilotProvider } from '../providers/copilotProvider';
 import { ClaudeProvider } from '../providers/claudeProvider';
 import { KiroProvider } from '../providers/kiroProvider';
@@ -13,13 +13,6 @@ import { RuleBasedProvider } from '../providers/ruleBasedProvider';
 import { CancellationRequestedError } from './aiProvider';
 
 const DEFAULT_PROVIDER_PRIORITY: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
-const DEFAULT_CUSTOM_MODEL_CONFIG: CustomModelConfig = {
-  enabled: false,
-  name: '',
-  baseUrl: '',
-  apiKey: '',
-  modelName: ''
-};
 
 /**
  * Factory for creating and managing AI providers with fallback chain
@@ -49,7 +42,7 @@ export class AIProviderFactory {
   constructor(
     private allowRuleBasedFallback: boolean = false,
     private providerPriority: ProviderId[] = DEFAULT_PROVIDER_PRIORITY,
-    private customModelConfig: CustomModelConfig = DEFAULT_CUSTOM_MODEL_CONFIG
+    private customModels: CustomModelEntry[] = []
   ) {}
 
   /**
@@ -72,22 +65,23 @@ export class AIProviderFactory {
   }
 
   /**
-   * Update the custom model config (speckit.customModel.*) after a live
+   * Update the configured custom models (speckit.customModels) after a live
    * configuration change. Resets the detection cache for the same reason
    * as setProviderPriority - a newly-enabled/edited custom model should be
    * picked up on the next transform, not require a window reload.
    */
-  public setCustomModelConfig(value: CustomModelConfig): void {
-    this.customModelConfig = value;
+  public setCustomModels(value: CustomModelEntry[]): void {
+    this.customModels = value;
     this.isDetected = false;
   }
 
   /**
-   * Builds one provider instance for a given id. "custom" is always backed
-   * by the single currently-configured CustomModelConfig - there's only
-   * ever one custom model slot, not a whole class of them.
+   * Builds one provider instance for a non-"custom" id. "custom" isn't
+   * handled here since it doesn't map to a single provider instance - see
+   * buildProviderList(), which expands it to one CustomModelProvider per
+   * enabled speckit.customModels entry.
    */
-  private buildProvider(id: ProviderId): AIProvider {
+  private buildProvider(id: Exclude<ProviderId, 'custom'>): AIProvider {
     switch (id) {
       case 'copilot':
         return new CopilotProvider();
@@ -97,8 +91,6 @@ export class AIProviderFactory {
         return new KiroProvider();
       case 'generic':
         return new GenericProvider();
-      case 'custom':
-        return new CustomModelProvider(this.customModelConfig);
     }
   }
 
@@ -107,9 +99,31 @@ export class AIProviderFactory {
    * order, with RuleBasedProvider always appended last - it's governed
    * separately by allowRuleBasedFallback, not by providerPriority, since
    * it isn't a real AI provider to prioritize among the others.
+   *
+   * "custom" expands to one CustomModelProvider per speckit.customModels
+   * entry, in that array's own order, as a group - any number of custom
+   * models can be configured, all tried at the single point "custom"
+   * appears in providerPriority. A disabled entry is still instantiated
+   * (same as every other provider - none of them are pre-filtered on some
+   * external "enabled" flag before being checked) so its
+   * isAvailable()/getUnavailableReason() still reports "enabled is false"
+   * in the detection trace, rather than the entry silently vanishing from
+   * it - that exact message is what previously pinpointed a live
+   * misconfiguration.
    */
   private buildProviderList(): AIProvider[] {
-    return [...this.providerPriority.map((id) => this.buildProvider(id)), new RuleBasedProvider()];
+    const list: AIProvider[] = [];
+    for (const id of this.providerPriority) {
+      if (id === 'custom') {
+        for (const entry of this.customModels) {
+          list.push(new CustomModelProvider(entry));
+        }
+      } else {
+        list.push(this.buildProvider(id));
+      }
+    }
+    list.push(new RuleBasedProvider());
+    return list;
   }
 
   /**

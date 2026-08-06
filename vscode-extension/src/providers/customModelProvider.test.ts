@@ -7,10 +7,11 @@
 
 import { CustomModelProvider } from './customModelProvider';
 import { CancellationRequestedError } from '../services/aiProvider';
-import type { CustomModelConfig, CancellationSignal } from '../types';
+import type { CustomModelEntry, CancellationSignal } from '../types';
 
-function baseSettings(overrides: Partial<CustomModelConfig> = {}): CustomModelConfig {
+function baseSettings(overrides: Partial<CustomModelEntry> = {}): CustomModelEntry {
   return {
+    id: 'my-ollama',
     enabled: true,
     name: 'My Ollama',
     baseUrl: 'http://localhost:11434/v1',

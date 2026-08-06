@@ -60,6 +60,11 @@
         "command": "speckit.stopProcessing",
         "title": "Speckit: Stop Processing",
         "category": "Speckit"
+      },
+      {
+        "command": "speckit.discoverCustomModels",
+        "title": "Speckit: Discover Models for Custom Provider",
+        "category": "Speckit"
       }
     ],
     "configuration": {
@@ -160,38 +165,54 @@
             "enum": ["copilot", "claude", "kiro", "generic", "custom"]
           },
           "default": ["copilot", "claude", "kiro", "generic", "custom"],
-          "description": "Order in which AI providers are tried. Reorder this list to change which one is tried first, or remove an id entirely to disable that provider (e.g. remove \"generic\" to never fall through to a non-Copilot/Claude/Kiro language model). \"custom\" is the single model configured via speckit.customModel.* below. Rule-based fallback isn't in this list - see speckit.allowRuleBasedFallback.",
+          "description": "Order in which AI providers are tried. Reorder this list to change which one is tried first, or remove an id entirely to disable that provider (e.g. remove \"generic\" to never fall through to a non-Copilot/Claude/Kiro language model). \"custom\" expands to every entry in speckit.customModels below, tried in that array's own order. Rule-based fallback isn't in this list - see speckit.allowRuleBasedFallback.",
           "order": 12
         },
-        "speckit.customModel.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable the custom model configured below. Only takes effect if \"custom\" is also present in speckit.providerPriority.",
+        "speckit.customModels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable identifier for this entry - any unique string (e.g. \"local-ollama\"). Used internally to target this entry when saving discovered models; not shown anywhere."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": false,
+                "description": "Whether this entry is tried at all. Only takes effect if \"custom\" is also present in speckit.providerPriority."
+              },
+              "name": {
+                "type": "string",
+                "default": "",
+                "description": "Display name shown in logs/notifications (e.g. \"Local Ollama\", \"Ollama Cloud\"). Falls back to the model name if left empty."
+              },
+              "baseUrl": {
+                "type": "string",
+                "default": "",
+                "description": "Base URL of an OpenAI-chat-completions-compatible endpoint, up to but not including \"/chat/completions\" - e.g. \"http://localhost:11434/v1\" for a local Ollama server (Ollama exposes this automatically), or \"https://ollama.com/v1\" for Ollama Cloud."
+              },
+              "modelName": {
+                "type": "string",
+                "default": "",
+                "description": "The model actually sent in each request's \"model\" field, exactly as the endpoint expects it (e.g. \"llama3.1:70b\", not the product name \"ollama\"). Run \"Speckit: Discover Models for Custom Provider\" to list what this endpoint actually supports instead of typing one by hand."
+              },
+              "apiKey": {
+                "type": "string",
+                "default": "",
+                "description": "Sent as \"Authorization: Bearer <apiKey>\" when non-empty. Leave empty for a local server (e.g. Ollama) that doesn't require one."
+              },
+              "models": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Populated automatically by \"Speckit: Discover Models for Custom Provider\" - the model ids this endpoint reported as available, for reference. Not read for anything other than display; edit modelName above to actually change what's used."
+              }
+            },
+            "required": ["id", "baseUrl", "modelName"]
+          },
+          "default": [],
+          "description": "Custom AI models to try - any number of entries, each a server speaking the OpenAI chat-completions API shape (Ollama, LM Studio, Together, Groq, OpenAI itself, most self-hosted gateways). All enabled entries are tried, in this array's own order, at the point \"custom\" appears in speckit.providerPriority. Use \"Speckit: Discover Models for Custom Provider\" to populate modelName from the endpoint's own model listing instead of typing one by hand.",
           "order": 13
-        },
-        "speckit.customModel.name": {
-          "type": "string",
-          "default": "",
-          "description": "Display name for the custom model, shown in logs/notifications (e.g. \"My Ollama (Llama 3)\"). Falls back to the model name if left empty.",
-          "order": 14
-        },
-        "speckit.customModel.baseUrl": {
-          "type": "string",
-          "default": "",
-          "description": "Base URL of an OpenAI-chat-completions-compatible endpoint, up to but not including \"/chat/completions\" - e.g. \"http://localhost:11434/v1\" for a local Ollama server (Ollama exposes this automatically), or \"https://api.openai.com/v1\" for OpenAI itself.",
-          "order": 15
-        },
-        "speckit.customModel.modelName": {
-          "type": "string",
-          "default": "",
-          "description": "The model name to send in each request's \"model\" field, exactly as the endpoint expects it (e.g. \"llama3\" for Ollama, \"gpt-4o-mini\" for OpenAI).",
-          "order": 16
-        },
-        "speckit.customModel.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Sent as \"Authorization: Bearer <apiKey>\" when non-empty. Leave empty for a local server (e.g. Ollama) that doesn't require one.",
-          "order": 17
         }
       }
     }
