@@ -98,6 +98,27 @@ describe('CustomModelProvider.getProviderName', () => {
   });
 });
 
+describe('CustomModelProvider timeout', () => {
+  // Regression coverage for a live report: Ollama Cloud consistently timed
+  // out on a tiny test document at the base class's 45s floor - a remote
+  // HTTP endpoint's cold-start latency isn't proportional to document
+  // size, so scaling alone can't fix it; the floor itself needed raising.
+  it('floors the timeout at 90s for a small document, not the base class default of 45s', () => {
+    const provider = new CustomModelProvider(baseSettings());
+    expect((provider as any).computeTimeout('short markdown')).toBe(90000);
+  });
+
+  it('still scales up to the shared 180s cap for large documents', () => {
+    const provider = new CustomModelProvider(baseSettings());
+    expect((provider as any).computeTimeout('x'.repeat(100000))).toBe(180000);
+  });
+
+  it('scales linearly (3ms/char) between the 90s floor and 180s cap', () => {
+    const provider = new CustomModelProvider(baseSettings());
+    expect((provider as any).computeTimeout('x'.repeat(40000))).toBe(120000);
+  });
+});
+
 describe('CustomModelProvider.transform', () => {
   const originalFetch = global.fetch;
 

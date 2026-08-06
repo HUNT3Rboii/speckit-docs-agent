@@ -51,6 +51,22 @@ export class CustomModelProvider extends BaseAIProvider {
     return this.settings.name?.trim() || `Custom Model — ${this.settings.modelName}`;
   }
 
+  /**
+   * The base class's 45s floor is tuned for in-editor providers
+   * (Copilot/Claude/Kiro), which don't pay for a network round trip to a
+   * separate service. A remote HTTP endpoint - especially a cloud-hosted
+   * "serverless" one like Ollama Cloud - commonly has cold-start latency
+   * (spinning up a GPU worker) on top of actual generation time, which is
+   * NOT proportional to document size at all: a live timeout against
+   * Ollama Cloud on a tiny test file confirmed this (the base class's
+   * per-character scaling would have given it barely more than the 45s
+   * floor). Doubling the floor to 90s gives real cold-start headroom while
+   * staying under the shared 180s cap for large documents.
+   */
+  protected computeTimeout(markdown: string): number {
+    return Math.min(180000, Math.max(90000, markdown.length * 3));
+  }
+
   public async transform(
     markdown: string,
     sourcePath: string,
