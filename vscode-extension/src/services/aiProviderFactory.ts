@@ -28,6 +28,15 @@ export class AIProviderFactory {
   private providers: AIProvider[] = [];
   private detectedProvider: AIProvider | null = null;
   private isDetected: boolean = false;
+  /** Human-readable trace of the last detectProviders() run: the
+   * configured try-order plus each provider's availability result, in the
+   * order checked (stops at the first available one, so later providers
+   * won't appear). console.log alone (the previous only record of this)
+   * never reaches the "Speckit: Show Extension Logs" output channel users
+   * actually check - only notificationService.* calls do - so a
+   * misconfigured or wrongly-ordered custom model had no way to be
+   * diagnosed from a pasted log short of asking for a DevTools capture. */
+  private lastDetectionTrace: string[] = [];
 
   /**
    * When false (the default), transformWithFallback() never actually
@@ -132,18 +141,21 @@ export class AIProviderFactory {
 
     // Initialize all providers in priority order
     this.providers = this.buildProviderList();
+    this.lastDetectionTrace = [`Configured order: ${this.providerPriority.join(', ')}`];
 
     // Check each provider in priority order
     for (const provider of this.providers) {
       try {
         const available = await provider.isAvailable();
+        this.lastDetectionTrace.push(`${provider.getProviderName()}: ${available ? 'available' : 'not available'}`);
         if (available) {
           console.log(`[AIProviderFactory] Selected provider: ${provider.getProviderName()}`);
           this.detectedProvider = provider;
           this.isDetected = true;
           return provider;
         }
-      } catch (error) {
+      } catch (error: any) {
+        this.lastDetectionTrace.push(`${provider.getProviderName()}: error checking availability (${error.message})`);
         console.error(`[AIProviderFactory] Error checking provider ${provider.getProviderName()}:`, error);
       }
     }
@@ -155,6 +167,14 @@ export class AIProviderFactory {
     this.detectedProvider = fallback;
     this.isDetected = true;
     return fallback;
+  }
+
+  /**
+   * Human-readable trace of the last detectProviders() run - see
+   * lastDetectionTrace's own docstring for why this exists.
+   */
+  public getLastDetectionTrace(): string[] {
+    return this.lastDetectionTrace;
   }
 
   /**

@@ -86,6 +86,12 @@ export async function activate(context: vscode.ExtensionContext) {
     notificationService.info('Detecting AI providers...');
     const aiProvider = await aiFactory.detectProviders();
     notificationService.info(`AI Provider: ${aiProvider.getProviderName()}`);
+    // Shows the configured try-order and each provider's availability
+    // result, in check order - without this, "why did it pick Copilot
+    // instead of my custom model" had no answer short of a DevTools
+    // capture (detectProviders()'s own per-provider trace only ever went
+    // to console.log, which never reaches this output channel).
+    notificationService.info(`Provider detection: ${aiFactory.getLastDetectionTrace().join(' | ')}`);
 
     // Show AI provider notification
     const hasAI = await aiFactory.hasAIProvider();
