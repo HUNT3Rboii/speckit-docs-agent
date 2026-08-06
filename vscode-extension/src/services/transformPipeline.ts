@@ -155,6 +155,13 @@ export class TransformPipeline implements ITransformPipeline {
     // nothing else ever tells the backend the run actually stopped.
     let sourcePath: string | undefined;
     let projectId: string | undefined;
+    // Started once the artifact's server-assigned id is known (from the
+    // initial reportStep call below) - polls for cancellation while the AI
+    // call is actually in flight, since the reportStep checkpoints alone
+    // are too sparse to catch a cancel click before the current AI call
+    // has already finished on its own (see checkCancelRequested's
+    // docstring for why this can't just reuse reportStep for the poll).
+    let cancelPollHandle: ReturnType<typeof setInterval> | undefined;
 
     try {
       if (cancellation.isCancellationRequested) {
@@ -188,7 +195,7 @@ export class TransformPipeline implements ITransformPipeline {
       // "Transforming with AI" / "Sending to backend" notification cycle
       // for work the backend was always going to reject, which reads as
       // "it processed" even though nothing gets saved.
-      const { excluded } = await this.reportStepAndCheckCancellation(
+      const { excluded, artifactId } = await this.reportStepAndCheckCancellation(
         fileUri.fsPath,
         projectId,
         sourcePath,
@@ -199,6 +206,17 @@ export class TransformPipeline implements ITransformPipeline {
       if (excluded) {
         this.notificationService.info(`Excluded from processing: ${fileName}`);
         return { success: true, skipped: true };
+      }
+
+      if (artifactId) {
+        const filePath = fileUri.fsPath;
+        cancelPollHandle = setInterval(() => {
+          void this.backendClient.checkCancelRequested(artifactId).then((cancelRequested) => {
+            if (cancelRequested) {
+              this.stopProcessing(filePath);
+            }
+          });
+        }, 3000);
       }
 
       const { response, provider } = await this.transformValidateAndSubmit(
@@ -265,6 +283,10 @@ export class TransformPipeline implements ITransformPipeline {
         success: false,
         error: error
       };
+    } finally {
+      if (cancelPollHandle) {
+        clearInterval(cancelPollHandle);
+      }
     }
   }
 
@@ -283,8 +305,8 @@ export class TransformPipeline implements ITransformPipeline {
     step: string,
     attempt?: number,
     maxAttempts?: number
-  ): Promise<{ excluded: boolean }> {
-    const { excluded, cancelRequested } = await this.backendClient.reportStep(
+  ): Promise<{ excluded: boolean; artifactId?: string }> {
+    const { excluded, cancelRequested, artifactId } = await this.backendClient.reportStep(
       projectId,
       sourcePath,
       step,
@@ -294,7 +316,7 @@ export class TransformPipeline implements ITransformPipeline {
     if (cancelRequested) {
       this.stopProcessing(filePath);
     }
-    return { excluded };
+    return { excluded, artifactId };
   }
 
   /**

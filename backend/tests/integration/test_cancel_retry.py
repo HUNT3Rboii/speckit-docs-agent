@@ -80,6 +80,45 @@ class TestCancelEndpoint:
         assert metadata["max_attempts"] == 5
 
 
+class TestCancelStatusEndpoint:
+    """Read-only poll used while the extension's own AI call is still
+    running - must never mutate state, unlike reportStep."""
+
+    def test_reflects_a_pending_cancel(self, client):
+        artifact_id = _report_step(client).json()["artifact"]["id"]
+        client.post(f"/api/artifacts/{artifact_id}/cancel", headers=AUTH_HEADERS)
+
+        response = client.get(f"/api/artifacts/{artifact_id}/cancel-status", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert response.json() == {"cancel_requested": True}
+
+    def test_false_when_nothing_requested(self, client):
+        artifact_id = _report_step(client).json()["artifact"]["id"]
+        response = client.get(f"/api/artifacts/{artifact_id}/cancel-status", headers=AUTH_HEADERS)
+        assert response.json() == {"cancel_requested": False}
+
+    def test_never_mutates_the_flag_it_reads(self, client):
+        """Unlike reportStep, polling this endpoint must not itself clear
+        or otherwise change cancel_requested - repeated polls must keep
+        seeing the same true value until something else acts on it."""
+        artifact_id = _report_step(client).json()["artifact"]["id"]
+        client.post(f"/api/artifacts/{artifact_id}/cancel", headers=AUTH_HEADERS)
+
+        first = client.get(f"/api/artifacts/{artifact_id}/cancel-status", headers=AUTH_HEADERS)
+        second = client.get(f"/api/artifacts/{artifact_id}/cancel-status", headers=AUTH_HEADERS)
+        assert first.json() == {"cancel_requested": True}
+        assert second.json() == {"cancel_requested": True}
+
+    def test_unknown_artifact_404s(self, client):
+        response = client.get("/api/artifacts/does-not-exist/cancel-status", headers=AUTH_HEADERS)
+        assert response.status_code == 404
+
+    def test_requires_api_key(self, client):
+        artifact_id = _report_step(client).json()["artifact"]["id"]
+        response = client.get(f"/api/artifacts/{artifact_id}/cancel-status")
+        assert response.status_code == 401
+
+
 class TestRetryEndpoint:
     def test_retry_sets_the_flag_on_the_artifact(self, client):
         response = _process(client)
@@ -180,6 +219,30 @@ class TestCancelFlagLifecycle:
 
         mid_run = _report_step(client, attempt=2, max_attempts=5)
         assert mid_run.json()["artifact"]["metadata"]["cancel_requested"] is True
+
+    def test_the_submitting_step_at_attempt_1_does_not_wipe_a_cancel_requested_during_the_ai_call(
+        self, client
+    ):
+        """Regression test for a real "clicking Cancel does nothing" report.
+        Root cause: report_step's stale-flag reset was keyed off attempt
+        alone, but the "submitting" step (reported right after the AI call
+        for the FIRST attempt finishes, before /api/process is called) is
+        ALSO reported with attempt=1 - the same loop counter reused for the
+        first correction-loop iteration, not a "brand new run" signal. That
+        meant a cancel requested while attempt 1's AI call was still
+        running got silently reset back to False the moment the run
+        reached its very next checkpoint, before the extension's response
+        check ever saw it as true - cancel_requested was live for a window
+        no reportStep call ever actually observed.
+        """
+        artifact_id = _report_step(client, step="transforming_with_ai", attempt=1).json()["artifact"]["id"]
+        # Simulate a cancel click landing while the AI call for attempt 1
+        # is still in flight (i.e. after the initial "transforming_with_ai"
+        # report, before "submitting").
+        client.post(f"/api/artifacts/{artifact_id}/cancel", headers=AUTH_HEADERS)
+
+        submitting = _report_step(client, step="submitting", attempt=1, max_attempts=5)
+        assert submitting.json()["artifact"]["metadata"]["cancel_requested"] is True
 
     def test_reporting_cancelled_clears_the_flag_and_sets_status(self, client):
         artifact_id = _report_step(client).json()["artifact"]["id"]

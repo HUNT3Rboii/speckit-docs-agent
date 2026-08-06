@@ -454,7 +454,9 @@ export interface BackendClient {
    * reports excluded: false - the authoritative check still happens
    * server-side in process() regardless), and whether a web-frontend user
    * has since flagged this same artifact for cancellation (a failed ping
-   * reports cancelRequested: false - there's nothing to check).
+   * reports cancelRequested: false - there's nothing to check). artifactId
+   * (once known - it's server-assigned) lets the caller start polling
+   * checkCancelRequested for faster-than-checkpoint cancellation detection.
    */
   reportStep(
     projectId: string,
@@ -462,7 +464,13 @@ export interface BackendClient {
     step: string,
     attempt?: number,
     maxAttempts?: number
-  ): Promise<{ excluded: boolean; cancelRequested: boolean }>;
+  ): Promise<{ excluded: boolean; cancelRequested: boolean; artifactId?: string }>;
+  /**
+   * Read-only check of whether cancellation has been requested for an
+   * artifact - unlike reportStep, must never mutate anything. Best-effort:
+   * implementations must never throw - a failed poll just reports false.
+   */
+  checkCancelRequested(artifactId: string): Promise<boolean>;
   /**
    * Poll for artifacts a web-frontend user has flagged (via the Retry
    * button) for a full reprocess. Best-effort: implementations must never

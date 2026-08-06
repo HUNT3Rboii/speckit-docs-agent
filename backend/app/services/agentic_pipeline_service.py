@@ -118,16 +118,25 @@ class AgenticPipelineService:
             status_value = "cancelled"
         else:
             metadata["current_step"] = step
-            # attempt is None/1 exactly when a brand-new run is starting
-            # (not a mid-run correction retry) - whether that's a normal
-            # file-save or this call is itself fulfilling a pending manual
-            # retry request. Either way, any cancel/retry flag left over
-            # from a PREVIOUS run of this same file is now stale and must
-            # be cleared, or it would incorrectly affect this new run too
-            # (an old cancel_requested=True would cancel a run the user
-            # never asked to stop; an old manual_retry_requested=True would
-            # keep re-triggering forever since nothing else ever clears it).
-            if attempt in (None, 1):
+            # step="transforming_with_ai" at attempt None/1 is the ONE
+            # report that means "a brand-new run is starting" (a normal
+            # file-save, or this call fulfilling a pending manual retry
+            # request) - the extension sends it exactly once, before the
+            # correction loop even begins, so any cancel/retry flag left
+            # over from a PREVIOUS run of this same file is now stale and
+            # must be cleared here.
+            #
+            # This must NOT also match on attempt alone: the "submitting"
+            # step is reported with attempt=1 too (it's the same loop
+            # counter, reused for the first correction-loop iteration) -
+            # keying the reset off attempt alone meant that report, sent
+            # right after the AI call for attempt 1 *finishes*, silently
+            # wiped out any cancel_requested set while that AI call was
+            # still running, before the extension's response check ever
+            # saw it as true. That's the actual bug behind "clicking
+            # Cancel doesn't cancel": the flag was always reset out from
+            # under the request by the very next checkpoint.
+            if step == "transforming_with_ai" and attempt in (None, 1):
                 metadata["cancel_requested"] = False
                 metadata["manual_retry_requested"] = False
             status_value = "processing"

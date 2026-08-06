@@ -111,6 +111,22 @@ def get_artifact_status(artifact_id: str, _=Depends(require_api_key)) -> Dict[st
     return result
 
 
+@router.get("/api/artifacts/{artifact_id}/cancel-status")
+def get_cancel_status(artifact_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Read-only check of whether cancellation has been requested for an
+    artifact, polled by the VS Code extension while its own AI call is
+    still running (see TransformPipeline's per-file cancel-poll). Unlike
+    reportStep, this never mutates anything - it exists specifically so a
+    cancel requested mid-AI-call can be noticed without waiting for the
+    call to finish and reach the next reportStep checkpoint, and without
+    resetting the very flag it's checking."""
+    service = get_pipeline_service()
+    artifact = service.repo.get_artifact_by_id(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"cancel_requested": bool((artifact.get("metadata") or {}).get("cancel_requested"))}
+
+
 @router.get("/api/projects/{project_id}/retry-requests")
 def get_retry_requests(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
     """Pending manual-retry requests for a project, polled by the VS Code

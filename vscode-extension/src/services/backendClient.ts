@@ -114,7 +114,7 @@ export class BackendClient implements IBackendClient {
     step: string,
     attempt?: number,
     maxAttempts?: number
-  ): Promise<{ excluded: boolean; cancelRequested: boolean }> {
+  ): Promise<{ excluded: boolean; cancelRequested: boolean; artifactId?: string }> {
     try {
       const response = await this.makeRequest('/api/processing-status', {
         project_id: projectId,
@@ -125,11 +125,38 @@ export class BackendClient implements IBackendClient {
       });
       return {
         excluded: response?.status === 'excluded',
-        cancelRequested: !!response?.artifact?.metadata?.cancel_requested
+        cancelRequested: !!response?.artifact?.metadata?.cancel_requested,
+        artifactId: response?.artifact?.id
       };
     } catch (error) {
       console.log('[BackendClient] reportStep failed (non-fatal):', error);
       return { excluded: false, cancelRequested: false };
+    }
+  }
+
+  /**
+   * Read-only check of whether cancellation has been requested for an
+   * artifact - unlike reportStep, never mutates anything. Polled while the
+   * extension's own AI call is still running (see TransformPipeline's
+   * per-file cancel-poll), so a cancel requested mid-call can be noticed
+   * without waiting for the call to finish and reach the next reportStep
+   * checkpoint. Best-effort: a flaky/offline backend just means this poll
+   * tick sees nothing, never a thrown error.
+   */
+  public async checkCancelRequested(artifactId: string): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `${this.backendUrl}/api/artifacts/${encodeURIComponent(artifactId)}/cancel-status`,
+        { method: 'GET', headers: this.getHeaders(), signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) }
+      );
+      if (!response.ok) {
+        return false;
+      }
+      const body: any = await response.json();
+      return !!body?.cancel_requested;
+    } catch (error) {
+      console.log('[BackendClient] checkCancelRequested failed (non-fatal):', error);
+      return false;
     }
   }
 

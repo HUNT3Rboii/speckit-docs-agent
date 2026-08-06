@@ -101,7 +101,7 @@ describe('BackendClient.reportStep', () => {
     const client = new BackendClient('http://localhost:8000', 'dev-key');
     await expect(
       client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
-    ).resolves.toEqual({ excluded: false, cancelRequested: false });
+    ).resolves.toEqual({ excluded: false, cancelRequested: false, artifactId: 'artifact-1' });
   });
 
   it('reports cancelRequested: true when the artifact metadata flags it', async () => {
@@ -116,7 +116,7 @@ describe('BackendClient.reportStep', () => {
     const client = new BackendClient('http://localhost:8000', 'dev-key');
     await expect(
       client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
-    ).resolves.toEqual({ excluded: false, cancelRequested: true });
+    ).resolves.toEqual({ excluded: false, cancelRequested: true, artifactId: 'artifact-1' });
   });
 
   it('reports cancelRequested: false when the artifact has no metadata at all', async () => {
@@ -128,7 +128,90 @@ describe('BackendClient.reportStep', () => {
     const client = new BackendClient('http://localhost:8000', 'dev-key');
     await expect(
       client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
-    ).resolves.toEqual({ excluded: false, cancelRequested: false });
+    ).resolves.toEqual({ excluded: false, cancelRequested: false, artifactId: 'artifact-1' });
+  });
+
+  it('surfaces the artifact id so the caller can start polling checkCancelRequested', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'ok', artifact: { id: 'artifact-42' } })
+    }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const result = await client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai');
+    expect(result.artifactId).toBe('artifact-42');
+  });
+
+  it('leaves artifactId undefined when the response has no artifact (e.g. excluded)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'excluded' })
+    }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const result = await client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai');
+    expect(result.artifactId).toBeUndefined();
+  });
+});
+
+describe('BackendClient.checkCancelRequested', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('GETs /api/artifacts/{id}/cancel-status and returns the flag', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ cancel_requested: true })
+    });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const result = await client.checkCancelRequested('artifact-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:8000/api/artifacts/artifact-1/cancel-status');
+    expect(options.method).toBe('GET');
+    expect(result).toBe(true);
+  });
+
+  it('returns false when nothing was requested', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ cancel_requested: false })
+    }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.checkCancelRequested('artifact-1')).resolves.toBe(false);
+  });
+
+  it('returns false, never throws, when the backend is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network down')) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.checkCancelRequested('artifact-1')).resolves.toBe(false);
+  });
+
+  it('returns false, never throws, on an error response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.checkCancelRequested('artifact-1')).resolves.toBe(false);
+  });
+
+  it('URL-encodes the artifact id', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ cancel_requested: false }) });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await client.checkCancelRequested('artifact 1');
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:8000/api/artifacts/artifact%201/cancel-status');
   });
 });
 
