@@ -1,10 +1,11 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ArtifactCard } from './ArtifactCard';
 import type { Artifact } from '../types/api';
 import { formatDistanceToNow } from 'date-fns';
+import * as clientModule from '../api/client';
 
 /**
  * Unit tests for ArtifactCard component
@@ -714,6 +715,56 @@ describe('ArtifactCard', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /^Open artifact/ }));
       expect(onClick).toHaveBeenCalledWith(artifact.id);
+    });
+
+    it('shows a "Cancelled" indicator, distinct from failed, for a cancelled artifact', () => {
+      const artifact = createMockArtifact({ status: 'cancelled' });
+      const onClick = vi.fn();
+
+      renderCard(artifact, onClick);
+
+      expect(screen.getByTestId('cancelled-indicator')).toBeInTheDocument();
+      expect(screen.getByText('Cancelled')).toBeInTheDocument();
+      expect(screen.queryByTestId('failed-indicator')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('cancel button', () => {
+    let cancelArtifactSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      cancelArtifactSpy = vi
+        .spyOn(clientModule.APIClient.prototype, 'cancelArtifact')
+        .mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('shows a Cancel button only while processing', () => {
+      const processingArtifact = createMockArtifact({ status: 'processing' });
+      const onClick = vi.fn();
+      const { unmount } = renderCard(processingArtifact, onClick);
+      expect(screen.getByRole('button', { name: /Cancel/ })).toBeInTheDocument();
+      unmount();
+
+      const renderedArtifact = createMockArtifact({ status: 'rendered' });
+      renderCard(renderedArtifact, onClick);
+      expect(screen.queryByRole('button', { name: /Cancel/ })).not.toBeInTheDocument();
+    });
+
+    it('calls cancelArtifact with the artifact id and does not navigate away', async () => {
+      const artifact = createMockArtifact({ id: 'artifact-to-cancel', status: 'processing' });
+      const onClick = vi.fn();
+
+      renderCard(artifact, onClick);
+      fireEvent.click(screen.getByRole('button', { name: /Cancel/ }));
+
+      await waitFor(() => expect(cancelArtifactSpy).toHaveBeenCalledWith('artifact-to-cancel'));
+      // Clicking Cancel must not also trigger the card's own "open artifact"
+      // click handler (the card is otherwise a full-surface click target).
+      expect(onClick).not.toHaveBeenCalled();
     });
   });
 });

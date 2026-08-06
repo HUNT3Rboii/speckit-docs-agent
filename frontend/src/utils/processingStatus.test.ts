@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isActivelyProcessing, isProcessing, needsCorrection, stepLabel } from './processingStatus';
+import { isActivelyProcessing, isCancelled, isProcessing, needsCorrection, stepLabel } from './processingStatus';
 
 describe('processingStatus utilities', () => {
   describe('isActivelyProcessing', () => {
@@ -35,6 +35,16 @@ describe('processingStatus utilities', () => {
       expect(needsCorrection('processing')).toBe(false);
       expect(needsCorrection('rendered')).toBe(false);
       expect(needsCorrection('failed')).toBe(false);
+    });
+  });
+
+  describe('isCancelled', () => {
+    it('is true only for "cancelled"', () => {
+      expect(isCancelled('cancelled')).toBe(true);
+      expect(isCancelled('processing')).toBe(false);
+      expect(isCancelled('failed')).toBe(false);
+      expect(isCancelled('rendered')).toBe(false);
+      expect(isCancelled('retry_needed')).toBe(false);
     });
   });
 
@@ -77,6 +87,11 @@ describe('processingStatus utilities', () => {
 
     it('falls back to plain "Failed" when no error message is present', () => {
       expect(stepLabel({ status: 'failed', metadata: {} })).toBe('Failed');
+    });
+
+    it('shows "Cancelled" for a cancelled artifact, not the generic "Processing" fallback', () => {
+      expect(stepLabel({ status: 'cancelled', metadata: {} })).toBe('Cancelled');
+      expect(stepLabel({ status: 'cancelled', metadata: { current_step: null } })).toBe('Cancelled');
     });
 
     it('surfaces the first structured validation error for retry_needed', () => {

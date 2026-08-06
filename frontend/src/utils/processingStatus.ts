@@ -39,6 +39,16 @@ export function needsCorrection(status: string): boolean {
   return status === 'retry_needed';
 }
 
+/**
+ * True when a run was stopped by the user (the Cancel button, or
+ * speckit.stopProcessing in VS Code) rather than failing on its own. Kept
+ * distinct from `failed` so the UI can read it as a deliberate action, not
+ * an error - no PDF exists yet for this run, but nothing is broken either.
+ */
+export function isCancelled(status: string): boolean {
+  return status === 'cancelled';
+}
+
 function firstValidationError(artifact: Pick<Artifact, 'metadata'>): string | undefined {
   const errors = artifact.metadata?.structured_error?.errors;
   if (!errors) return undefined;
@@ -52,6 +62,9 @@ function firstValidationError(artifact: Pick<Artifact, 'metadata'>): string | un
 export function stepLabel(artifact: Pick<Artifact, 'status' | 'metadata'>): string {
   if (artifact.status === 'failed') {
     return artifact.metadata?.error ? `Failed: ${artifact.metadata.error}` : 'Failed';
+  }
+  if (artifact.status === 'cancelled') {
+    return 'Cancelled';
   }
   if (artifact.status === 'retry_needed') {
     const reason = firstValidationError(artifact);

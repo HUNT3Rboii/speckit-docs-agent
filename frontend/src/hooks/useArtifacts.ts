@@ -50,6 +50,42 @@ export function useArtifacts(projectId: string) {
   });
 }
 
+/**
+ * Flags an in-flight artifact for cancellation (the "Cancel" button shown
+ * on a processing ArtifactCard). Not optimistic - unlike tags, there's
+ * nothing useful to show locally before the extension actually notices and
+ * stops; the existing 3s processing-poll interval (see
+ * getArtifactsRefetchInterval) is what picks up the eventual status change,
+ * so this just needs to fire the request and let that catch up.
+ */
+export function useCancelArtifact(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (artifactId: string) => apiClient.cancelArtifact(artifactId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['artifacts', projectId] });
+    },
+  });
+}
+
+/**
+ * Flags an artifact for a full reprocess (the "Retry" button in the PDF
+ * viewer) - the VS Code extension polls for this and re-runs the whole
+ * pipeline. Invalidates both the list (ArtifactCard) and single-artifact
+ * status (PDFViewer, via useArtifactStatus) queries so either surface
+ * picks up the resulting "processing" state on its next poll.
+ */
+export function useRetryArtifact(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (artifactId: string) => apiClient.retryArtifact(artifactId),
+    onSuccess: (_data, artifactId) => {
+      queryClient.invalidateQueries({ queryKey: ['artifacts', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['artifact-status', artifactId] });
+    },
+  });
+}
+
 interface SetArtifactTagsVariables {
   artifactId: string;
   tags: string[];

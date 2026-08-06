@@ -287,6 +287,30 @@ export class APIClient {
   }
 
   /**
+   * Flags an in-flight artifact for cancellation. Best-effort: the VS Code
+   * extension (where the actual AI call runs) notices this the next time
+   * it reports a processing step and cancels its own work - there's no way
+   * for the backend to forcibly interrupt it.
+   * @param artifactId - ID of the artifact to cancel
+   * @throws APIError on failure (404 if the artifact doesn't exist)
+   */
+  async cancelArtifact(artifactId: string): Promise<void> {
+    await this.axiosInstance.post(`/api/artifacts/${artifactId}/cancel`);
+  }
+
+  /**
+   * Flags an artifact to be reprocessed from scratch. The VS Code
+   * extension polls for pending retries and, on seeing this one, re-reads
+   * the file from disk and re-runs the full pipeline (fresh AI call
+   * included) as if it had just been saved.
+   * @param artifactId - ID of the artifact to retry
+   * @throws APIError on failure (404 if the artifact doesn't exist)
+   */
+  async retryArtifact(artifactId: string): Promise<void> {
+    await this.axiosInstance.post(`/api/artifacts/${artifactId}/retry`);
+  }
+
+  /**
    * Downloads a PDF file for a specific document version
    * @param versionId - ID of the document version
    * @returns Promise resolving to Blob containing PDF data

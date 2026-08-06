@@ -145,6 +145,30 @@ describe('APIClient', () => {
     });
   });
 
+  describe('cancelArtifact', () => {
+    it('should POST to the cancel endpoint with no body', async () => {
+      const mockInstance = mockedAxios.create.mock.results[0].value;
+      const artifactId = 'artifact-1';
+      mockInstance.post.mockResolvedValue({ data: { artifact: { id: artifactId } } });
+
+      await client.cancelArtifact(artifactId);
+
+      expect(mockInstance.post).toHaveBeenCalledWith(`/api/artifacts/${artifactId}/cancel`);
+    });
+  });
+
+  describe('retryArtifact', () => {
+    it('should POST to the retry endpoint with no body', async () => {
+      const mockInstance = mockedAxios.create.mock.results[0].value;
+      const artifactId = 'artifact-1';
+      mockInstance.post.mockResolvedValue({ data: { artifact: { id: artifactId } } });
+
+      await client.retryArtifact(artifactId);
+
+      expect(mockInstance.post).toHaveBeenCalledWith(`/api/artifacts/${artifactId}/retry`);
+    });
+  });
+
   describe('getVersions', () => {
     it('should fetch versions for an artifact', async () => {
       const mockInstance = mockedAxios.create.mock.results[0].value;

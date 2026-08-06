@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { VersionList } from '../components/VersionList';
 import { Button } from '../components/ui/button';
-import { Download, Loader2, AlertCircle, AlertTriangle, Ban } from 'lucide-react';
+import { Download, Loader2, AlertCircle, AlertTriangle, Ban, RotateCw } from 'lucide-react';
 import { config } from '../config/env';
 import { useArtifactStatus } from '../hooks/useArtifactStatus';
 import { useAddException } from '../hooks/useExceptions';
-import { isActivelyProcessing, isProcessing, needsCorrection, stepLabel } from '../utils/processingStatus';
+import { useRetryArtifact } from '../hooks/useArtifacts';
+import { isActivelyProcessing, isCancelled, isProcessing, needsCorrection, stepLabel } from '../utils/processingStatus';
 
 export function PDFViewer() {
   const { artifactId, versionId } = useParams<{
@@ -21,10 +22,12 @@ export function PDFViewer() {
   const { data: statusData } = useArtifactStatus(artifactId || '');
   const artifact = statusData?.artifact;
   const addException = useAddException(artifact?.project_id || '');
+  const retryArtifact = useRetryArtifact(artifact?.project_id || '');
   const [excluded, setExcluded] = useState(false);
   const processing = artifact ? isActivelyProcessing(artifact.status) : false;
   const stalled = artifact ? needsCorrection(artifact.status) : false;
   const failed = artifact?.status === 'failed';
+  const cancelled = artifact ? isCancelled(artifact.status) : false;
   // Still worth polling for a new version while stalled: the calling AI
   // agent's session might resubmit a correction later even though nothing
   // is actively happening right now.
@@ -64,6 +67,11 @@ export function PDFViewer() {
     });
   };
 
+  const handleRetry = () => {
+    if (!artifact) return;
+    retryArtifact.mutate(artifact.id);
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6">
         {/* PDF Content Area */}
@@ -71,6 +79,15 @@ export function PDFViewer() {
           <div className="mb-4 flex items-center justify-between gap-2">
             <h1 className="text-2xl font-bold">PDF Viewer</h1>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={handleRetry}
+                disabled={!artifact || processing || retryArtifact.isPending}
+                title="Reprocess this file through the pipeline from scratch"
+              >
+                <RotateCw className="h-4 w-4 mr-2" />
+                {retryArtifact.isPending ? 'Retrying…' : 'Retry'}
+              </Button>
               <Button
                 variant="outline"
                 onClick={handleExclude}
@@ -129,6 +146,11 @@ export function PDFViewer() {
             <div className="flex flex-col items-center justify-center h-[400px] border rounded-lg bg-muted gap-3">
               <AlertCircle className="h-8 w-8 text-destructive" />
               <p className="text-destructive">{artifact ? stepLabel(artifact) : 'Failed'}</p>
+            </div>
+          ) : cancelled ? (
+            <div className="flex flex-col items-center justify-center h-[400px] border rounded-lg bg-muted gap-3">
+              <Ban className="h-8 w-8 text-muted-foreground" />
+              <p className="text-muted-foreground">Cancelled - no version has been rendered yet.</p>
             </div>
           ) : (
             <div className="flex items-center justify-center h-[400px] border rounded-lg bg-muted">

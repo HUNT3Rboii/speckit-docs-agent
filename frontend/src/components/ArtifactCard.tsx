@@ -1,11 +1,13 @@
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 import { formatDistanceToNow, isValid } from 'date-fns';
-import { Loader2, AlertCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Loader2, AlertCircle, AlertTriangle, Ban, CheckCircle2, XCircle } from 'lucide-react';
 import { truncatePath } from '../utils/pathTruncate';
 import { getCategoryBadgeClasses } from '../utils/categoryColors';
-import { isActivelyProcessing, needsCorrection, stepLabel } from '../utils/processingStatus';
+import { isActivelyProcessing, isCancelled, needsCorrection, stepLabel } from '../utils/processingStatus';
 import { ArtifactTags } from './ArtifactTags';
+import { useCancelArtifact } from '../hooks/useArtifacts';
 import type { Artifact } from '../types/api';
 
 interface ArtifactCardProps {
@@ -29,6 +31,13 @@ export function ArtifactCard({ artifact, onClick }: ArtifactCardProps) {
   const processing = isActivelyProcessing(artifact.status);
   const stalled = needsCorrection(artifact.status);
   const failed = artifact.status === 'failed';
+  const cancelled = isCancelled(artifact.status);
+  const cancelArtifact = useCancelArtifact(artifact.project_id);
+
+  const handleCancel = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    cancelArtifact.mutate(artifact.id);
+  };
 
   // Safely format the date, fallback to "Unknown" if invalid
   const formatCreatedDate = () => {
@@ -62,9 +71,21 @@ export function ArtifactCard({ artifact, onClick }: ArtifactCardProps) {
       </CardHeader>
       <CardContent>
         {processing ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="processing-indicator">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {stepLabel(artifact)}
+          <div className="flex items-center justify-between gap-2" data-testid="processing-indicator">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {stepLabel(artifact)}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+              onClick={handleCancel}
+              disabled={cancelArtifact.isPending}
+            >
+              <XCircle className="h-3.5 w-3.5 mr-1" />
+              {cancelArtifact.isPending ? 'Cancelling…' : 'Cancel'}
+            </Button>
           </div>
         ) : stalled ? (
           <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-500" data-testid="stalled-indicator">
@@ -74,6 +95,11 @@ export function ArtifactCard({ artifact, onClick }: ArtifactCardProps) {
         ) : failed ? (
           <div className="flex items-center gap-2 text-sm text-destructive" data-testid="failed-indicator">
             <AlertCircle className="h-4 w-4" />
+            {stepLabel(artifact)}
+          </div>
+        ) : cancelled ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="cancelled-indicator">
+            <Ban className="h-4 w-4 shrink-0" />
             {stepLabel(artifact)}
           </div>
         ) : (
