@@ -356,6 +356,12 @@ class HTMLGeneratorService:
             font-weight: bold;
         }
 
+        .task-checkbox.in-progress {
+            border-color: #b08800;
+            color: #b08800;
+            font-weight: bold;
+        }
+
         /* Lists */
         ul, ol {
             margin-left: 0.3in;
@@ -719,31 +725,53 @@ class HTMLGeneratorService:
 
         return "\n".join(rendered_paragraphs)
 
+    _CHECKBOX_LINE = re.compile(r"^\s*[-*]\s+\[([ xX~])\]\s+(.*)$")
+    _CHECKBOX_STYLE = {
+        "x": ("task-checkbox checked", "✓"),  # checked: green check
+        "~": ("task-checkbox in-progress", "–"),  # in progress: amber dash
+    }
+
     def _render_task_checklist(self, content: str) -> str:
-        """Render checkbox lines (``- [ ]`` / ``- [x]``) as styled task items."""
-        checkbox_pattern = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.*)$")
-        items: List[str] = []
+        """Render checkbox lines (``- [ ]`` / ``- [x]`` / ``- [~]``) as
+        styled task items, in document order.
+
+        ``[~]`` is spec-kit's own convention for an in-progress/checkpoint
+        task (see this project's own tasks.md files) - the previous version
+        only recognized ``[ ]``/``[x]``, so any ``[~]`` line fell through
+        unmatched and rendered as raw, unstyled bracket text.
+
+        Every other line (a task's own indented detail bullets, a trailing
+        "_Requirements: ..._" annotation, etc.) is rendered through the
+        normal markdown pipeline and kept in its original position relative
+        to the checkbox items around it. The previous version bucketed ALL
+        non-checkbox lines from the whole section into one block rendered
+        before ALL checkbox items, regardless of which task they actually
+        belonged to under - on a real, multi-task tasks.md this scrambled
+        every task's own detail bullets into one unrelated blob at the top.
+        """
+        html_parts: List[str] = []
         other_lines: List[str] = []
 
+        def flush_other() -> None:
+            if other_lines:
+                html_parts.append(self._render_markdown("\n".join(other_lines)))
+                other_lines.clear()
+
         for line in content.split("\n"):
-            match = checkbox_pattern.match(line)
+            match = self._CHECKBOX_LINE.match(line)
             if match:
-                checked = match.group(1).lower() == "x"
+                flush_other()
+                state = match.group(1).lower()
                 text = match.group(2)
-                css_class = "task-checkbox checked" if checked else "task-checkbox"
-                checkmark = "✓" if checked else ""
-                items.append(
+                css_class, checkmark = self._CHECKBOX_STYLE.get(state, ("task-checkbox", ""))
+                html_parts.append(
                     f'<div class="task-item"><span class="{css_class}">{checkmark}</span>'
                     f"<span>{self._escape_html(text)}</span></div>"
                 )
-            elif line.strip():
+            else:
                 other_lines.append(line)
 
-        html_parts = []
-        if other_lines:
-            escaped = self._escape_html("\n".join(other_lines)).replace("\n", "<br>")
-            html_parts.append(f"<p>{escaped}</p>")
-        html_parts.extend(items)
+        flush_other()
         return "\n".join(html_parts)
 
     def _render_diagram_block(
@@ -798,18 +826,26 @@ class HTMLGeneratorService:
         """Generate a completed/pending checklist count summary for task-type
         artifacts (Requirement 12.3)."""
         completed = 0
+        in_progress = 0
         pending = 0
         for section in sections:
             content = section.get("content", "")
             completed += len(re.findall(r"^\s*[-*]\s+\[[xX]\]", content, re.MULTILINE))
+            in_progress += len(re.findall(r"^\s*[-*]\s+\[~\]", content, re.MULTILINE))
             pending += len(re.findall(r"^\s*[-*]\s+\[\s\]", content, re.MULTILINE))
 
-        total = completed + pending
+        total = completed + in_progress + pending
         if total == 0:
             return ""
 
+        detail_bits = []
+        if in_progress:
+            detail_bits.append(f"{in_progress} in progress")
+        detail_bits.append(f"{pending} pending")
+        detail = ", ".join(detail_bits)
+
         return f"""<div class="section-summary" style="page-break-after: avoid;">
-    <strong>Task Progress:</strong> {completed} of {total} completed ({pending} pending)
+    <strong>Task Progress:</strong> {completed} of {total} completed ({detail})
 </div>"""
 
     def _section_anchor(self, heading: str, fallback_index: int) -> str:

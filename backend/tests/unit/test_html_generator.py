@@ -291,6 +291,84 @@ class TestSectionRenderingByType:
         assert "section-design-decision" in html
 
 
+class TestTaskChecklistRendering:
+    """
+    Regression coverage for a live-testing report: real spec-kit tasks.md
+    files (see this project's own .kiro/specs/**/tasks.md) use a three-state
+    checkbox convention - [ ] pending, [x] done, [~] in-progress/checkpoint -
+    and interleave each task with its own indented detail bullets and a
+    trailing "_Requirements: ..._" line. The previous implementation only
+    recognized [ ]/[x] (so every [~] line rendered as raw, unstyled bracket
+    text) and bucketed ALL non-checkbox lines from the whole section into
+    one block rendered before ALL checkbox items, scrambling every task's
+    detail bullets away from the task they belonged to.
+    """
+
+    def test_in_progress_checkbox_gets_its_own_style_not_raw_brackets(self, generator):
+        html = generator._render_task_checklist("- [~] 5. Checkpoint - verify infra")
+        assert '<span class="task-checkbox in-progress">–</span>' in html
+        assert "Checkpoint - verify infra" in html
+        # Must not fall through to raw, unstyled bracket text.
+        assert "[~]" not in html
+
+    def test_checkbox_items_and_detail_bullets_stay_in_original_order(self, generator):
+        content = (
+            "- [x] 1. Initialize project\n"
+            "  - Create Vite project with React\n"
+            "  - Install dependencies\n"
+            "- [ ] 2. Implement API client\n"
+            "  - Define TypeScript interfaces\n"
+        )
+        html = generator._render_task_checklist(content)
+
+        # Each task's own detail bullets must appear after that task's own
+        # checkbox item, not merged into one block before every checkbox.
+        task1_pos = html.index("Initialize project")
+        detail1_pos = html.index("Create Vite project")
+        task2_pos = html.index("Implement API client")
+        detail2_pos = html.index("Define TypeScript interfaces")
+
+        assert task1_pos < detail1_pos < task2_pos < detail2_pos
+
+    def test_detail_bullets_render_as_a_real_list_not_escaped_brackets(self, generator):
+        content = "- [x] 1. Initialize project\n  - Create Vite project\n  - Install dependencies\n"
+        html = generator._render_task_checklist(content)
+        assert "<li>" in html
+        assert "Create Vite project" in html
+
+    def test_requirements_annotation_renders_with_italics(self, generator):
+        content = "- [x] 1. Initialize project\n  _Requirements: 13.1, 13.2_\n"
+        html = generator._render_task_checklist(content)
+        assert "<em>Requirements: 13.1, 13.2</em>" in html
+
+    def test_full_pipeline_with_realistic_spec_kit_task_content(self, generator, sample_enriched_json):
+        sample_enriched_json["sections"][2]["content"] = (
+            "- [x] 1. Initialize project structure\n"
+            "  - Create Vite project with React and TypeScript template\n"
+            "  - Configure TypeScript with strict mode enabled\n"
+            "  _Requirements: 13.1, 13.2_\n"
+            "\n"
+            "- [~] 2. Checkpoint - Ensure core infrastructure is complete\n"
+            "  - Ensure all tests pass, ask the user if questions arise.\n"
+            "\n"
+            "- [ ] 3. Implement ArtifactListView\n"
+        )
+        html = generator.generate_html(sample_enriched_json, {})
+        assert '<span class="task-checkbox checked">✓</span>' in html
+        assert '<span class="task-checkbox in-progress">–</span>' in html
+        assert '<span class="task-checkbox"></span>' in html
+        assert "[~]" not in html
+        assert "Create Vite project with React and TypeScript template" in html
+
+    def test_progress_summary_counts_in_progress_tasks(self, generator, sample_enriched_json):
+        sample_enriched_json["sections"][2]["content"] = "- [x] Done\n- [~] Doing\n- [ ] Todo\n"
+        html = generator.generate_html(sample_enriched_json, {}, artifact_type="task")
+        assert "Task Progress" in html
+        assert "1 of 3 completed" in html
+        assert "1 in progress" in html
+        assert "1 pending" in html
+
+
 class TestDiagramEmbedding:
     def test_diagram_embedded_after_referenced_section(self, generator, sample_enriched_json):
         html = generator.generate_html(
