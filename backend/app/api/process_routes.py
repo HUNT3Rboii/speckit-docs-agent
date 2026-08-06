@@ -34,6 +34,14 @@ def _resolve_or_create_project(repo: Any, project_name: str) -> str:
     return new_project["id"]
 
 
+def _resolve_project_id_readonly(repo: Any, project_name: str) -> str | None:
+    """Like _resolve_or_create_project, but for read-only polling - a
+    workspace folder that's never actually been processed yet shouldn't
+    spawn an empty project row just from being polled for pending retries."""
+    match = next((p for p in repo.list_projects() if p["name"] == project_name), None)
+    return match["id"] if match else None
+
+
 @router.post("/api/processing-status")
 def report_processing_step(payload: ReportStepRequest, _=Depends(require_api_key)) -> Dict[str, Any]:
     """
@@ -101,3 +109,19 @@ def get_artifact_status(artifact_id: str, _=Depends(require_api_key)) -> Dict[st
     if result is None:
         raise HTTPException(status_code=404, detail="Artifact not found")
     return result
+
+
+@router.get("/api/projects/{project_id}/retry-requests")
+def get_retry_requests(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Pending manual-retry requests for a project, polled by the VS Code
+    extension (see TransformPipeline's retry-poll loop and
+    AgenticPipelineService.list_retry_requests). project_id here is the
+    workspace/repo root folder name, same convention as /api/process and
+    /api/processing-status - not yet resolved to an internal project id.
+    A project that's never been processed (no matching name) simply has no
+    pending retries, rather than being auto-created just from a poll."""
+    service = get_pipeline_service()
+    resolved_id = _resolve_project_id_readonly(service.repo, project_id)
+    if resolved_id is None:
+        return {"retry_requests": []}
+    return {"retry_requests": service.list_retry_requests(resolved_id)}

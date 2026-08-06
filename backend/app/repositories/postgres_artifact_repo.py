@@ -657,6 +657,29 @@ class PostgresArtifactRepository:
             "tags": list(row["tags"]) if row.get("tags") is not None else [],
         }
 
+    def set_metadata_flag(self, artifact_id: str, key: str, value: Any) -> Optional[Dict[str, Any]]:
+        """Read-modify-write a single key into an artifact's metadata JSONB
+        blob, leaving every other key untouched. Used for one-shot signal
+        flags (cancel_requested, manual_retry_requested) set by a caller
+        that only knows the artifact_id, not the rest of its metadata -
+        unlike upsert_artifact() (which replaces metadata wholesale and is
+        only ever called by the pipeline itself, which already has the full
+        picture), this must never require the caller to already know/resend
+        unrelated metadata just to flip one flag. Returns the updated
+        artifact, or None if it doesn't exist."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE artifacts SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), %s, %s::jsonb) "
+                    "WHERE id = %s RETURNING id",
+                    ([key], json.dumps(value), artifact_id),
+                )
+                result = cursor.fetchone()
+                conn.commit()
+                if result is None:
+                    return None
+        return self.get_artifact_by_id(artifact_id)
+
     def set_artifact_tags(self, artifact_id: str, tags: List[str]) -> Optional[List[str]]:
         """Replace an artifact's full tag list. Tags live in their own
         column specifically so upsert_artifact() (called every time the

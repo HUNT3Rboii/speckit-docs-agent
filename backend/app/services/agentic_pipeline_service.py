@@ -102,9 +102,35 @@ class AgenticPipelineService:
         )
         metadata = dict((existing or {}).get("metadata") or {})
         metadata["pipeline"] = "agentic"
-        metadata["current_step"] = step
         metadata["attempt"] = attempt
         metadata["max_attempts"] = max_attempts
+
+        # step="cancelled" is a special report from the extension: it
+        # noticed (via this same reportStep channel) that a cancellation
+        # was requested and gave up client-side. Without this, the artifact
+        # row stays frozen at status="processing" forever - the frontend
+        # would show a spinner that never resolves, even though nothing is
+        # actually running anymore.
+        if step == "cancelled":
+            metadata["current_step"] = None
+            metadata["cancel_requested"] = False
+            metadata["manual_retry_requested"] = False
+            status_value = "cancelled"
+        else:
+            metadata["current_step"] = step
+            # attempt is None/1 exactly when a brand-new run is starting
+            # (not a mid-run correction retry) - whether that's a normal
+            # file-save or this call is itself fulfilling a pending manual
+            # retry request. Either way, any cancel/retry flag left over
+            # from a PREVIOUS run of this same file is now stale and must
+            # be cleared, or it would incorrectly affect this new run too
+            # (an old cancel_requested=True would cancel a run the user
+            # never asked to stop; an old manual_retry_requested=True would
+            # keep re-triggering forever since nothing else ever clears it).
+            if attempt in (None, 1):
+                metadata["cancel_requested"] = False
+                metadata["manual_retry_requested"] = False
+            status_value = "processing"
 
         return self.repo.upsert_artifact(
             {
@@ -113,11 +139,38 @@ class AgenticPipelineService:
                 "source_path": source_path,
                 "source_tool": source_tool,
                 "artifact_type": artifact_type,
-                "status": "processing",
+                "status": status_value,
                 "content_hash": (existing or {}).get("content_hash", ""),
                 "metadata": metadata,
             }
         )
+
+    def request_cancel(self, artifact_id: str) -> Optional[Dict[str, Any]]:
+        """Flag an artifact's in-flight run for cancellation. Best-effort:
+        the backend has no way to forcibly interrupt the extension's
+        client-side AI call - the extension notices this flag the next time
+        it reports a step (see report_step) and cancels its own in-flight
+        work. Returns the updated artifact, or None if it doesn't exist."""
+        return self.repo.set_metadata_flag(artifact_id, "cancel_requested", True)
+
+    def request_retry(self, artifact_id: str) -> Optional[Dict[str, Any]]:
+        """Flag an artifact to be reprocessed from scratch - the extension
+        polls list_retry_requests() and, on seeing this, re-reads the file
+        from disk and re-runs the full pipeline (fresh AI call included) as
+        if it had just been saved. Returns the updated artifact, or None if
+        it doesn't exist."""
+        return self.repo.set_metadata_flag(artifact_id, "manual_retry_requested", True)
+
+    def list_retry_requests(self, project_id: str) -> List[Dict[str, str]]:
+        """Pending manual-retry requests for a project, for the VS Code
+        extension to poll. Filtered in Python rather than a JSON SQL query
+        so the same logic works unchanged against both the SQLite and
+        Postgres repositories."""
+        return [
+            {"artifact_id": artifact["id"], "source_path": artifact["source_path"]}
+            for artifact in self.repo.list_artifacts(project_id)
+            if (artifact.get("metadata") or {}).get("manual_retry_requested")
+        ]
 
     def process(
         self,
@@ -150,6 +203,13 @@ class AgenticPipelineService:
         artifact_id = existing["id"] if existing else self._next_artifact_id(project_id)
         source_tool = self.ingestion_service.source_tool(source_path)
         title = enriched_json.get("title")
+        # set_status() rebuilds metadata from scratch on every call (unlike
+        # report_step's copy-and-merge) - without carrying this forward
+        # explicitly, the very first status update inside this method would
+        # silently wipe out a cancel_requested flag set (via the /cancel
+        # endpoint) while report_step's client-side steps were still
+        # running, even though nothing has actually acted on it yet.
+        cancel_requested = bool((existing or {}).get("metadata", {}).get("cancel_requested"))
 
         def set_status(status: str, current_step: Optional[str], **extra_metadata: Any) -> None:
             self.repo.upsert_artifact(
@@ -168,6 +228,7 @@ class AgenticPipelineService:
                         "project_root": project_root,
                         "authoring_framework": authoring_framework,
                         "model_used": model_used,
+                        "cancel_requested": cancel_requested,
                         **extra_metadata,
                     },
                 }
@@ -251,6 +312,10 @@ class AgenticPipelineService:
                 "project_root": project_root,
                 "authoring_framework": authoring_framework,
                 "model_used": model_used,
+                # A pending cancel never got a chance to take effect - the
+                # run just finished successfully instead. Clear it rather
+                # than leaving it to confuse whatever the next run is.
+                "cancel_requested": False,
             },
         }
         self.repo.upsert_artifact(artifact_payload)

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from app.api.deps import get_api_key, get_output_dir, get_project_name, get_repository
 from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ArtifactTagsUpdate, ExceptionCreate, KanbanTaskProgressReport, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
 from app.services.agent_transform import AgentTransformService
+from app.services.agentic_pipeline_service import AgenticPipelineService
 from app.services.ingestion import IngestionService
 from app.services.path_matching import path_matches_exception
 from app.services.persistence import PersistenceService
@@ -27,6 +28,10 @@ def get_services():
     validation_service = ValidationService()
     transform_service = AgentTransformService()
     return repo, ingestion_service, rendering_service, persistence_service, validation_service, transform_service
+
+
+def get_pipeline_service() -> AgenticPipelineService:
+    return AgenticPipelineService(get_repository(), get_output_dir())
 
 
 def require_api_key(authorization: str | None = Header(default=None)) -> None:
@@ -177,6 +182,31 @@ def set_artifact_tags(artifact_id: str, payload: ArtifactTagsUpdate, _=Depends(r
     if tags is None:
         raise HTTPException(status_code=404, detail="Artifact not found")
     return {"artifact_id": artifact_id, "tags": tags}
+
+
+@router.post("/api/artifacts/{artifact_id}/cancel")
+def cancel_artifact(artifact_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Flag an in-flight artifact for cancellation. Best-effort: the VS
+    Code extension (where the actual AI call runs) notices this the next
+    time it reports a processing step and cancels its own work - see
+    AgenticPipelineService.request_cancel."""
+    artifact = get_pipeline_service().request_cancel(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"artifact": artifact}
+
+
+@router.post("/api/artifacts/{artifact_id}/retry")
+def retry_artifact(artifact_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Flag an artifact to be reprocessed from scratch. The VS Code
+    extension polls for pending retries (GET
+    /api/projects/{project_id}/retry-requests) and, on seeing this one,
+    re-reads the file from disk and re-runs the full pipeline - see
+    AgenticPipelineService.request_retry."""
+    artifact = get_pipeline_service().request_retry(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"artifact": artifact}
 
 
 @router.get("/api/projects/{project_id}/exceptions")
