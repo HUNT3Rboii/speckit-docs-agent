@@ -20,11 +20,31 @@ export class CustomModelProvider extends BaseAIProvider {
   }
 
   public async isAvailable(): Promise<boolean> {
-    return Boolean(
-      this.settings.enabled &&
-        this.settings.baseUrl?.trim() &&
-        this.settings.modelName?.trim()
-    );
+    return this.getUnavailableReason() === null;
+  }
+
+  /**
+   * Which specific setting is missing, or null if fully configured - not
+   * part of the shared AIProvider interface (every other provider's
+   * unavailability comes from an actual runtime probe with nothing this
+   * specific to say), but this one's availability is purely a settings
+   * check, so it can explain itself precisely. AIProviderFactory
+   * duck-types for this method to enrich its detection trace - without it,
+   * "not available" was the only information given for a misconfigured
+   * custom model, indistinguishable from "enabled is false" vs "baseUrl is
+   * empty" vs "modelName is empty".
+   */
+  public getUnavailableReason(): string | null {
+    if (!this.settings.enabled) {
+      return 'speckit.customModel.enabled is false';
+    }
+    if (!this.settings.baseUrl?.trim()) {
+      return 'speckit.customModel.baseUrl is empty';
+    }
+    if (!this.settings.modelName?.trim()) {
+      return 'speckit.customModel.modelName is empty';
+    }
+    return null;
   }
 
   public getProviderName(): string {

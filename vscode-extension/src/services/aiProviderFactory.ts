@@ -147,7 +147,11 @@ export class AIProviderFactory {
     for (const provider of this.providers) {
       try {
         const available = await provider.isAvailable();
-        this.lastDetectionTrace.push(`${provider.getProviderName()}: ${available ? 'available' : 'not available'}`);
+        this.lastDetectionTrace.push(
+          `${provider.getProviderName()}: ${available ? 'available' : 'not available'}${
+            available ? '' : this.describeUnavailable(provider)
+          }`
+        );
         if (available) {
           console.log(`[AIProviderFactory] Selected provider: ${provider.getProviderName()}`);
           this.detectedProvider = provider;
@@ -167,6 +171,22 @@ export class AIProviderFactory {
     this.detectedProvider = fallback;
     this.isDetected = true;
     return fallback;
+  }
+
+  /**
+   * Extra detail for why a provider reported unavailable, if it can say -
+   * duck-typed rather than added to the shared AIProvider interface, since
+   * only CustomModelProvider's availability is a plain settings check with
+   * something specific to explain (Copilot/Claude/Kiro/Generic's come from
+   * an actual runtime probe with no more detail to give).
+   */
+  private describeUnavailable(provider: AIProvider): string {
+    const withReason = provider as Partial<{ getUnavailableReason(): string | null }>;
+    if (typeof withReason.getUnavailableReason !== 'function') {
+      return '';
+    }
+    const reason = withReason.getUnavailableReason();
+    return reason ? ` (${reason})` : '';
   }
 
   /**

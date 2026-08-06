@@ -50,6 +50,41 @@ describe('CustomModelProvider.isAvailable', () => {
   });
 });
 
+describe('CustomModelProvider.getUnavailableReason', () => {
+  it('returns null when fully configured', () => {
+    const provider = new CustomModelProvider(baseSettings());
+    expect(provider.getUnavailableReason()).toBeNull();
+  });
+
+  it('names "enabled" specifically when disabled, even if other fields are also set', () => {
+    const provider = new CustomModelProvider(baseSettings({ enabled: false }));
+    expect(provider.getUnavailableReason()).toBe('speckit.customModel.enabled is false');
+  });
+
+  it('names "baseUrl" specifically when enabled but baseUrl is empty', () => {
+    const provider = new CustomModelProvider(baseSettings({ baseUrl: '' }));
+    expect(provider.getUnavailableReason()).toBe('speckit.customModel.baseUrl is empty');
+  });
+
+  it('names "baseUrl" specifically when it is whitespace-only', () => {
+    const provider = new CustomModelProvider(baseSettings({ baseUrl: '   ' }));
+    expect(provider.getUnavailableReason()).toBe('speckit.customModel.baseUrl is empty');
+  });
+
+  it('names "modelName" specifically when enabled and baseUrl is set but modelName is empty', () => {
+    const provider = new CustomModelProvider(baseSettings({ modelName: '' }));
+    expect(provider.getUnavailableReason()).toBe('speckit.customModel.modelName is empty');
+  });
+
+  it('checks in a fixed order: enabled, then baseUrl, then modelName', () => {
+    // All three are missing at once - the message should point at the
+    // first one checked, not an arbitrary or combined one, so fixing it
+    // and re-checking reveals the next problem one at a time.
+    const provider = new CustomModelProvider(baseSettings({ enabled: false, baseUrl: '', modelName: '' }));
+    expect(provider.getUnavailableReason()).toBe('speckit.customModel.enabled is false');
+  });
+});
+
 describe('CustomModelProvider.getProviderName', () => {
   it('uses the configured display name when set', () => {
     const provider = new CustomModelProvider(baseSettings({ name: 'My Ollama' }));
