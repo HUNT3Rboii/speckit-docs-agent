@@ -148,6 +148,13 @@ export class TransformPipeline implements ITransformPipeline {
     cancellation: vscode.CancellationToken
   ): Promise<ProcessResult> {
     const fileName = fileUri.fsPath.split(/[/\\]/).pop() || 'unknown';
+    // Hoisted out of the try block so the catch block below can still
+    // report a cancellation back to the backend (see the "cancelled" step
+    // report there) - without this, an artifact a web-frontend user
+    // cancelled would stay frozen at status="processing" forever, since
+    // nothing else ever tells the backend the run actually stopped.
+    let sourcePath: string | undefined;
+    let projectId: string | undefined;
 
     try {
       if (cancellation.isCancellationRequested) {
@@ -167,21 +174,22 @@ export class TransformPipeline implements ITransformPipeline {
         return { success: true, skipped: true };
       }
 
-      const sourcePath = vscode.workspace.asRelativePath(fileUri);
+      sourcePath = vscode.workspace.asRelativePath(fileUri);
       const { projectRoot, authoringFramework } = await this.detectProvenance(fileUri);
       // The project a document belongs to is its actual workspace/repo root
       // (projectRoot), not a guess derived from the file's own relative path -
       // deriving it from sourcePath's first segment meant every subfolder
       // (or, for a root-level file, the filename itself) became its own
       // bogus "project".
-      const projectId = projectRoot;
+      projectId = projectRoot;
 
       // Check the exceptions list *before* calling the AI - without this,
       // an excluded file still burns a real AI call and shows a full
       // "Transforming with AI" / "Sending to backend" notification cycle
       // for work the backend was always going to reject, which reads as
       // "it processed" even though nothing gets saved.
-      const { excluded } = await this.backendClient.reportStep(
+      const { excluded } = await this.reportStepAndCheckCancellation(
+        fileUri.fsPath,
         projectId,
         sourcePath,
         'transforming_with_ai',
@@ -240,6 +248,12 @@ export class TransformPipeline implements ITransformPipeline {
     } catch (error: any) {
       if (error instanceof CancellationRequestedError) {
         this.notificationService.info(`Cancelled: ${fileName}`);
+        // Best-effort, matching reportStep's own contract - without this,
+        // the artifact stays at status="processing" forever, since nothing
+        // else ever tells the backend this run actually stopped.
+        if (sourcePath && projectId) {
+          void this.backendClient.reportStep(projectId, sourcePath, 'cancelled');
+        }
         return { success: false, error, cancelled: true };
       }
 
@@ -252,6 +266,35 @@ export class TransformPipeline implements ITransformPipeline {
         error: error
       };
     }
+  }
+
+  /**
+   * reportStep, plus: if the response says a web-frontend user has since
+   * flagged this artifact for cancellation, stop this file's processing
+   * immediately (rather than waiting for the next natural check) - the
+   * real vscode.CancellationTokenSource this cancels is already wired into
+   * every in-flight AI-provider call and backend HTTP request, so an
+   * active one aborts right away, not just at the next loop iteration.
+   */
+  private async reportStepAndCheckCancellation(
+    filePath: string,
+    projectId: string,
+    sourcePath: string,
+    step: string,
+    attempt?: number,
+    maxAttempts?: number
+  ): Promise<{ excluded: boolean }> {
+    const { excluded, cancelRequested } = await this.backendClient.reportStep(
+      projectId,
+      sourcePath,
+      step,
+      attempt,
+      maxAttempts
+    );
+    if (cancelRequested) {
+      this.stopProcessing(filePath);
+    }
+    return { excluded };
   }
 
   /**
@@ -300,7 +343,8 @@ export class TransformPipeline implements ITransformPipeline {
       // Skipped on attempt 1: executeProcess() already reported this same
       // step as part of its exclusion check before entering this loop.
       if (attempt > 1) {
-        await this.backendClient.reportStep(
+        await this.reportStepAndCheckCancellation(
+          fileUri.fsPath,
           projectId,
           sourcePath,
           structuredError ? 'correcting' : 'transforming_with_ai',
@@ -422,13 +466,19 @@ export class TransformPipeline implements ITransformPipeline {
       // Awaited for the same reason as the reportStep call above: must land
       // before process() starts, or its "submitting" write can race ahead
       // of process()'s own final status and get stuck showing forever.
-      await this.backendClient.reportStep(
+      await this.reportStepAndCheckCancellation(
+        fileUri.fsPath,
         projectId,
         sourcePath,
         'submitting',
         attempt,
         MAX_CLIENT_CORRECTION_ATTEMPTS
       );
+      // No explicit isCancellationRequested check needed here: if
+      // reportStepAndCheckCancellation just cancelled this file,
+      // backendClient.process()'s own abort-signal wiring (already
+      // cancelled before the request even starts) throws
+      // CancellationRequestedError on its own.
       const response = await this.backendClient.process(
         {
           project_id: projectId,

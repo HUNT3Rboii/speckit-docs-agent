@@ -29,6 +29,7 @@ let gitignoreService: GitignoreService;
 let progressFileWatcher: ProgressFileWatcher;
 let processingStatusBarItem: vscode.StatusBarItem;
 let processingStatusBarInterval: ReturnType<typeof setInterval> | undefined;
+let retryPollInterval: ReturnType<typeof setInterval> | undefined;
 
 /**
  * Extension activation
@@ -136,6 +137,16 @@ export async function activate(context: vscode.ExtensionContext) {
       processingStatusBarItem.show();
     }, 1000);
 
+    // Poll for retry requests made from the web dashboard's PDF viewer -
+    // the backend can only flag "please reprocess this" (it has no way to
+    // run the AI itself), so the extension is what actually has to notice
+    // and act. A workspace folder that was never processed (no matching
+    // project on the backend yet) just gets an empty list back each time,
+    // at negligible cost.
+    retryPollInterval = setInterval(() => {
+      void pollForRetryRequests();
+    }, 15000);
+
     // Live Kanban task-progress tracking: auto-provision Copilot
     // instructions + a progress-signal watcher for any Speckit project in
     // this workspace (see copilotInstructionsMerge.ts for exactly what
@@ -227,6 +238,29 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 /**
+ * Checks every open workspace folder for pending retry requests (made via
+ * the Retry button in the web dashboard's PDF viewer) and reprocesses each
+ * one, exactly as if that file had just been saved. Best-effort: a failed
+ * poll for one folder must not stop the others from being checked.
+ */
+async function pollForRetryRequests(): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  for (const folder of folders) {
+    try {
+      const projectName = path.basename(folder.uri.fsPath);
+      const requests = await backendClient.getRetryRequests(projectName);
+      for (const request of requests) {
+        const fileUri = vscode.Uri.joinPath(folder.uri, request.sourcePath);
+        notificationService.info(`Retry requested from the dashboard: ${request.sourcePath}`);
+        void transformPipeline.process(fileUri);
+      }
+    } catch (error: any) {
+      notificationService.debug(`Retry-request poll failed for ${folder.name}: ${error.message}`);
+    }
+  }
+}
+
+/**
  * Sets up (or, if disabled, tears down) live Kanban task-progress tracking:
  * for every workspace folder that looks like a Speckit project (has a
  * .specify/ directory), auto-provisions .github/copilot-instructions.md +
@@ -296,6 +330,10 @@ export async function deactivate() {
 
     if (processingStatusBarInterval) {
       clearInterval(processingStatusBarInterval);
+    }
+
+    if (retryPollInterval) {
+      clearInterval(retryPollInterval);
     }
 
     // Dispose services

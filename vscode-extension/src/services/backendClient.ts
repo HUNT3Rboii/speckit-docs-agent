@@ -114,7 +114,7 @@ export class BackendClient implements IBackendClient {
     step: string,
     attempt?: number,
     maxAttempts?: number
-  ): Promise<{ excluded: boolean }> {
+  ): Promise<{ excluded: boolean; cancelRequested: boolean }> {
     try {
       const response = await this.makeRequest('/api/processing-status', {
         project_id: projectId,
@@ -123,10 +123,40 @@ export class BackendClient implements IBackendClient {
         attempt,
         max_attempts: maxAttempts
       });
-      return { excluded: response?.status === 'excluded' };
+      return {
+        excluded: response?.status === 'excluded',
+        cancelRequested: !!response?.artifact?.metadata?.cancel_requested
+      };
     } catch (error) {
       console.log('[BackendClient] reportStep failed (non-fatal):', error);
-      return { excluded: false };
+      return { excluded: false, cancelRequested: false };
+    }
+  }
+
+  /**
+   * Poll for artifacts a web-frontend user has flagged (via the Retry
+   * button) for a full reprocess - see TransformPipeline's retry-poll loop.
+   * Best-effort: a flaky/offline backend just means nothing new is picked
+   * up this tick, never a thrown error.
+   */
+  public async getRetryRequests(projectId: string): Promise<Array<{ artifactId: string; sourcePath: string }>> {
+    try {
+      const response = await fetch(
+        `${this.backendUrl}/api/projects/${encodeURIComponent(projectId)}/retry-requests`,
+        { method: 'GET', headers: this.getHeaders(), signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) }
+      );
+      if (!response.ok) {
+        return [];
+      }
+      const body: any = await response.json();
+      const requests = Array.isArray(body?.retry_requests) ? body.retry_requests : [];
+      return requests.map((entry: any) => ({
+        artifactId: entry.artifact_id,
+        sourcePath: entry.source_path
+      }));
+    } catch (error) {
+      console.log('[BackendClient] getRetryRequests failed (non-fatal):', error);
+      return [];
     }
   }
 

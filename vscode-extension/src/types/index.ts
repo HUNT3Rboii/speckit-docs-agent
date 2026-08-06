@@ -452,7 +452,9 @@ export interface BackendClient {
    * whether sourcePath is on the project's exceptions list, so the caller
    * can skip the AI call entirely for an excluded file (a failed ping
    * reports excluded: false - the authoritative check still happens
-   * server-side in process() regardless).
+   * server-side in process() regardless), and whether a web-frontend user
+   * has since flagged this same artifact for cancellation (a failed ping
+   * reports cancelRequested: false - there's nothing to check).
    */
   reportStep(
     projectId: string,
@@ -460,7 +462,14 @@ export interface BackendClient {
     step: string,
     attempt?: number,
     maxAttempts?: number
-  ): Promise<{ excluded: boolean }>;
+  ): Promise<{ excluded: boolean; cancelRequested: boolean }>;
+  /**
+   * Poll for artifacts a web-frontend user has flagged (via the Retry
+   * button) for a full reprocess. Best-effort: implementations must never
+   * throw - a failed poll just means nothing new is picked up this tick,
+   * not a pipeline failure.
+   */
+  getRetryRequests(projectId: string): Promise<Array<{ artifactId: string; sourcePath: string }>>;
   /** Check backend health/availability */
   checkHealth(): Promise<boolean>;
 }

@@ -58,16 +58,16 @@ describe('BackendClient.reportStep', () => {
     });
   });
 
-  it('never throws when the backend is unreachable, and reports excluded: false', async () => {
+  it('never throws when the backend is unreachable, and reports excluded/cancelRequested: false', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('network down')) as any;
 
     const client = new BackendClient('http://localhost:8000', 'dev-key');
     await expect(
       client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
-    ).resolves.toEqual({ excluded: false });
+    ).resolves.toEqual({ excluded: false, cancelRequested: false });
   });
 
-  it('never throws when the backend responds with an error status, and reports excluded: false', async () => {
+  it('never throws when the backend responds with an error status, and reports excluded/cancelRequested: false', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 500,
@@ -77,7 +77,7 @@ describe('BackendClient.reportStep', () => {
     const client = new BackendClient('http://localhost:8000', 'dev-key');
     await expect(
       client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
-    ).resolves.toEqual({ excluded: false });
+    ).resolves.toEqual({ excluded: false, cancelRequested: false });
   });
 
   it('reports excluded: true when the backend says the path is excluded', async () => {
@@ -89,7 +89,7 @@ describe('BackendClient.reportStep', () => {
     const client = new BackendClient('http://localhost:8000', 'dev-key');
     await expect(
       client.reportStep('proj-1', '.specify/templates/spec-template.md', 'transforming_with_ai')
-    ).resolves.toEqual({ excluded: true });
+    ).resolves.toEqual({ excluded: true, cancelRequested: false });
   });
 
   it('reports excluded: false for a normal (non-excluded) response', async () => {
@@ -101,7 +101,94 @@ describe('BackendClient.reportStep', () => {
     const client = new BackendClient('http://localhost:8000', 'dev-key');
     await expect(
       client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
-    ).resolves.toEqual({ excluded: false });
+    ).resolves.toEqual({ excluded: false, cancelRequested: false });
+  });
+
+  it('reports cancelRequested: true when the artifact metadata flags it', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: 'ok',
+        artifact: { id: 'artifact-1', metadata: { cancel_requested: true } }
+      })
+    }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(
+      client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
+    ).resolves.toEqual({ excluded: false, cancelRequested: true });
+  });
+
+  it('reports cancelRequested: false when the artifact has no metadata at all', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'ok', artifact: { id: 'artifact-1' } })
+    }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(
+      client.reportStep('proj-1', 'specs/demo/spec.md', 'transforming_with_ai')
+    ).resolves.toEqual({ excluded: false, cancelRequested: false });
+  });
+});
+
+describe('BackendClient.getRetryRequests', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('GETs /api/projects/{projectId}/retry-requests and maps snake_case to camelCase', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        retry_requests: [{ artifact_id: 'artifact-1', source_path: 'specs/demo/spec.md' }]
+      })
+    });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const result = await client.getRetryRequests('demo-project');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:8000/api/projects/demo-project/retry-requests');
+    expect(options.method).toBe('GET');
+    expect(result).toEqual([{ artifactId: 'artifact-1', sourcePath: 'specs/demo/spec.md' }]);
+  });
+
+  it('URL-encodes the project id/name', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ retry_requests: [] }) });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await client.getRetryRequests('my project');
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:8000/api/projects/my%20project/retry-requests');
+  });
+
+  it('returns an empty array, never throws, when the backend is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network down')) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.getRetryRequests('demo-project')).resolves.toEqual([]);
+  });
+
+  it('returns an empty array, never throws, on an error response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.getRetryRequests('demo-project')).resolves.toEqual([]);
+  });
+
+  it('returns an empty array when the response has no retry_requests field', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.getRetryRequests('demo-project')).resolves.toEqual([]);
   });
 });
 
