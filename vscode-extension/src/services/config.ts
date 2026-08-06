@@ -197,15 +197,19 @@ export class ConfigurationManager {
    * provider ids. Unknown entries (e.g. a typo in settings.json) are
    * dropped rather than rejecting the whole list, since one bad entry
    * shouldn't silently revert every other deliberately-chosen priority
-   * back to the default order too.
+   * back to the default order too. Duplicate entries (e.g. from editing
+   * the array via the Settings UI) are also collapsed to their first
+   * occurrence - a repeated id wouldn't change try-order (the provider is
+   * already fully tried/skipped the first time it's reached), it would
+   * only show up as a confusing duplicate in the "not available" list.
    */
   private validateProviderPriority(value: string[] | undefined): ProviderId[] {
     if (!Array.isArray(value)) {
       return DEFAULT_PROVIDER_PRIORITY;
     }
-    const filtered = value.filter((id): id is ProviderId =>
-      (VALID_PROVIDER_IDS as string[]).includes(id)
-    );
+    const filtered = [
+      ...new Set(value.filter((id): id is ProviderId => (VALID_PROVIDER_IDS as string[]).includes(id)))
+    ];
     return filtered.length > 0 ? filtered : DEFAULT_PROVIDER_PRIORITY;
   }
 }
