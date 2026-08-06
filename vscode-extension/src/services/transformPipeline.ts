@@ -22,6 +22,7 @@ import { ContentHashService } from './contentHashService';
 import { ProjectFrameworkDetector } from './projectFrameworkDetector';
 import { DiagramCoverageChecker } from './diagramCoverageChecker';
 import { CancellationRequestedError } from './aiProvider';
+import { mergeSectionContent } from './markdownSectionParser';
 
 /**
  * Safety cap on client-side correction attempts. The backend's own
@@ -514,6 +515,18 @@ export class TransformPipeline implements ITransformPipeline {
     try {
       const sourcePath = vscode.workspace.asRelativePath(fileUri);
       const outcome = await this.aiFactory.transformWithFallback(markdown, sourcePath, structuredError, cancellation);
+      // The AI is only asked to classify each heading (SectionType), not
+      // reproduce its body content - the extension already has the
+      // original markdown locally, so there's no need to have the AI
+      // regenerate it, and doing so was the actual cause of large
+      // documents getting cut off mid-response (AI output size scaled
+      // with total document size; for a big enough document the model hit
+      // its own output-length ceiling before finishing valid JSON, at a
+      // consistent point every retry). This rebuilds sections[] from the
+      // real source text, using local parsing as the authoritative list of
+      // headings (every one is guaranteed present, regardless of what the
+      // AI did or didn't mention) and the AI's response only for `type`.
+      outcome.result.sections = mergeSectionContent(markdown, outcome.result.sections);
       if (outcome.provider === 'Rule-Based (Fallback)') {
         // Previously silent: every real provider's detection/transform
         // failure (unavailable, timeout, rate limit, malformed response)

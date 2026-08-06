@@ -165,7 +165,12 @@ export class JSONParser implements IJSONParser {
           errors.push(`Section ${index}: Missing or invalid heading`);
         }
 
-        if (!section.content || typeof section.content !== 'string') {
+        // An empty string is valid (a heading immediately followed by
+        // another heading, with no body text between them, is a real
+        // document structure - not, as it would have been when the AI
+        // produced content itself, a sign of a dropped/failed field).
+        // Only missing/wrong-type content is an actual problem.
+        if (typeof section.content !== 'string') {
           errors.push(`Section ${index}: Missing or invalid content`);
         }
 
