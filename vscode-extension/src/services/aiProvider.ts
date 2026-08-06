@@ -227,26 +227,28 @@ Return ONLY the corrected JSON object, no explanations.`;
     try {
       return JSON.parse(jsonStr) as StructuredJSON;
     } catch (firstError: any) {
-      const repaired = repairAIGeneratedJSON(jsonStr);
+      const { result: repaired, fixCount, bailReason } = repairAIGeneratedJSON(jsonStr);
       try {
         return JSON.parse(repaired) as StructuredJSON;
       } catch (secondError: any) {
-        if (repaired === jsonStr) {
-          // The repair made no changes at all (e.g. the error wasn't one
-          // of the classes it knows how to target) - the original error,
-          // with context, is all there is to report.
+        if (!bailReason) {
+          // repairAIGeneratedJSON reports a bailReason on every path
+          // except "fully repaired" - if it's absent, JSON.parse(repaired)
+          // above should have succeeded, so reaching this catch at all
+          // shouldn't be possible. Defensive fallback: report the
+          // original error rather than a "still invalid" message with
+          // nothing to explain it.
           throw new Error(this.describeJSONParseError(jsonStr, firstError));
         }
-        // The repair DID change something but the result is still invalid
-        // for a different reason (truncation, an error class it doesn't
-        // handle, more issues than the repair's iteration cap, etc.) -
-        // surface both with context, since silently re-throwing just the
-        // stale original *message* here previously made a
-        // successful-but-insufficient repair indistinguishable from no
-        // repair happening at all, with no way to tell which from the log
-        // alone.
+        // bailReason says exactly why repair gave up (bad shape / looked
+        // like truncation / an unrecognized error type / hit the
+        // iteration cap) even when fixCount is 0 (it can bail on its very
+        // first attempt, before fixing anything) - previously that
+        // reasoning only ever reached the extension's DevTools console via
+        // console.log, never the notification/output-channel text that
+        // "Speckit: Show Extension Logs" actually displays.
         throw new Error(
-          `${this.describeJSONParseError(jsonStr, firstError)} | after repair, still invalid: ${this.describeJSONParseError(repaired, secondError)}`
+          `${this.describeJSONParseError(jsonStr, firstError)} | repair fixed ${fixCount} issue(s) but gave up (${bailReason}), still invalid: ${this.describeJSONParseError(repaired, secondError)}`
         );
       }
     }

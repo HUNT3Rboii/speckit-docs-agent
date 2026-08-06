@@ -84,19 +84,25 @@ describe('JSONParser', () => {
     // first place, so there's no "position" to anchor a fix to.
 
     it('doubles a backslash followed by a non-escape character', () => {
+      // Two fixes, not one: both "\U" (Users) and "\d" (dev) are invalid
+      // escapes on their own (neither U nor d is in the b/f/n/r/t/u set).
       const raw = '{"a": "C:\\Users\\dev"}';
-      const fixed = repairAIGeneratedJSON(raw);
-      expect(JSON.parse(fixed).a).toBe('C:\\Users\\dev');
+      const { result, fixCount, bailReason } = repairAIGeneratedJSON(raw);
+      expect(JSON.parse(result).a).toBe('C:\\Users\\dev');
+      expect(fixCount).toBe(2);
+      expect(bailReason).toBeUndefined();
     });
 
-    it('leaves already-syntactically-valid JSON unchanged', () => {
+    it('leaves already-syntactically-valid JSON unchanged, with fixCount 0', () => {
       const raw = '{"a": "tab\\tnewline\\nquote\\"slash\\\\end"}';
-      expect(repairAIGeneratedJSON(raw)).toBe(raw);
+      const { result, fixCount } = repairAIGeneratedJSON(raw);
+      expect(result).toBe(raw);
+      expect(fixCount).toBe(0);
     });
 
     it('leaves \\uXXXX unicode escapes unchanged', () => {
       const raw = '{"a": "caf\\u00e9"}';
-      expect(repairAIGeneratedJSON(raw)).toBe(raw);
+      expect(repairAIGeneratedJSON(raw).result).toBe(raw);
     });
 
     it('does not touch a syntactically-valid escape even when it collides with a real word (documented limitation)', () => {
@@ -106,19 +112,19 @@ describe('JSONParser', () => {
       // that's also a valid escape char) is a known, accepted limitation;
       // see this function's doc comment.
       const raw = '{"a": "C:\\frontend"}';
-      expect(repairAIGeneratedJSON(raw)).toBe(raw);
+      expect(repairAIGeneratedJSON(raw).result).toBe(raw);
     });
 
     it('inserts a missing comma between array elements', () => {
       const raw = '{"a": [{"x": 1} {"x": 2}]}';
-      const fixed = repairAIGeneratedJSON(raw);
-      expect(JSON.parse(fixed).a).toEqual([{ x: 1 }, { x: 2 }]);
+      const { result, fixCount } = repairAIGeneratedJSON(raw);
+      expect(JSON.parse(result).a).toEqual([{ x: 1 }, { x: 2 }]);
+      expect(fixCount).toBe(1);
     });
 
     it('inserts a missing comma between object properties', () => {
       const raw = '{"a": 1 "b": 2}';
-      const fixed = repairAIGeneratedJSON(raw);
-      expect(JSON.parse(fixed)).toEqual({ a: 1, b: 2 });
+      expect(JSON.parse(repairAIGeneratedJSON(raw).result)).toEqual({ a: 1, b: 2 });
     });
 
     it('repairs an unescaped path AND a missing comma in the same document', () => {
@@ -126,13 +132,15 @@ describe('JSONParser', () => {
       // gets applied first, then parsing continues further into the
       // document and hits a separate missing-comma problem.
       const raw = '{"path": "C:\\Users\\dev", "items": [{"x": 1} {"x": 2}]}';
-      const fixed = repairAIGeneratedJSON(raw);
-      const parsed = JSON.parse(fixed);
+      const { result, fixCount } = repairAIGeneratedJSON(raw);
+      const parsed = JSON.parse(result);
       expect(parsed.path).toBe('C:\\Users\\dev');
       expect(parsed.items).toEqual([{ x: 1 }, { x: 2 }]);
+      // 2 escape fixes ("\U", "\d", per the note above) + 1 missing comma.
+      expect(fixCount).toBe(3);
     });
 
-    it('does not insert a comma for truncated input missing its closing brace', () => {
+    it('does not insert a comma for truncated input missing its closing brace, and reports why', () => {
       // V8 reports the exact same "Expected ',' or '}' after property
       // value" message for input that just ran out (nothing left to
       // parse) as it does for a genuine missing comma between two real
@@ -142,7 +150,17 @@ describe('JSONParser', () => {
       // caller's brace-balancing fallback appended the missing "}",
       // producing "{...1},}" - a NEW syntax error instead of a fix.
       const raw = '{"title": "T", "nested": {"a": 1}';
-      expect(repairAIGeneratedJSON(raw)).toBe(raw);
+      const { result, bailReason } = repairAIGeneratedJSON(raw);
+      expect(result).toBe(raw);
+      expect(bailReason).toMatch(/truncation/);
+    });
+
+    it('reports a bail reason for an error type it does not recognize', () => {
+      const raw = 'not json at all';
+      const { result, fixCount, bailReason } = repairAIGeneratedJSON(raw);
+      expect(result).toBe(raw);
+      expect(fixCount).toBe(0);
+      expect(bailReason).toMatch(/unrecognized error type/);
     });
   });
 

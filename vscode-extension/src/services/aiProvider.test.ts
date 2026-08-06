@@ -227,6 +227,18 @@ describe('BaseAIProvider.parseJSON', () => {
   it('throws the original error when the input is unrepairable', () => {
     expect(() => provider.parseJSONFor('not json at all')).toThrow();
   });
+
+  it('includes the repair bail reason when a partial repair still leaves invalid JSON', () => {
+    // A truncated document (missing its closing brace) triggers the same
+    // "Expected ',' or '}'" message repair uses for missing commas, but
+    // its truncation guard correctly declines to touch it - the thrown
+    // error must say *why* the repair gave up, not just "still invalid"
+    // with no explanation (previously that reasoning only ever reached a
+    // console.log, invisible in the notification/log text a user actually
+    // sees).
+    const raw = '{"title": "T", "nested": {"a": 1}';
+    expect(() => provider.parseJSONFor(raw)).toThrow(/looks like truncation/);
+  });
 });
 
 describe('BaseAIProvider.throwIfCancelled', () => {

@@ -32,12 +32,24 @@ const MAX_JSON_REPAIR_ITERATIONS = 200;
  *    smaller models on long structured output (observed in practice on a
  *    ~17KB response, well past where the first escape fix landed).
  */
-export function repairAIGeneratedJSON(jsonStr: string): string {
+export interface JSONRepairResult {
+  result: string;
+  /** How many single-position fixes were actually applied. */
+  fixCount: number;
+  /** Set only if repair stopped before JSON.parse(result) actually
+   * succeeded - why it gave up, so a caller building a diagnostic error
+   * message can show *why* the repair was insufficient instead of just
+   * "still invalid" with no explanation. Undefined means fully repaired
+   * (or nothing needed fixing at all). */
+  bailReason?: string;
+}
+
+export function repairAIGeneratedJSON(jsonStr: string): JSONRepairResult {
   let result = jsonStr;
   for (let i = 0; i < MAX_JSON_REPAIR_ITERATIONS; i++) {
     try {
       JSON.parse(result);
-      return result;
+      return { result, fixCount: i };
     } catch (error: any) {
       const message = error?.message ?? '';
 
@@ -45,7 +57,11 @@ export function repairAIGeneratedJSON(jsonStr: string): string {
       if (escapeMatch) {
         const pos = parseInt(escapeMatch[1], 10);
         if (result[pos - 1] !== '\\') {
-          return result; // unexpected shape - bail rather than risk corrupting further
+          return {
+            result,
+            fixCount: i,
+            bailReason: `expected '\\' at position ${pos - 1}, found ${JSON.stringify(result[pos - 1])} - unexpected shape, not fixing further`
+          };
         }
         result = result.slice(0, pos - 1) + '\\' + result.slice(pos - 1);
         continue;
@@ -64,16 +80,24 @@ export function repairAIGeneratedJSON(jsonStr: string): string {
           // bracket. Inserting a comma here would only make it worse (a
           // trailing comma with nothing valid after it); leave it for the
           // caller's brace/bracket-balancing fallback instead.
-          return result;
+          return {
+            result,
+            fixCount: i,
+            bailReason: `position ${pos} looks like truncation (nothing but whitespace follows), not inserting a comma`
+          };
         }
         result = result.slice(0, pos) + ',' + rest;
         continue;
       }
 
-      return result; // an error kind this function doesn't know how to target
+      return { result, fixCount: i, bailReason: `unrecognized error type - ${message}` };
     }
   }
-  return result;
+  return {
+    result,
+    fixCount: MAX_JSON_REPAIR_ITERATIONS,
+    bailReason: `hit the ${MAX_JSON_REPAIR_ITERATIONS}-iteration cap`
+  };
 }
 
 /**
@@ -245,7 +269,7 @@ export class JSONParser implements IJSONParser {
 
     // Fix invalid backslash escapes and missing commas first - these are
     // by far the most common failure modes in practice.
-    repaired = repairAIGeneratedJSON(repaired);
+    repaired = repairAIGeneratedJSON(repaired).result;
 
     // Fix trailing commas in objects
     repaired = repaired.replace(/,(\s*})/g, '$1');
