@@ -338,28 +338,56 @@ class HTMLGeneratorService:
             font-size: 12px;
         }
 
+        /* Drawn from plain CSS borders/box-model rather than a Unicode
+           glyph (✓, –) or flexbox centering inside the box: WeasyPrint's
+           font fallback frequently has no glyph for symbol characters like
+           ✓ (renders as a "tofu" placeholder box instead), and a tiny
+           fixed-size inline-flex box is a known trouble spot for its
+           layout engine - both together produced a visibly broken,
+           oversized/garbled checkbox in practice. A bordered box with an
+           absolutely-positioned ::after (a small rotated L for the check,
+           a short bar for in-progress) only ever depends on the box model,
+           so it renders identically regardless of what fonts are
+           available. */
         .task-checkbox {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
+            display: inline-block;
+            position: relative;
+            box-sizing: border-box;
             width: 0.2in;
             height: 0.2in;
             margin-right: 0.1in;
             border: 1px solid #999;
-            font-size: 12px;
-            line-height: 1;
+            vertical-align: middle;
         }
 
         .task-checkbox.checked {
             border-color: #22863a;
-            color: #22863a;
-            font-weight: bold;
+        }
+
+        .task-checkbox.checked::after {
+            content: "";
+            position: absolute;
+            left: 0.06in;
+            top: 0.02in;
+            width: 0.05in;
+            height: 0.1in;
+            border-bottom: 2px solid #22863a;
+            border-right: 2px solid #22863a;
+            transform: rotate(45deg);
         }
 
         .task-checkbox.in-progress {
             border-color: #b08800;
-            color: #b08800;
-            font-weight: bold;
+        }
+
+        .task-checkbox.in-progress::after {
+            content: "";
+            position: absolute;
+            left: 0.04in;
+            top: 0.085in;
+            width: 0.11in;
+            height: 2px;
+            background-color: #b08800;
         }
 
         /* Lists */
@@ -726,9 +754,9 @@ class HTMLGeneratorService:
         return "\n".join(rendered_paragraphs)
 
     _CHECKBOX_LINE = re.compile(r"^\s*[-*]\s+\[([ xX~])\]\s+(.*)$")
-    _CHECKBOX_STYLE = {
-        "x": ("task-checkbox checked", "✓"),  # checked: green check
-        "~": ("task-checkbox in-progress", "–"),  # in progress: amber dash
+    _CHECKBOX_CLASS = {
+        "x": "task-checkbox checked",
+        "~": "task-checkbox in-progress",
     }
 
     def _render_task_checklist(self, content: str) -> str:
@@ -763,9 +791,9 @@ class HTMLGeneratorService:
                 flush_other()
                 state = match.group(1).lower()
                 text = match.group(2)
-                css_class, checkmark = self._CHECKBOX_STYLE.get(state, ("task-checkbox", ""))
+                css_class = self._CHECKBOX_CLASS.get(state, "task-checkbox")
                 html_parts.append(
-                    f'<div class="task-item"><span class="{css_class}">{checkmark}</span>'
+                    f'<div class="task-item"><span class="{css_class}"></span>'
                     f"<span>{self._escape_html(text)}</span></div>"
                 )
             else:

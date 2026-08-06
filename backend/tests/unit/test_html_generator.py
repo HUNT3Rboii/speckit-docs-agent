@@ -277,10 +277,14 @@ class TestSectionRenderingByType:
 
     def test_checked_task_renders_a_green_checkmark_not_a_blue_fill(self, generator, sample_enriched_json):
         html = generator.generate_html(sample_enriched_json, {})
-        # A checked item gets an actual checkmark glyph inside its span,
-        # not just an empty box styled with a solid blue background.
-        assert '<span class="task-checkbox checked">✓</span>' in html
+        # The checkmark is drawn by a CSS ::after pseudo-element keyed off
+        # this class, not a Unicode glyph in the span's own text (WeasyPrint
+        # frequently has no glyph for symbol characters like "✓", rendering
+        # a "tofu" placeholder box instead) - so the span itself stays
+        # empty, and it's not just an empty box with a solid blue background.
+        assert '<span class="task-checkbox checked"></span>' in html
         assert "background-color: #0066cc" not in html
+        assert "border-right: 2px solid #22863a" in html
 
     def test_unchecked_task_renders_an_empty_box(self, generator, sample_enriched_json):
         html = generator.generate_html(sample_enriched_json, {})
@@ -306,7 +310,7 @@ class TestTaskChecklistRendering:
 
     def test_in_progress_checkbox_gets_its_own_style_not_raw_brackets(self, generator):
         html = generator._render_task_checklist("- [~] 5. Checkpoint - verify infra")
-        assert '<span class="task-checkbox in-progress">–</span>' in html
+        assert '<span class="task-checkbox in-progress"></span>' in html
         assert "Checkpoint - verify infra" in html
         # Must not fall through to raw, unstyled bracket text.
         assert "[~]" not in html
@@ -354,8 +358,8 @@ class TestTaskChecklistRendering:
             "- [ ] 3. Implement ArtifactListView\n"
         )
         html = generator.generate_html(sample_enriched_json, {})
-        assert '<span class="task-checkbox checked">✓</span>' in html
-        assert '<span class="task-checkbox in-progress">–</span>' in html
+        assert '<span class="task-checkbox checked"></span>' in html
+        assert '<span class="task-checkbox in-progress"></span>' in html
         assert '<span class="task-checkbox"></span>' in html
         assert "[~]" not in html
         assert "Create Vite project with React and TypeScript template" in html
@@ -367,6 +371,33 @@ class TestTaskChecklistRendering:
         assert "1 of 3 completed" in html
         assert "1 in progress" in html
         assert "1 pending" in html
+
+    def test_checkbox_spans_never_carry_a_unicode_glyph(self, generator):
+        """Regression coverage for a live-testing report showing checkboxes
+        as garbled "tofu" placeholder boxes in the actual PDF: WeasyPrint's
+        font fallback frequently has no glyph for symbol characters like
+        "✓"/"–", even though they render fine in a browser preview. The
+        checkmark/dash must be drawn entirely by CSS (border/background on
+        a ::after pseudo-element), so the span itself is always empty
+        regardless of state."""
+        content = "- [x] Done\n- [~] Doing\n- [ ] Todo\n"
+        html = generator._render_task_checklist(content)
+        assert "✓" not in html
+        assert "–" not in html
+        assert html.count('<span class="task-checkbox') == 3
+        assert '<span class="task-checkbox checked"></span>' in html
+        assert '<span class="task-checkbox in-progress"></span>' in html
+        assert '<span class="task-checkbox"></span>' in html
+
+    def test_checkbox_box_does_not_use_flexbox_centering(self, generator, sample_enriched_json):
+        """WeasyPrint's flexbox support is a known trouble spot for a tiny
+        fixed-size inline-flex box - combined with the glyph issue above,
+        this produced a visibly broken (oversized/garbled) checkbox. The
+        box must be sized by plain box-model rules instead."""
+        html = generator.generate_html(sample_enriched_json, {})
+        assert ".task-checkbox {" in html
+        checkbox_rule = html.split(".task-checkbox {", 1)[1].split("}", 1)[0]
+        assert "inline-flex" not in checkbox_rule
 
 
 class TestDiagramEmbedding:
