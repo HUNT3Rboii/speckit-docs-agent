@@ -622,6 +622,17 @@ export class TransformPipeline implements ITransformPipeline {
         // (no AI summarization, no diagrams/glossary, no task-friendly
         // descriptions) and look like it "just worked".
         this.notificationService.fallbackWarning(sourcePath);
+      } else if (outcome.fallbackErrors && outcome.fallbackErrors.length > 0) {
+        // The document still processed successfully, but not with the
+        // provider that should have been tried first (e.g. a configured
+        // custom model that failed its actual API call) - without this,
+        // that failure only ever went to console.error, so the document
+        // "just working" (via whichever provider WAS reached) hid that the
+        // intended one never actually ran.
+        this.notificationService.info(
+          `Used ${outcome.provider} for ${sourcePath} - higher-priority provider(s) failed first: ` +
+            outcome.fallbackErrors.join('; ')
+        );
       }
       return outcome;
     } catch (error: any) {

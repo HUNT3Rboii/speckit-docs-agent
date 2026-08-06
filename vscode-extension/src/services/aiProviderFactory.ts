@@ -236,6 +236,13 @@ export class AIProviderFactory {
   ): Promise<{
     result: any;
     provider: string;
+    /** Set only when a fallback provider had to be used - the primary
+     * (highest-priority available) provider's own error message(s), so a
+     * silent "it actually used Copilot, not your custom model" doesn't go
+     * unnoticed just because the document still processed successfully in
+     * the end. Previously only ever logged via console.error, invisible in
+     * the output channel users actually check. */
+    fallbackErrors?: string[];
   }> {
     if (cancellation?.isCancellationRequested) {
       throw new CancellationRequestedError();
@@ -324,7 +331,8 @@ export class AIProviderFactory {
         console.log(`[AIProviderFactory] Fallback successful with: ${provider.getProviderName()}`);
         return {
           result,
-          provider: provider.getProviderName()
+          provider: provider.getProviderName(),
+          fallbackErrors: attemptErrors.length > 0 ? [...attemptErrors] : undefined
         };
       } catch (error: any) {
         if (error instanceof CancellationRequestedError) {
