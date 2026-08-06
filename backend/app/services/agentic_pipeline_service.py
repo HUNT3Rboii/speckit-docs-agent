@@ -193,6 +193,7 @@ class AgenticPipelineService:
         project_root: Optional[str] = None,
         authoring_framework: Optional[str] = None,
         model_used: Optional[str] = None,
+        force_reprocess: bool = False,
     ) -> Dict[str, Any]:
         import time
 
@@ -200,7 +201,13 @@ class AgenticPipelineService:
         artifact_type = artifact_type or self.ingestion_service.classify(source_path, source_markdown)
         existing = self.repo.get_artifact_by_path(project_id, source_path)
 
-        skip_result = self._check_skip(existing, content_hash)
+        # A manual Retry deliberately resubmits UNCHANGED content (that's
+        # the entire point - the user wants the exact same document run
+        # through the pipeline again) - the unchanged-content skip exists
+        # to avoid wasted work on a normal file-watcher save that didn't
+        # actually change anything, which is precisely the opposite intent
+        # here, so force_reprocess bypasses it.
+        skip_result = None if force_reprocess else self._check_skip(existing, content_hash)
         if skip_result is not None:
             return skip_result
 

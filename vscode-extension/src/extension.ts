@@ -252,7 +252,10 @@ async function pollForRetryRequests(): Promise<void> {
       for (const request of requests) {
         const fileUri = vscode.Uri.joinPath(folder.uri, request.sourcePath);
         notificationService.info(`Retry requested from the dashboard: ${request.sourcePath}`);
-        void transformPipeline.process(fileUri);
+        // force: true - the file's content is unchanged (that's the whole
+        // point of retrying the same document), which would otherwise be
+        // silently skipped by the normal unchanged-content dedup.
+        void transformPipeline.process(fileUri, { force: true });
       }
     } catch (error: any) {
       notificationService.debug(`Retry-request poll failed for ${folder.name}: ${error.message}`);

@@ -175,3 +175,9 @@ class ProcessRequest(BaseModel):
     project_root: Optional[str] = None
     authoring_framework: Optional[str] = None
     model_used: Optional[str] = None
+    # Set when this call is fulfilling a manual Retry request (the file's
+    # content is unchanged - that's the whole point of retrying the exact
+    # same document) - bypasses the unchanged-content skip that would
+    # otherwise treat this as a no-op duplicate of the already-rendered
+    # version.
+    force_reprocess: bool = False

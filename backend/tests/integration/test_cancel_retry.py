@@ -266,3 +266,35 @@ class TestCancelFlagLifecycle:
 
         poll = client.get("/api/projects/demo-project/retry-requests", headers=AUTH_HEADERS)
         assert poll.json()["retry_requests"] == []
+
+
+class TestForceReprocess:
+    """A manual Retry deliberately resubmits UNCHANGED content - the whole
+    point is running the exact same document through the pipeline again.
+    Without force_reprocess, this is exactly the case
+    _check_skip's unchanged-content dedup exists to short-circuit,
+    silently turning "Retry" into a no-op: this is the actual root cause
+    of a live report that the Retry button "did nothing"."""
+
+    def test_unchanged_content_without_force_is_skipped(self, client):
+        first = _process(client)
+        assert first.json()["skipped"] is False
+
+        second = _process(client)
+        assert second.json()["skipped"] is True
+
+    def test_unchanged_content_with_force_reprocess_is_not_skipped(self, client):
+        first = _process(client)
+        assert first.json()["skipped"] is False
+
+        second = _process(client, force_reprocess=True)
+        assert second.json()["skipped"] is False
+
+    def test_force_reprocess_produces_a_new_version(self, client):
+        first = _process(client)
+        first_version = first.json()["version"]["version_no"]
+
+        second = _process(client, force_reprocess=True)
+        second_version = second.json()["version"]["version_no"]
+
+        assert second_version == first_version + 1

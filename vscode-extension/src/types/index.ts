@@ -226,6 +226,11 @@ export interface ProcessRequest {
   /** Human-readable label for the AI model/provider that produced
    * enriched_json, e.g. "GitHub Copilot Chat — Claude Sonnet 5". */
   model_used?: string;
+  /** Set when fulfilling a manual Retry request (the file's content is
+   * unchanged - that's the whole point) - bypasses the backend's
+   * unchanged-content skip, which would otherwise silently no-op this as a
+   * duplicate of the already-rendered version. */
+  force_reprocess?: boolean;
 }
 
 /**
@@ -502,8 +507,10 @@ export interface NotificationService {
  * Transform Pipeline interface
  */
 export interface TransformPipeline {
-  /** Process a markdown file through complete pipeline */
-  process(fileUri: import('vscode').Uri): Promise<ProcessResult>;
+  /** Process a markdown file through complete pipeline. `force`, used by
+   * the retry-poll loop, bypasses unchanged-content dedup - a manual Retry
+   * resubmits the same file on purpose. */
+  process(fileUri: import('vscode').Uri, options?: { force?: boolean }): Promise<ProcessResult>;
 }
 
 /**

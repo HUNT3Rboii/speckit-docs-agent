@@ -106,9 +106,18 @@ export class TransformPipeline implements ITransformPipeline {
   }
 
   /**
-   * Process a markdown file through complete pipeline
+   * Process a markdown file through complete pipeline.
+   *
+   * `force` (used by the retry-poll loop - see extension.ts) bypasses both
+   * layers of unchanged-content dedup (this class's own contentCache check,
+   * and the backend's content_hash-based skip) - a manual Retry resubmits
+   * the exact same, unchanged file on purpose, which is precisely the case
+   * that dedup exists to short-circuit for a normal file-watcher save.
+   * Without this, Retry silently no-ops on the overwhelmingly common case
+   * (the file hasn't changed since it last rendered), which is exactly
+   * what "the Retry button doesn't do anything" turned out to be.
    */
-  public async process(fileUri: vscode.Uri): Promise<ProcessResult> {
+  public async process(fileUri: vscode.Uri, options?: { force?: boolean }): Promise<ProcessResult> {
     const filePath = fileUri.fsPath;
 
     // Check if already processing
@@ -125,7 +134,7 @@ export class TransformPipeline implements ITransformPipeline {
     this.cancellationSources.set(filePath, cancellationSource);
 
     // Create processing promise
-    const processPromise = this.executeProcess(fileUri, cancellationSource.token);
+    const processPromise = this.executeProcess(fileUri, cancellationSource.token, options?.force ?? false);
 
     // Add to queue
     this.processingQueue.set(filePath, processPromise);
@@ -145,7 +154,8 @@ export class TransformPipeline implements ITransformPipeline {
    */
   private async executeProcess(
     fileUri: vscode.Uri,
-    cancellation: vscode.CancellationToken
+    cancellation: vscode.CancellationToken,
+    force: boolean = false
   ): Promise<ProcessResult> {
     const fileName = fileUri.fsPath.split(/[/\\]/).pop() || 'unknown';
     // Hoisted out of the try block so the catch block below can still
@@ -175,8 +185,10 @@ export class TransformPipeline implements ITransformPipeline {
       const content = await this.readFile(fileUri);
 
       // Step 2: Check for duplicate content (Requirement 1.1/1.4 - compute
-      // hash and skip before ever invoking the AI).
-      if (this.isDuplicate(fileUri, content)) {
+      // hash and skip before ever invoking the AI). Bypassed for a forced
+      // (retry) run - the whole point there is reprocessing this exact,
+      // unchanged content.
+      if (!force && this.isDuplicate(fileUri, content)) {
         this.notificationService.info(`Skipping duplicate: ${fileName}`);
         return { success: true, skipped: true };
       }
@@ -227,7 +239,8 @@ export class TransformPipeline implements ITransformPipeline {
         fileName,
         projectRoot,
         authoringFramework,
-        cancellation
+        cancellation,
+        force
       );
 
       if (response.status === 'retry_needed') {
@@ -333,7 +346,8 @@ export class TransformPipeline implements ITransformPipeline {
     fileName: string,
     projectRoot: string,
     authoringFramework: string,
-    cancellation: vscode.CancellationToken
+    cancellation: vscode.CancellationToken,
+    force: boolean = false
   ): Promise<{ response: ProcessResponse; provider: string }> {
     let structuredError: StructuredError | undefined;
     let retryCount = 0;
@@ -510,7 +524,8 @@ export class TransformPipeline implements ITransformPipeline {
           retry_count: retryCount,
           project_root: projectRoot,
           authoring_framework: authoringFramework,
-          model_used: provider
+          model_used: provider,
+          force_reprocess: force
         },
         cancellation
       );

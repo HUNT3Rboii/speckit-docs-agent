@@ -96,6 +96,7 @@ def process_document(payload: ProcessRequest, _=Depends(require_api_key)) -> Dic
         project_root=payload.project_root,
         authoring_framework=payload.authoring_framework,
         model_used=payload.model_used,
+        force_reprocess=payload.force_reprocess,
     )
 
 
