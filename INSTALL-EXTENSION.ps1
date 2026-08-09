@@ -4,6 +4,10 @@
 
 $ExtensionId = "speckit.speckit-auto-ai"
 
+# Resolve paths from the script's own location so this works regardless of the
+# caller's working directory.
+Set-Location $PSScriptRoot
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Speckit Auto-AI Extension Installer" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -17,6 +21,12 @@ try {
     Write-Host ""
     Write-Host "Please ensure VS Code is installed and 'code' is in your PATH" -ForegroundColor Yellow
     Write-Host "In VS Code: Ctrl+Shift+P -> 'Shell Command: Install code command in PATH'" -ForegroundColor Yellow
+    exit 1
+}
+
+# npm is needed for every step below
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    Write-Host "[FAIL] npm not found - install Node.js 20+ (https://nodejs.org/)" -ForegroundColor Red
     exit 1
 }
 

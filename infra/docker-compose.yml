@@ -29,7 +29,11 @@ services:
       POSTGRES_DB: docsagent
       POSTGRES_USER: docsagent
       POSTGRES_PASSWORD: docsagent
-      # AI Agent Configuration (optional)
+      # AI Agent Configuration (optional). These are interpolated from the
+      # shell/env-file Compose was started with. Compose only auto-loads a .env
+      # sitting next to this file (infra/.env), so the repo-root .env is passed
+      # explicitly: `docker compose --env-file ../.env up -d --build`
+      # (START-EVERYTHING.ps1 does this for you when the file exists).
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SPECKIT_MODEL_ENDPOINT: ${SPECKIT_MODEL_ENDPOINT:-https://api.openai.com/v1/chat/completions}
       SPECKIT_MODEL_NAME: ${SPECKIT_MODEL_NAME:-gpt-4o-mini}
@@ -40,7 +44,12 @@ services:
       - "8000:8000"
     volumes:
       - ../backend:/app
-      - C:/tmp/doc-output:/tmp/doc-output
+      # Generated PDFs land here on the host. Relative to this compose file, so
+      # it resolves to <repo>/pdf-output on every OS - an absolute host path
+      # like C:/tmp/doc-output only works on one machine and is rejected
+      # outright on Linux/macOS. Docker creates the directory if missing, and
+      # .gitignore already excludes pdf-output/.
+      - ../pdf-output:/tmp/doc-output
     depends_on:
       db:
         condition: service_healthy

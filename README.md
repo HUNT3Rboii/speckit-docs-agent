@@ -13,24 +13,57 @@ Automatically generate polished PDF documentation from markdown files using AI-p
 - 🔍 **Evidence-Grounded Validation** - A deterministic backend checks every diagram/glossary claim against the source text (fuzzy match, ≥85%) before it ever reaches the PDF
 - 🔁 **Self-Correcting** - If validation fails, the same AI session is asked to fix only the flagged items and resubmit (up to 2 retries), then gracefully degrades rather than failing outright
 - 📄 **Professional PDFs** - Cover page, table of contents, grouped sections, embedded diagrams, glossary appendix
-- 🔄 **Smart Fallback** - Works with or without AI using deterministic rule-based parsing
+- 🔄 **Smart Fallback** - A deterministic rule-based transform can stand in when no AI provider is available (opt-in via `speckit.allowRuleBasedFallback`)
 - 🗄️ **Version Tracking** - Maintains complete history in PostgreSQL (or SQLite for local/dev)
 
 ## ⚡ Quick Start
 
-### Step 1: Start Everything
+Everything below is the complete path from a fresh `git clone` to a generated PDF. **No configuration is required** - the defaults in `infra/docker-compose.yml` and the extension's settings already agree with each other, and the AI comes from whatever provider is already active in your IDE.
+
+### Step 0: Install the prerequisites
+
+| Tool | Version | Needed for |
+|------|---------|-----------|
+| [Docker Desktop](https://docs.docker.com/desktop/) | any current | Backend + PostgreSQL (recommended path) |
+| [Node.js](https://nodejs.org/) | 20+ | Frontend dashboard and building the extension |
+| [VS Code](https://code.visualstudio.com/) | 1.85.0+ | The extension itself |
+| [Python](https://www.python.org/downloads/) | 3.11+ | Only for the no-Docker backend path |
+| GitHub Copilot / Claude / any VS Code language model | - | Optional - rule-based fallback works with no AI at all |
+
+### Step 1: Clone
+
+```powershell
+git clone <your-repo-url> speckit-docs-agent
+cd speckit-docs-agent
+```
+
+### Step 2: (Optional) environment overrides
+
+Skip this unless you want to change the API key, the database choice, or give the *backend* its own OpenAI key. See [Environment Variables](#-environment-variables) for what each one does.
+
+```powershell
+Copy-Item .env.example .env   # then edit
+```
+
+`START-EVERYTHING.ps1` passes this file to Docker Compose automatically when it exists.
+
+### Step 3: Start the backend and dashboard
 
 Pick one:
 
-**Docker** (matches production, includes local mmdc diagram rendering):
+**Docker** (recommended - matches production, includes local mmdc diagram rendering):
 ```powershell
 .\START-EVERYTHING.ps1
 ```
-Starts FastAPI + PostgreSQL on `http://localhost:8000` and the frontend dashboard on `http://localhost:5173` (installing frontend dependencies first if this is a fresh clone). Rebuilds the backend image every time (`--build`), since the Dockerfile installs Node.js + mmdc for diagram rendering.
+Checks prerequisites, then starts FastAPI + PostgreSQL on `http://localhost:8000` and the frontend dashboard on `http://localhost:5173` (running `npm install` first if this is a fresh clone). Rebuilds the backend image every time (`--build`), since the Dockerfile installs Node.js + mmdc for diagram rendering. Generated PDFs land in `pdf-output/` at the repo root.
 
-**Local / fast dev loop, backend only** (no Docker, SQLite, diagrams fall back to the Kroki API since mmdc isn't installed locally):
+**Local / fast dev loop, backend only** (no Docker, SQLite instead of PostgreSQL, diagrams fall back to the Kroki API since mmdc isn't installed locally):
 ```powershell
 cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+
 $env:DOC_AGENT_DB_PATH="$PWD\doc_agent.sqlite3"
 $env:DOC_OUTPUT_DIR="$PWD\pdf-output"
 $env:SPECKIT_EXT_API_KEY="dev-key"
@@ -38,18 +71,25 @@ $env:USE_POSTGRES="false"
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+> `requirements.txt` deliberately omits `psycopg2-binary` (the Docker image installs it separately), so a local backend uses SQLite. Setting `USE_POSTGRES=true` locally without `pip install psycopg2-binary` logs a connection error and falls back to SQLite rather than failing.
+
+> WeasyPrint needs the GTK/Pango native libraries, which the Docker image installs for you. On a local Windows backend you may need [the GTK runtime](https://weasyprint.readthedocs.io/en/stable/install.html#windows) as well - without it PDF rendering degrades to raw HTML output. This is the main reason the Docker path is recommended.
+
 Either way, confirm it's up:
 ```powershell
 curl http://localhost:8000/health
+# {"status":"ok","service":"speckit-backend"}
 ```
 
-### Step 2: Install the VS Code Extension
+### Step 4: Install the VS Code Extension
 
 ```powershell
 .\INSTALL-EXTENSION.ps1
 ```
 
 This uninstalls any existing copy, installs dependencies, compiles, runs the unit test suite, lints, packages, and reinstalls the extension - all in one step. Then reload VS Code (`Ctrl+Shift+P` → "Developer: Reload Window").
+
+Requires the `code` command on your PATH (`Ctrl+Shift+P` → "Shell Command: Install 'code' command in PATH" if it isn't).
 
 **That's it!** Save any `.md` file in VS Code and the extension will:
 1. Detect the change (built-in file watcher - no separate process to start)
@@ -179,12 +219,48 @@ VS Code Settings (`Ctrl+,` or `Cmd+,` → search "Speckit"):
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `speckit.backendUrl` | `http://localhost:8000` | Backend API URL |
+| `speckit.apiKey` | `dev-key` | Sent as `Authorization: Bearer <key>`. Must match the backend's `SPECKIT_EXT_API_KEY` |
 | `speckit.autoProcess` | `true` | Auto-process on save |
 | `speckit.includePatterns` | `["**/*.md"]` | Files to process |
 | `speckit.excludePatterns` | `[...]` | Files to ignore |
 | `speckit.debounceMs` | `500` | Debounce delay (ms) |
 | `speckit.maxConcurrentProcessing` | `3` | Max concurrent files |
+| `speckit.allowRuleBasedFallback` | `false` | Allow the no-AI deterministic transform. **Off by default**: with no AI provider available, processing fails with an explanatory error instead of silently producing an unenriched PDF. Turn it on if you want output regardless |
+| `speckit.providerPriority` | `["copilot","claude","kiro","generic","custom"]` | Order AI providers are tried in |
+| `speckit.customModels` | `[]` | Custom OpenAI-compatible endpoints (Ollama, etc). Edit via "Speckit: Manage AI Providers" |
+| `speckit.preferredModelId` | `""` | Pin a specific VS Code language model id |
+| `speckit.enableCopilotProgressTracking` | `true` | Inject task-progress tracking into Copilot instructions |
 | `speckit.enableDebugLogging` | `false` | Verbose logging |
+
+The defaults are self-consistent: `speckit.apiKey` (`dev-key`) already matches `SPECKIT_EXT_API_KEY` in `infra/docker-compose.yml`, so a fresh clone needs no setting changes. Change one and you must change the other.
+
+## 🔑 Environment Variables
+
+All backend variables are optional - each has a working default (the compose file sets the first three explicitly). Copy `.env.example` to `.env` at the repo root to override them; `START-EVERYTHING.ps1` passes that file to Compose.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SPECKIT_EXT_API_KEY` | `dev-key` | Shared secret for the extension and dashboard. Must match `speckit.apiKey` and `VITE_API_KEY` |
+| `DOC_OUTPUT_DIR` | `/tmp/doc-output` | PDF output dir inside the container - bind-mounted to `pdf-output/` at the repo root |
+| `USE_POSTGRES` | `true` | `false` uses SQLite. If Postgres can't be reached the backend logs the error and falls back to SQLite anyway |
+| `POSTGRES_HOST` / `_PORT` / `_DB` / `_USER` / `_PASSWORD` | `db` / `5432` / `docsagent` / `docsagent` / `docsagent` | Only read when `USE_POSTGRES=true` |
+| `DOC_AGENT_DB_PATH` | `./doc_agent.sqlite3` | SQLite file location when `USE_POSTGRES=false` |
+| `OPENAI_API_KEY` | *(unset)* | Optional, **server-side only**. The normal flow uses your IDE's AI via the extension and never needs this |
+| `SPECKIT_MODEL_ENDPOINT` | `https://api.openai.com/v1/chat/completions` | Server-side AI endpoint |
+| `SPECKIT_MODEL_NAME` | `gpt-4o-mini` | Server-side AI model |
+| `USE_AI_TRANSFORM` | `true` | `false` forces deterministic server-side parsing |
+| `ARTIFACT_CACHE_DIR` | `./artifact_cache` | Where processed-artifact cache entries are written |
+| `DIAGRAM_CACHE_ENABLED` | `true` | Cache rendered diagrams by content hash |
+| `MMDC_PUPPETEER_CONFIG` | *(set in the image)* | Puppeteer config for mmdc; leave unset outside containers |
+
+Frontend (`frontend/.env.development`, gitignored - copy from `frontend/.env.example`, or let `START-EVERYTHING.ps1` create it):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_BASE_URL` | `http://localhost:8000` | Backend URL |
+| `VITE_API_KEY` | `dev-key` | Must match `SPECKIT_EXT_API_KEY` |
+
+Both have the same values hardcoded as fallbacks in `frontend/src/config/env.ts`, so the dashboard works with no env file at all.
 
 ---
 
@@ -306,18 +382,21 @@ npm run test:unit
 
 ### Extension - integration tests (VS Code Extension Development Host)
 
-1. Open `vscode-extension/` folder in VS Code
-2. Press `F5` to launch Extension Development Host
-3. In the new VS Code window: open a workspace with markdown files, save one, check notifications and logs
+1. Open the `vscode-extension/` folder in VS Code (its own window - the launch config is scoped to that folder)
+2. Run `npm install` once
+3. Press `F5` to launch the Extension Development Host (uses `vscode-extension/.vscode/launch.json`, which compiles first)
+4. In the new VS Code window: open a workspace with markdown files, save one, check notifications and logs
 
 ---
 
 ## 📋 Prerequisites
 
+Same list as [Step 0](#step-0-install-the-prerequisites) above:
+
 - **Docker** & Docker Compose (for the Docker path), or Python 3.11+ (for local/dev)
-- **Node.js** 20+ (for extension development)
+- **Node.js** 20+ (for the dashboard and extension development)
 - **VS Code** 1.85.0 or later
-- **GitHub Copilot** or **Claude** extension (optional - rule-based fallback works without any AI provider)
+- **GitHub Copilot**, **Claude**, or any other registered VS Code language model - or a custom OpenAI-compatible endpoint (Ollama, etc) added via "Speckit: Manage AI Providers". Without one, enable `speckit.allowRuleBasedFallback` to get unenriched but valid PDFs
 
 ---
 
@@ -338,10 +417,17 @@ npm run test:unit
 
 ### No AI Provider Detected
 
-Extension will use rule-based fallback automatically (still produces a valid, if unenriched, PDF). For AI features:
-1. Install GitHub Copilot or Claude extension
-2. Reload VS Code window
-3. Check logs for provider detection
+By default (`speckit.allowRuleBasedFallback: false`) processing fails with an explicit error rather than quietly producing an unenriched PDF. Either:
+1. Install the GitHub Copilot or Claude extension (or add a custom OpenAI-compatible endpoint via "Speckit: Manage AI Providers"), reload the window, and check the logs for provider detection; **or**
+2. Set `speckit.allowRuleBasedFallback` to `true` to accept the deterministic no-AI transform (valid PDF, empty diagrams/glossary)
+
+### 401 Unauthorized From the Backend
+
+The extension's `speckit.apiKey` doesn't match the backend's `SPECKIT_EXT_API_KEY`. Both default to `dev-key`; if you set one in `.env`, set the other in VS Code settings (and `VITE_API_KEY` in `frontend/.env.development` for the dashboard).
+
+### `.env` Seems To Be Ignored
+
+Docker Compose only auto-loads a `.env` sitting next to the compose file (`infra/.env`). The repo-root `.env` has to be passed explicitly - `START-EVERYTHING.ps1` does it for you; by hand it's `cd infra; docker compose --env-file ../.env up -d --build`.
 
 ### Diagrams Always Falling Back to Kroki
 

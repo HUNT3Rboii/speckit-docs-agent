@@ -40,15 +40,20 @@ npm install
 npm run dev
 ```
 
-The app will be available at `http://localhost:3000`
+The app will be available at `http://localhost:5173` (Vite's default port).
 
 ### Environment Variables
 
-Create a `.env.development` file:
+Optional - `src/config/env.ts` has the same values as built-in fallbacks, so the app runs without any env file. To override, copy the example:
+
+```bash
+cp .env.example .env.development
+```
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000
-VITE_API_KEY=your-api-key
+# Must match SPECKIT_EXT_API_KEY on the backend (dev-key by default)
+VITE_API_KEY=dev-key
 ```
 
 ## Development
@@ -192,7 +197,7 @@ CMD ["nginx", "-g", "daemon off;"]
 **Solution**:
 - Ensure backend is running on `http://localhost:8000`
 - Check `VITE_API_BASE_URL` in `.env.development`
-- Verify CORS settings in backend allow `http://localhost:3000`
+- Verify CORS settings in backend allow `http://localhost:5173` (see `backend/app/main.py`)
 
 ### API Key Issues
 
