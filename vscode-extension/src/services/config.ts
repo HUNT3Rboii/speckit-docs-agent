@@ -4,10 +4,20 @@
  */
 
 import * as vscode from 'vscode';
-import { CustomModelEntry, ExtensionConfig, ProviderId } from '../types';
+import { CustomModelEntry, ExtensionConfig, PriorityEntry } from '../types';
+import { isValidPriorityEntry, pickEffectiveOrder } from './providerPriority';
 
-const VALID_PROVIDER_IDS: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
-const DEFAULT_PROVIDER_PRIORITY: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
+const DEFAULT_PROVIDER_PRIORITY: PriorityEntry[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
+
+/**
+ * Where the try order lives now. It is deliberately NOT a setting the user
+ * edits: speckit.providerPriority is hidden from the Settings UI (its
+ * "included": false in package.json) because the "Manage AI Providers"
+ * panel owns the order, and a hidden setting cannot be written back
+ * anyway - VS Code rejects an update() for any key that isn't in the
+ * registered default configuration. globalState has neither restriction.
+ */
+const PROVIDER_ORDER_STORAGE_KEY = 'speckit.providerOrder';
 
 /**
  * Manages extension configuration with validation and change notifications
@@ -16,6 +26,9 @@ export class ConfigurationManager {
   private static instance: ConfigurationManager;
   private changeListeners: Array<(config: ExtensionConfig) => void> = [];
   private disposables: vscode.Disposable[] = [];
+  /** Extension globalState, once activate() has attached it - see
+   * PROVIDER_ORDER_STORAGE_KEY for why the try order lives here. */
+  private storage: vscode.Memento | undefined;
 
   private constructor() {
     // Listen for configuration changes
@@ -36,6 +49,17 @@ export class ConfigurationManager {
       ConfigurationManager.instance = new ConfigurationManager();
     }
     return ConfigurationManager.instance;
+  }
+
+  /**
+   * Hands the manager the extension's globalState so the try order can be
+   * read and written. Must be called once, at activation, before the first
+   * getConfig() - until it is, the order falls back to the (hidden)
+   * speckit.providerPriority setting and then to the default order, which
+   * is correct but ignores whatever the user last arranged in the panel.
+   */
+  public attachStorage(storage: vscode.Memento): void {
+    this.storage = storage;
   }
 
   /**
@@ -92,7 +116,10 @@ export class ConfigurationManager {
     );
     const allowRuleBasedFallback = config.get<boolean>('allowRuleBasedFallback') ?? false;
     const enableCopilotProgressTracking = config.get<boolean>('enableCopilotProgressTracking') ?? true;
-    const providerPriority = this.validateProviderPriority(config.get<string[]>('providerPriority'));
+    const providerPriority = pickEffectiveOrder(
+      this.storage?.get<unknown>(PROVIDER_ORDER_STORAGE_KEY),
+      this.validateProviderPriority(config.get<string[]>('providerPriority'))
+    );
     const customModels = this.validateCustomModels(config);
 
     return {
@@ -132,6 +159,22 @@ export class ConfigurationManager {
   ): Promise<void> {
     const config = vscode.workspace.getConfiguration('speckit');
     await config.update(key, value, target);
+  }
+
+  /**
+   * Persist the try order arranged in the "Manage AI Providers" panel.
+   *
+   * Unlike updateConfig() this can't rely on VS Code's own configuration
+   * change event to fan out - globalState changes fire nothing - so it
+   * notifies listeners itself, which is what re-detects providers without
+   * a window reload.
+   */
+  public async updateProviderPriority(value: PriorityEntry[]): Promise<void> {
+    if (!this.storage) {
+      throw new Error('Provider order storage is not available (attachStorage was never called)');
+    }
+    await this.storage.update(PROVIDER_ORDER_STORAGE_KEY, value);
+    this.notifyListeners(this.getConfig());
   }
 
   /**
@@ -188,7 +231,8 @@ export class ConfigurationManager {
 
   /**
    * Validate speckit.providerPriority: must be a non-empty array of known
-   * provider ids. Unknown entries (e.g. a typo in settings.json) are
+   * provider ids or "custom:<customModels id>" references (see
+   * PriorityEntry). Unknown entries (e.g. a typo in settings.json) are
    * dropped rather than rejecting the whole list, since one bad entry
    * shouldn't silently revert every other deliberately-chosen priority
    * back to the default order too. Duplicate entries (e.g. from editing
@@ -196,14 +240,17 @@ export class ConfigurationManager {
    * occurrence - a repeated id wouldn't change try-order (the provider is
    * already fully tried/skipped the first time it's reached), it would
    * only show up as a confusing duplicate in the "not available" list.
+   *
+   * A "custom:<id>" pointing at a model that no longer exists is kept here
+   * (it's still a well-formed token) and ignored at expansion time - see
+   * expandPriority - so deleting a model doesn't require rewriting this
+   * setting for the rest of the order to keep working.
    */
-  private validateProviderPriority(value: string[] | undefined): ProviderId[] {
+  private validateProviderPriority(value: string[] | undefined): PriorityEntry[] {
     if (!Array.isArray(value)) {
       return DEFAULT_PROVIDER_PRIORITY;
     }
-    const filtered = [
-      ...new Set(value.filter((id): id is ProviderId => (VALID_PROVIDER_IDS as string[]).includes(id)))
-    ];
+    const filtered = [...new Set(value.filter(isValidPriorityEntry))];
     return filtered.length > 0 ? filtered : DEFAULT_PROVIDER_PRIORITY;
   }
 

@@ -65,6 +65,11 @@
         "command": "speckit.discoverCustomModels",
         "title": "Speckit: Discover Models for Custom Provider",
         "category": "Speckit"
+      },
+      {
+        "command": "speckit.manageCustomModels",
+        "title": "Speckit: Manage AI Providers",
+        "category": "Speckit"
       }
     ],
     "configuration": {
@@ -162,10 +167,12 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["copilot", "claude", "kiro", "generic", "custom"]
+            "pattern": "^(copilot|claude|kiro|generic|custom|custom:.+)$",
+            "patternErrorMessage": "Must be copilot, claude, kiro, generic, custom, or custom:<id of an entry in speckit.customModels>"
           },
           "default": ["copilot", "claude", "kiro", "generic", "custom"],
-          "description": "Order in which AI providers are tried. Reorder this list to change which one is tried first, or remove an id entirely to disable that provider (e.g. remove \"generic\" to never fall through to a non-Copilot/Claude/Kiro language model). \"custom\" expands to every entry in speckit.customModels below, tried in that array's own order. Rule-based fallback isn't in this list - see speckit.allowRuleBasedFallback.",
+          "included": false,
+          "markdownDescription": "Legacy/manual override for the order in which AI providers are tried. Hidden from the Settings UI because the try order is owned by the \"Speckit: Manage AI Providers\" panel, which stores it outside settings; a value here is only used until that panel saves an order.\n\nTokens: `copilot`, `claude`, `kiro`, `generic`, one `custom:<id>` per entry in `#speckit.customModels#`, or a bare `custom` for every model not placed individually. Rule-based fallback isn't in this list - see `#speckit.allowRuleBasedFallback#`.",
           "order": 12
         },
         "speckit.customModels": {
@@ -211,8 +218,8 @@
             "required": ["id", "baseUrl", "modelName"]
           },
           "default": [],
-          "description": "Custom AI models to try - any number of entries, each a server speaking the OpenAI chat-completions API shape (Ollama, LM Studio, Together, Groq, OpenAI itself, most self-hosted gateways). All enabled entries are tried, in this array's own order, at the point \"custom\" appears in speckit.providerPriority. Use \"Speckit: Discover Models for Custom Provider\" to populate modelName from the endpoint's own model listing instead of typing one by hand.",
-          "order": 13
+          "markdownDescription": "### ➜ [Manage AI providers](command:speckit.manageCustomModels)\n\nThe one place to add custom models (base URL, API key, endpoint testing, model discovery) **and** drag every provider - Copilot, Claude, Kiro, Generic and each custom model - into the order they should be tried.\n\nVS Code cannot render an array-of-objects setting, so this row only offers raw JSON; the panel writes it for you.",
+          "order": 0
         }
       }
     }

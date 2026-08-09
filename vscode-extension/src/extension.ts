@@ -16,6 +16,7 @@ import { CopilotInstructionsService } from './services/copilotInstructionsServic
 import { GitignoreService } from './services/gitignoreService';
 import { ProgressFileWatcher } from './services/progressFileWatcher';
 import { discoverModels } from './services/modelDiscoveryService';
+import { CustomModelsPanel } from './webviews/customModelsPanel';
 import { CustomModelEntry } from './types';
 
 // Global service instances
@@ -44,8 +45,15 @@ export async function activate(context: vscode.ExtensionContext) {
     notificationService = new NotificationService();
     notificationService.info('Initializing Speckit Auto-AI extension...');
 
-    // Initialize configuration manager
+    // Initialize configuration manager. globalState holds the AI provider
+    // try order (see PROVIDER_ORDER_STORAGE_KEY) and has to be attached
+    // before the first getConfig(), or that first read silently falls back
+    // to the default order instead of the one arranged in the panel.
     configManager = ConfigurationManager.getInstance();
+    configManager.attachStorage(context.globalState);
+    // Follows the user across machines like a setting would, since it
+    // replaced one.
+    context.globalState.setKeysForSync(['speckit.providerOrder']);
     const config = configManager.getConfig();
 
     // Show debug warning if enabled
@@ -464,6 +472,16 @@ function registerCommands(context: vscode.ExtensionContext): void {
     })
   );
 
+  // Command: Manage Custom AI Models - a form for speckit.customModels,
+  // which the built-in settings UI can only offer as an "Edit in
+  // settings.json" link (it renders no editor at all for an array of
+  // objects), so every field had to be typed blind into raw JSON before.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('speckit.manageCustomModels', () => {
+      CustomModelsPanel.show(configManager, notificationService);
+    })
+  );
+
   // Command: Discover Models for Custom Provider - queries a configured
   // custom model's GET {baseUrl}/models listing so the user can pick a
   // real, valid model id instead of typing one by hand (a typo there, e.g.
@@ -475,11 +493,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
       const config = configManager.getConfig();
       if (config.customModels.length === 0) {
         const selection = await vscode.window.showWarningMessage(
-          'No custom models configured yet. Add at least one entry to speckit.customModels first.',
-          'Open Settings'
+          'No custom models configured yet. Add one first.',
+          'Manage Custom Models'
         );
-        if (selection === 'Open Settings') {
-          void vscode.commands.executeCommand('workbench.action.openSettings', 'speckit.customModels');
+        if (selection === 'Manage Custom Models') {
+          CustomModelsPanel.show(configManager, notificationService);
         }
         return;
       }

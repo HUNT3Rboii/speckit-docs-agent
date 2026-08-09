@@ -307,7 +307,7 @@ export interface ExtensionConfig {
    * valid id here - it's governed separately by allowRuleBasedFallback,
    * since it isn't a real AI provider to prioritize among the others.
    */
-  providerPriority: ProviderId[];
+  providerPriority: PriorityEntry[];
   /**
    * User-configured custom models - each a local server (e.g. Ollama's
    * OpenAI-compatible endpoint) or any other OpenAI-chat-completions-
@@ -326,6 +326,16 @@ export interface ExtensionConfig {
  * single fixed provider.
  */
 export type ProviderId = 'copilot' | 'claude' | 'kiro' | 'generic' | 'custom';
+
+/**
+ * One token in speckit.providerPriority. Besides the built-in ids, a
+ * specific custom model can be placed anywhere in the order by its own
+ * reference, "custom:<CustomModelEntry.id>" - so two custom models can sit
+ * on opposite sides of Copilot, which the single "custom" token (which
+ * expands to all of them as one block, at one position) cannot express.
+ * See services/providerPriority.ts for how these are resolved.
+ */
+export type PriorityEntry = ProviderId | `custom:${string}`;
 
 /**
  * One user-configured custom AI model - any server speaking the OpenAI

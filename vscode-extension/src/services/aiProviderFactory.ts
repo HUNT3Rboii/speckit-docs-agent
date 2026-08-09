@@ -3,7 +3,8 @@
  * Detects and initializes AI providers with automatic fallback
  */
 
-import { AIProvider, CancellationSignal, CustomModelEntry, ProviderId, StructuredError } from '../types';
+import { AIProvider, CancellationSignal, CustomModelEntry, PriorityEntry, ProviderId, StructuredError } from '../types';
+import { expandPriority } from './providerPriority';
 import { CopilotProvider } from '../providers/copilotProvider';
 import { ClaudeProvider } from '../providers/claudeProvider';
 import { KiroProvider } from '../providers/kiroProvider';
@@ -12,7 +13,7 @@ import { CustomModelProvider } from '../providers/customModelProvider';
 import { RuleBasedProvider } from '../providers/ruleBasedProvider';
 import { CancellationRequestedError } from './aiProvider';
 
-const DEFAULT_PROVIDER_PRIORITY: ProviderId[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
+const DEFAULT_PROVIDER_PRIORITY: PriorityEntry[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
 
 /**
  * Factory for creating and managing AI providers with fallback chain
@@ -41,7 +42,7 @@ export class AIProviderFactory {
    */
   constructor(
     private allowRuleBasedFallback: boolean = false,
-    private providerPriority: ProviderId[] = DEFAULT_PROVIDER_PRIORITY,
+    private providerPriority: PriorityEntry[] = DEFAULT_PROVIDER_PRIORITY,
     private customModels: CustomModelEntry[] = []
   ) {}
 
@@ -59,7 +60,7 @@ export class AIProviderFactory {
    * actually takes effect on the next call, rather than sticking with
    * whatever was cached under the old order.
    */
-  public setProviderPriority(value: ProviderId[]): void {
+  public setProviderPriority(value: PriorityEntry[]): void {
     this.providerPriority = value;
     this.isDetected = false;
   }
@@ -100,30 +101,39 @@ export class AIProviderFactory {
    * separately by allowRuleBasedFallback, not by providerPriority, since
    * it isn't a real AI provider to prioritize among the others.
    *
-   * "custom" expands to one CustomModelProvider per speckit.customModels
-   * entry, in that array's own order, as a group - any number of custom
-   * models can be configured, all tried at the single point "custom"
-   * appears in providerPriority. A disabled entry is still instantiated
-   * (same as every other provider - none of them are pre-filtered on some
-   * external "enabled" flag before being checked) so its
-   * isAvailable()/getUnavailableReason() still reports "enabled is false"
-   * in the detection trace, rather than the entry silently vanishing from
-   * it - that exact message is what previously pinpointed a live
-   * misconfiguration.
+   * Custom models are placed by expandPriority: each one can sit at its own
+   * position via a "custom:<id>" token, while a bare "custom" token still
+   * expands to whichever models aren't individually placed. A disabled
+   * entry is still instantiated (same as every other provider - none of
+   * them are pre-filtered on some external "enabled" flag before being
+   * checked) so its isAvailable()/getUnavailableReason() still reports
+   * "enabled is false" in the detection trace, rather than the entry
+   * silently vanishing from it - that exact message is what previously
+   * pinpointed a live misconfiguration.
    */
   private buildProviderList(): AIProvider[] {
-    const list: AIProvider[] = [];
-    for (const id of this.providerPriority) {
-      if (id === 'custom') {
-        for (const entry of this.customModels) {
-          list.push(new CustomModelProvider(entry));
-        }
-      } else {
-        list.push(this.buildProvider(id));
-      }
-    }
+    const list: AIProvider[] = expandPriority(this.providerPriority, this.customModels).map((resolved) =>
+      resolved.kind === 'custom'
+        ? new CustomModelProvider(resolved.entry)
+        : this.buildProvider(resolved.id as Exclude<ProviderId, 'custom'>)
+    );
     list.push(new RuleBasedProvider());
     return list;
+  }
+
+  /**
+   * The try-order as names rather than raw tokens - "custom:custom-a1b2c3"
+   * is meaningless in a pasted log, and the whole point of the trace is
+   * that a user can read it. Resolved through the same expansion the real
+   * run uses, so what it shows is what will actually be tried.
+   */
+  private describeConfiguredOrder(): string {
+    const names = expandPriority(this.providerPriority, this.customModels).map((resolved) =>
+      resolved.kind === 'custom'
+        ? resolved.entry.name?.trim() || resolved.entry.modelName?.trim() || resolved.entry.id
+        : resolved.id
+    );
+    return names.length > 0 ? names.join(', ') : '(empty)';
   }
 
   /**
@@ -151,11 +161,11 @@ export class AIProviderFactory {
       return this.detectedProvider;
     }
 
-    console.log(`[AIProviderFactory] Detecting available AI providers (priority: ${this.providerPriority.join(', ')})...`);
+    console.log(`[AIProviderFactory] Detecting available AI providers (priority: ${this.describeConfiguredOrder()})...`);
 
     // Initialize all providers in priority order
     this.providers = this.buildProviderList();
-    this.lastDetectionTrace = [`Configured order: ${this.providerPriority.join(', ')}`];
+    this.lastDetectionTrace = [`Configured order: ${this.describeConfiguredOrder()}`];
 
     // Check each provider in priority order
     for (const provider of this.providers) {
