@@ -112,3 +112,7 @@ pdf-output/
 # Kiro tooling scaffolding (specs, settings, task summaries)
 .kiro/
 .kiro-task-*.md
+
+# graphify knowledge graph output - 22MB of generated artifacts, rebuilt
+# locally with `graphify update .` (see the graphify section in claude.md).
+graphify-out/
