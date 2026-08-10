@@ -97,10 +97,17 @@ Reminders:
   above (e.g. "Section 7: Missing or invalid content" means section index 7 needs a non-empty
   content string). Fix each named issue directly and return the complete, valid JSON object.
 - "missing_headings": add these headings back into sections[], preserving their original text.
-- "ungrounded_diagrams": either find the correct verbatim evidence quote from the source for
-  the named component, or remove that component/diagram if no such text exists.
-- "ungrounded_glossary": either find the correct verbatim evidence quote for the named term,
-  or remove that glossary entry if no such text exists.
+- "ungrounded_diagrams": replace the named component's evidence with the correct verbatim quote
+  from the source. Do NOT delete the component or the diagram to make this error go away - a
+  diagram you already judged the content warranted is worth more than a clean validation pass,
+  and if the quote genuinely cannot be found the backend drops that item on the final attempt
+  and reports it to the user. Deleting it yourself hides that from them entirely.
+  To re-quote: locate the sentence in the source that actually describes this component, and
+  copy it character for character - including markdown markers like ** and \` - trimming only
+  from the start or end, never from the middle. A longer quote that is exact beats a short one
+  you tightened up.
+- "ungrounded_glossary": same - replace the named term's evidence with the exact sentence from
+  the source that defines or first uses it, rather than removing the entry.
 - "mermaid_syntax_errors": fix the named diagram's mermaidCode so it parses correctly.
 - "missing_diagrams": these named sections clearly warrant a diagram per the Diagram Generation
   Guidance above (architecture/sequence/state/data-model/flowchart content) but your previous

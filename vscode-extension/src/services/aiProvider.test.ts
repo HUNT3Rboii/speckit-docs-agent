@@ -90,6 +90,51 @@ describe('BaseAIProvider.createCorrectionPrompt', () => {
     expect(prompt).toContain('missing_diagrams');
   });
 
+  it('tells the model to re-quote an ungrounded diagram component, not delete it', () => {
+    const structuredError: StructuredError = {
+      valid: false,
+      retry_count: 1,
+      errors: { ungrounded_diagrams: ['Diagram [diagram_0], Component Auth Service'] },
+      warnings: []
+    };
+
+    const prompt = provider.buildCorrectionPrompt('# Test', structuredError);
+
+    expect(prompt).toContain('Do NOT delete the component or the diagram');
+    // The backend drops genuinely ungrounded items itself and reports them, so
+    // the model deleting them first is what makes them vanish silently.
+    expect(prompt).toContain('the backend drops that item on the final attempt');
+    expect(prompt).not.toMatch(/or remove that component\/diagram/);
+  });
+
+  it('tells the model to re-quote an ungrounded glossary entry, not remove it', () => {
+    const structuredError: StructuredError = {
+      valid: false,
+      retry_count: 2,
+      errors: { ungrounded_glossary: ['JWT'] },
+      warnings: []
+    };
+
+    const prompt = provider.buildCorrectionPrompt('# Test', structuredError);
+
+    expect(prompt).toContain('rather than removing the entry');
+    expect(prompt).not.toMatch(/or remove that glossary entry/);
+  });
+
+  it('spells out how to re-quote so the retry can actually succeed', () => {
+    const structuredError: StructuredError = {
+      valid: false,
+      retry_count: 1,
+      errors: { ungrounded_diagrams: ['Diagram [diagram_0], Component X'] },
+      warnings: []
+    };
+
+    const prompt = provider.buildCorrectionPrompt('# Test', structuredError);
+
+    expect(prompt).toContain('character for character');
+    expect(prompt).toContain('never from the middle');
+  });
+
   it('includes a reminder for schema_errors naming the flagged issues', () => {
     const structuredError: StructuredError = {
       valid: false,
