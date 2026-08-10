@@ -15,6 +15,30 @@ from pathlib import Path
 from datetime import datetime
 import urllib.parse
 
+# Emoji, the variation selectors and zero-width joiner that compose them, and
+# skin-tone modifiers. Stripped before comparing a diagram's sectionRef to a
+# heading, since documents decorate headings ("## 🏗️ Architecture") while the
+# AI reports the undecorated text ("Architecture").
+_HEADING_DECORATION_RE = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"  # pictographs, symbols, transport, supplemental
+    "\u2600-\u27BF"          # misc symbols and dingbats
+    "\u2B00-\u2BFF"          # arrows and geometric shapes used as emoji
+    "\uFE0E\uFE0F"           # text/emoji variation selectors
+    "\u200D"                 # zero-width joiner
+    "]"
+)
+
+_AFTER_SECTION_RE = re.compile(r"^after-section-(\d+)$")
+
+
+def _normalize_heading(text: str) -> str:
+    """Comparison form for headings and sectionRefs: emoji removed, whitespace
+    collapsed, case folded."""
+    stripped = _HEADING_DECORATION_RE.sub("", text or "")
+    return " ".join(stripped.split()).casefold()
+
+
 # CSS class used to wrap sections of a given type; sections not in this map
 # render without a special wrapper (plain <section>).
 SECTION_TYPE_CSS_CLASS = {
@@ -158,6 +182,14 @@ class HTMLGeneratorService:
             page-break-after: avoid;
         }
 
+        /* A parent heading merged in with the section that follows it (see
+           _generate_sections_html): the two keep their own type styling but
+           share one unbreakable box, so the heading can't be left alone at
+           the foot of a page. */
+        .section-group > div:first-child {
+            margin-top: 0;
+        }
+
         /* A section's own heading is its first element - its margin-top
            would otherwise stack on top of the previous section's own
            margin-bottom, doubling the visual gap between sections
@@ -168,7 +200,8 @@ class HTMLGeneratorService:
         section > h3:first-child,
         section > h4:first-child,
         section > h5:first-child,
-        section > h6:first-child {
+        section > h6:first-child,
+        .section-group > div:first-child > :first-child {
             margin-top: 0;
         }
 
@@ -618,24 +651,86 @@ class HTMLGeneratorService:
     </ul>
 </div>"""
 
+    def resolve_diagram_placements(
+        self,
+        sections: List[Dict[str, Any]],
+        diagrams: List[Dict[str, Any]],
+    ) -> Dict[int, List[int]]:
+        """
+        Decide which section each diagram belongs after, as
+        ``{section_number (1-indexed): [diagram index, ...]}``.
+
+        ``sectionRef`` wins over ``location`` whenever it names a real heading.
+        The two disagree often, because counting sections is exactly the kind of
+        thing a language model gets wrong: a real run against this project's
+        README produced sectionRef "Architecture" (section 24) alongside
+        location "after-section-33", which put the architecture diagram under
+        "Extension Not Activating" and left the architecture section empty.
+        The name is a statement about meaning; the index is arithmetic, and only
+        the arithmetic is worth distrusting.
+
+        Headings are compared with emoji stripped, so "## 🏗️ Architecture"
+        matches the "Architecture" the AI reports for it.
+
+        ``inline-section-*`` diagrams are skipped - ``_render_section_body``
+        embeds those inside the section body itself. A diagram that resolves to
+        neither a heading nor a valid index goes after the last section rather
+        than being dropped, since a diagram nobody can place is still a diagram
+        the document was supposed to have.
+        """
+        heading_to_number: Dict[str, int] = {}
+        for idx, section in enumerate(sections or []):
+            normalized = _normalize_heading((section or {}).get("heading", ""))
+            # First occurrence wins: duplicated headings ("Overview" under two
+            # parents) would otherwise all collapse onto the last one.
+            if normalized and normalized not in heading_to_number:
+                heading_to_number[normalized] = idx + 1
+
+        section_count = len(sections or [])
+        placements: Dict[int, List[int]] = {}
+
+        for diagram_idx, diagram in enumerate(diagrams or []):
+            location = (diagram or {}).get("location", "") or ""
+            if location.startswith("inline-section-"):
+                continue
+
+            target = heading_to_number.get(
+                _normalize_heading((diagram or {}).get("sectionRef", ""))
+            )
+
+            if target is None:
+                match = _AFTER_SECTION_RE.match(location)
+                if match:
+                    number = int(match.group(1))
+                    if 1 <= number <= section_count:
+                        target = number
+
+            if target is None:
+                target = section_count
+
+            if target >= 1:
+                placements.setdefault(target, []).append(diagram_idx)
+
+        return placements
+
     def embed_diagrams(
         self,
         section_html_blocks: List[str],
         diagrams: List[Dict[str, Any]],
         rendered_diagrams: Dict[str, str],
+        placements: Optional[Dict[int, List[int]]] = None,
     ) -> str:
         """
         Embed diagram images after their referenced sections.
-
-        Diagrams whose ``location`` is ``after-section-{N}`` (1-indexed, matching
-        the position of ``section_html_blocks``) are inserted immediately after
-        that section's HTML block. Diagrams with an ``inline-section-*`` location
-        are embedded by ``_render_section_body`` directly and are skipped here.
 
         Args:
             section_html_blocks: Rendered HTML for each section, in document order
             diagrams: List of diagram dicts (with "location", "type", etc.)
             rendered_diagrams: Dict mapping "diagram-{index}" to rendered PNG paths
+            placements: Section number -> diagram indices, from
+                resolve_diagram_placements. Omitted (as in older callers and in
+                tests that only exercise numeric locations), placement falls back
+                to matching ``location`` against ``after-section-{N}`` alone.
 
         Returns:
             Combined HTML string with diagrams interleaved between sections
@@ -644,6 +739,16 @@ class HTMLGeneratorService:
         for idx, section_html in enumerate(section_html_blocks):
             result.append(section_html)
             section_number = idx + 1
+
+            if placements is not None:
+                for diagram_idx in placements.get(section_number, []):
+                    result.append(
+                        self._render_diagram_block(
+                            diagram_idx, diagrams[diagram_idx], rendered_diagrams
+                        )
+                    )
+                continue
+
             for diagram_idx, diagram in enumerate(diagrams):
                 location = diagram.get("location", "")
                 if location == f"after-section-{section_number}":
@@ -689,7 +794,17 @@ class HTMLGeneratorService:
         """Render every section (grouped/styled by type) with summaries, then
         interleave diagrams at their requested locations."""
         per_section_summaries = (summaries or {}).get("perSection") or {}
+        # Resolved once and used twice: to decide which sections own a diagram
+        # (those must not be folded into the next section as heading-only, or
+        # the diagram lands above the heading it belongs to) and to interleave
+        # the diagrams at the end.
+        placements = self.resolve_diagram_placements(sections, diagrams)
         section_blocks: List[str] = []
+        # Headings whose section has no body of its own (a parent heading
+        # like "## Architecture" that only introduces subsections). They are
+        # held back and rendered inside the next section's box instead of
+        # getting a box of their own - see the heading_only branch below.
+        pending_headings: List[str] = []
 
         for idx, section in enumerate(sections):
             heading = section.get("heading", "")
@@ -716,12 +831,49 @@ class HTMLGeneratorService:
             inner = f'<{tag} id="{anchor}">{self._escape_html(heading)}</{tag}>{summary_html}{body_html}'
 
             wrapper_class = SECTION_TYPE_CSS_CLASS.get(section_type)
-            if wrapper_class:
+
+            # A section with nothing but its heading must not become a
+            # standalone box: every <section> is "page-break-inside: avoid",
+            # so when the following section is too tall for the space left,
+            # that section moves to the next page on its own and leaves the
+            # heading stranded as an all-but-blank page. This is what put
+            # "Architecture" alone on page 19 of a real README - only its
+            # subsections carry content. CSS cannot fix it from here:
+            # page-break-after/break-after "avoid" on the heading (or on its
+            # section) is ignored by WeasyPrint 69, verified against this
+            # exact document, so the heading has to physically live in the
+            # same box as what follows.
+            #
+            # A section targeted by an "after-section-N" diagram is never
+            # heading-only in the output - the diagram is its content, and
+            # embed_diagrams would otherwise place that diagram above the
+            # heading it belongs to.
+            has_own_diagram = bool(placements.get(section_number))
+            heading_only = not body_html.strip() and not summary_html and not has_own_diagram
+            is_last = idx == len(sections) - 1
+
+            if heading_only and not is_last:
+                pending_headings.append(
+                    f'<div class="{wrapper_class}">{inner}</div>' if wrapper_class else inner
+                )
+                # Placeholder keeps this section's index aligned with
+                # embed_diagrams' 1-based "after-section-N" numbering.
+                section_blocks.append("")
+                continue
+
+            if pending_headings:
+                # Both parts keep their own type styling, side by side in one
+                # unbreakable section box.
+                held = "".join(pending_headings)
+                pending_headings = []
+                body = f'<div class="{wrapper_class}">{inner}</div>' if wrapper_class else inner
+                section_blocks.append(f'<section class="section-group">{held}{body}</section>')
+            elif wrapper_class:
                 section_blocks.append(f'<section class="{wrapper_class}">{inner}</section>')
             else:
                 section_blocks.append(f"<section>{inner}</section>")
 
-        return self.embed_diagrams(section_blocks, diagrams, rendered_diagrams)
+        return self.embed_diagrams(section_blocks, diagrams, rendered_diagrams, placements)
 
     def _render_section_body(
         self,
