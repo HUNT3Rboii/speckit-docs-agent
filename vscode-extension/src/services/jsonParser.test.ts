@@ -115,6 +115,30 @@ describe('JSONParser', () => {
       expect(repairAIGeneratedJSON(raw).result).toBe(raw);
     });
 
+    it('leaves an unescaped quote inside a string value untouched, and says so', () => {
+      // The live failure: a README containing a literal JSON snippet, copied
+      // into a content field with its inner quotes left bare. V8 reports this
+      // with the same message as a missing comma, and inserting one produced
+      // a differently-broken document that later repairs then chased. There
+      // is no local fix - `","` inside the snippet is indistinguishable from
+      // a genuine end-of-value - so the only correct move is to leave it be
+      // and let the caller resample.
+      const raw = '{"content": "health check returns {"status":"ok"} on success"}';
+      const { result, fixCount, bailReason } = repairAIGeneratedJSON(raw);
+
+      expect(result).toBe(raw);
+      expect(fixCount).toBe(0);
+      expect(bailReason).toMatch(/unescaped quote inside a string/);
+    });
+
+    it('does not insert a comma where a stray quote left prose mid-object', () => {
+      const raw = '{"a": "say "hi" now", "b": "plain"}';
+      const { result, bailReason } = repairAIGeneratedJSON(raw);
+
+      expect(result).toBe(raw);
+      expect(bailReason).toBeDefined();
+    });
+
     it('inserts a missing comma between array elements', () => {
       const raw = '{"a": [{"x": 1} {"x": 2}]}';
       const { result, fixCount } = repairAIGeneratedJSON(raw);

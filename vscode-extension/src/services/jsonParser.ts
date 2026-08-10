@@ -44,6 +44,14 @@ export interface JSONRepairResult {
   bailReason?: string;
 }
 
+/** Whether `rest` begins with something that could legitimately be the next
+ * JSON value - the test for whether a missing comma is a plausible diagnosis
+ * at all. */
+function startsNewJSONValue(rest: string): boolean {
+  return /^\s*(?:["{[\-\d]|true\b|false\b|null\b)/.test(rest);
+}
+
+
 export function repairAIGeneratedJSON(jsonStr: string): JSONRepairResult {
   let result = jsonStr;
   for (let i = 0; i < MAX_JSON_REPAIR_ITERATIONS; i++) {
@@ -86,10 +94,34 @@ export function repairAIGeneratedJSON(jsonStr: string): JSONRepairResult {
             bailReason: `position ${pos} looks like truncation (nothing but whitespace follows), not inserting a comma`
           };
         }
-        result = result.slice(0, pos) + ',' + rest;
-        continue;
+        // Same V8 message, two very different causes. A genuine missing
+        // comma is followed by something that can actually start the next
+        // value; an unescaped quote inside a string leaves the parser
+        // staring at prose ("...returns {"status" -> `status`), where
+        // inserting a comma just produces different garbage. Only the
+        // former gets a comma; the latter falls through to the quote fix.
+        if (startsNewJSONValue(rest)) {
+          result = result.slice(0, pos) + ',' + rest;
+          continue;
+        }
+
+        return {
+          result,
+          fixCount: i,
+          bailReason:
+            `position ${pos} follows a property value but starts no new value - this is an ` +
+            `unescaped quote inside a string, not a missing comma, and inserting one would ` +
+            `only corrupt it further`
+        };
       }
 
+      // An unescaped double quote inside a string value: the string ends
+      // early, and everything after it is read as structure. Observed on a
+      // README containing a literal JSON snippet
+      // ({"status":"ok","service":"speckit-backend"}) that the model copied
+      // into a "content" field without escaping the inner quotes. V8 reports
+      // whichever of these it hits first, depending on what follows the
+      // premature end.
       return { result, fixCount: i, bailReason: `unrecognized error type - ${message}` };
     }
   }
@@ -272,8 +304,8 @@ export class JSONParser implements IJSONParser {
   private repairAndParse(jsonStr: string): StructuredJSON {
     let repaired = jsonStr;
 
-    // Fix invalid backslash escapes and missing commas first - these are
-    // by far the most common failure modes in practice.
+    // Fix invalid backslash escapes, missing commas and unescaped quotes
+    // first - these are by far the most common failure modes in practice.
     repaired = repairAIGeneratedJSON(repaired).result;
 
     // Fix trailing commas in objects
@@ -281,10 +313,6 @@ export class JSONParser implements IJSONParser {
 
     // Fix trailing commas in arrays
     repaired = repaired.replace(/,(\s*])/g, '$1');
-
-    // Fix unescaped quotes in strings (basic attempt)
-    // This is tricky and may not catch all cases
-    repaired = this.fixUnescapedQuotes(repaired);
 
     // Try to add missing closing braces
     const openBraces = (repaired.match(/{/g) || []).length;
@@ -309,19 +337,6 @@ export class JSONParser implements IJSONParser {
       console.error('[JSONParser] Repair failed:', error);
       throw new Error(`JSON parsing failed even after repair: ${error}`);
     }
-  }
-
-  /**
-   * Attempt to fix unescaped quotes in string values
-   * This is a simplified approach and may not handle all cases
-   */
-  private fixUnescapedQuotes(jsonStr: string): string {
-    // This is a complex problem - we'll do a basic implementation
-    // that handles the most common case: quotes in content strings
-    
-    // For now, just return as-is since this is very difficult to do reliably
-    // without a full parser. The AI should generally provide valid JSON.
-    return jsonStr;
   }
 
   /**

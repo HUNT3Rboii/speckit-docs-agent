@@ -127,6 +127,69 @@ describe('CustomModelProvider.transform', () => {
     jest.restoreAllMocks();
   });
 
+  const VALID_RESPONSE =
+    '{"title": "T", "abstract": "A", "sections": [], "diagrams": [], "glossary": [], "summaries": {"executiveSummary": "S"}}';
+
+  function rejection(body: string, status = 400) {
+    return {
+      ok: false,
+      status,
+      text: async () => body,
+      clone: () => ({ text: async () => body })
+    };
+  }
+
+  it('asks for JSON mode so the model cannot emit unparseable output', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(okResponse(VALID_RESPONSE));
+    global.fetch = fetchMock as any;
+
+    await new CustomModelProvider(baseSettings()).transform('# Doc', 'docs/spec.md');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('retries without JSON mode when the endpoint rejects response_format', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(rejection('{"error":{"message":"unknown field: response_format"}}'))
+      .mockResolvedValueOnce(okResponse(VALID_RESPONSE));
+    global.fetch = fetchMock as any;
+
+    const result = await new CustomModelProvider(baseSettings()).transform('# Doc', 'docs/spec.md');
+
+    expect(result.title).toBe('T');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).response_format).toBeDefined();
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).response_format).toBeUndefined();
+  });
+
+  it('stops asking for JSON mode for the rest of the session once refused', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(rejection('unsupported parameter: response_format'))
+      .mockResolvedValue(okResponse(VALID_RESPONSE));
+    global.fetch = fetchMock as any;
+
+    const provider = new CustomModelProvider(baseSettings());
+    await provider.transform('# Doc', 'docs/spec.md');
+    await provider.transform('# Doc again', 'docs/spec.md');
+
+    // 2 for the first call (rejected, then retried), 1 for the second.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).response_format).toBeUndefined();
+  });
+
+  it('does not retry a 400 that has nothing to do with response_format', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(rejection('{"error":{"message":"model not found"}}'));
+    global.fetch = fetchMock as any;
+
+    await expect(
+      new CustomModelProvider(baseSettings()).transform('# Doc', 'docs/spec.md')
+    ).rejects.toThrow(/model not found/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('POSTs to {baseUrl}/chat/completions with the model name and prompt', async () => {
     const fetchMock = jest.fn().mockResolvedValue(
       okResponse('{"title": "T", "abstract": "A", "sections": [], "diagrams": [], "glossary": [], "summaries": {"executiveSummary": "S"}}')

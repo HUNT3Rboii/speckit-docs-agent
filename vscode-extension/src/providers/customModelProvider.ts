@@ -14,9 +14,34 @@
 import { CancellationSignal, CustomModelEntry, StructuredError, StructuredJSON } from '../types';
 import { BaseAIProvider, CancellationRequestedError } from '../services/aiProvider';
 
+/** Server responses to an unsupported response_format, across the various
+ * OpenAI-compatible implementations - all report it as a client error naming
+ * the parameter rather than silently ignoring it. */
+const JSON_MODE_REJECTION_PATTERN =
+  /response_format|json_object|unknown (?:field|parameter|argument)|unsupported (?:parameter|value)|unrecognized request argument/i;
+
 export class CustomModelProvider extends BaseAIProvider {
+  /** Cleared for the session the first time an endpoint refuses JSON mode,
+   * so every later request skips straight to the plain body instead of
+   * paying for a rejected round trip each time. */
+  private supportsJsonMode = true;
+
   constructor(private settings: CustomModelEntry) {
     super();
+  }
+
+  /**
+   * Whether a failed response is the endpoint objecting to response_format
+   * specifically, rather than a genuine error (bad key, missing model, rate
+   * limit) that retrying without JSON mode would only repeat. Reads the body,
+   * so the caller must not have consumed it yet.
+   */
+  private async rejectedJsonMode(response: Response): Promise<boolean> {
+    if (response.status !== 400 && response.status !== 422) {
+      return false;
+    }
+    const bodyText = await response.clone().text().catch(() => '');
+    return JSON_MODE_REJECTION_PATTERN.test(bodyText);
   }
 
   public async isAvailable(): Promise<boolean> {
@@ -94,23 +119,45 @@ export class CustomModelProvider extends BaseAIProvider {
 
       this.log(`Sending request to ${url} (model: ${this.settings.modelName})...`);
 
-      const fetchPromise = fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
+      const send = (jsonMode: boolean) => {
+        const body: Record<string, unknown> = {
           model: this.settings.modelName,
           messages: [{ role: 'user', content: prompt }],
           stream: false
-        }),
-        signal: controller.signal
-      });
+        };
+        if (jsonMode) {
+          // Constrained decoding: the sampler cannot emit a token that would
+          // break JSON, so the failure this exists to prevent - an unescaped
+          // quote inside a string value, from source text that itself
+          // contains JSON - becomes impossible rather than merely unlikely.
+          // Without it the response is only as well-formed as the model's
+          // own care, and one stray quote costs the whole provider.
+          body.response_format = { type: 'json_object' };
+        }
+        return fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+      };
 
       const timeoutPromise = this.createTimeoutPromise<Response>(
         this.timeout,
         `${this.getProviderName()} request timed out`
       );
 
-      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      let response = await Promise.race([send(this.supportsJsonMode), timeoutPromise]);
+
+      // Not every OpenAI-compatible server accepts response_format; the ones
+      // that don't reject the whole request rather than ignoring the field.
+      // Retry once without it and stop asking for the rest of the session,
+      // so an older endpoint degrades to prompt-only JSON instead of failing.
+      if (!response.ok && this.supportsJsonMode && (await this.rejectedJsonMode(response))) {
+        this.supportsJsonMode = false;
+        this.log('Endpoint rejected response_format; retrying without JSON mode');
+        response = await Promise.race([send(false), timeoutPromise]);
+      }
 
       if (!response.ok) {
         const bodyText = await response.text().catch(() => '');

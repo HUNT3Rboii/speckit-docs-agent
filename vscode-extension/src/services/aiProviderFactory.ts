@@ -11,6 +11,15 @@ import { KiroProvider } from '../providers/kiroProvider';
 import { GenericProvider } from '../providers/genericProvider';
 import { CustomModelProvider } from '../providers/customModelProvider';
 import { RuleBasedProvider } from '../providers/ruleBasedProvider';
+
+/**
+ * Failures that mean "this particular sample came out malformed" rather than
+ * "this provider is unusable" - the shapes JSONParser and the providers throw
+ * when a response won't parse or doesn't match the schema. Worth one more
+ * roll of the dice on the same provider before demoting it.
+ */
+const MALFORMED_RESPONSE_PATTERN =
+  /JSON|Unexpected token|Expected ['",:]|Unterminated|schema|missing required|did not include the expected/i;
 import { CancellationRequestedError } from './aiProvider';
 
 const DEFAULT_PROVIDER_PRIORITY: PriorityEntry[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
@@ -283,6 +292,10 @@ export class AIProviderFactory {
     await this.detectProviders();
 
     const isRuleBased = (provider: AIProvider) => provider.getProviderName() === 'Rule-Based (Fallback)';
+    // Response-shape failures only. A timeout, a 401 or a missing model would
+    // reproduce identically on a second attempt and just double the wait.
+    const isMalformedResponseError = (error: any): boolean =>
+      MALFORMED_RESPONSE_PATTERN.test(error?.message ?? '');
     // Collected so the final error is diagnostic ("Copilot timed out") rather
     // than the generic "no AI provider is available" - which reads as
     // flatly wrong to a user whose provider WAS detected at activation and
@@ -301,16 +314,47 @@ export class AIProviderFactory {
           result,
           provider: this.detectedProvider.getProviderName()
         };
-      } catch (error: any) {
-        // A cancellation means the user asked to stop - falling back to
-        // try yet another provider would defeat the entire point of
-        // stopping now, so propagate it immediately instead of treating
-        // it as "this provider failed, try the next one".
-        if (error instanceof CancellationRequestedError) {
-          throw error;
+      } catch (firstError: any) {
+        if (firstError instanceof CancellationRequestedError) {
+          throw firstError;
         }
-        console.error(`[AIProviderFactory] Primary provider failed, trying fallbacks:`, error);
-        attemptErrors.push(`${this.detectedProvider.getProviderName()}: ${error.message}`);
+
+        // A malformed response is a bad roll of the dice, not evidence the
+        // provider is broken: sampling again usually produces parseable JSON.
+        // Demoting to the next provider on the first stray quote means losing
+        // the model the user actually chose - and the log only says "higher-
+        // priority provider(s) failed first", which reads like a defect.
+        // Only response-shape failures are worth a second attempt; a timeout
+        // or an auth error would just cost the same wait again.
+        if (isMalformedResponseError(firstError)) {
+          console.warn(
+            `[AIProviderFactory] ${this.detectedProvider.getProviderName()} returned unparseable output, retrying once`
+          );
+          try {
+            const result = await this.detectedProvider.transform(
+              markdown,
+              sourcePath,
+              structuredError,
+              cancellation
+            );
+            return {
+              result,
+              provider: this.detectedProvider.getProviderName()
+            };
+          } catch (retryError: any) {
+            if (retryError instanceof CancellationRequestedError) {
+              throw retryError;
+            }
+            console.error(`[AIProviderFactory] Retry also failed:`, retryError);
+          }
+        }
+
+        // Out of second chances for this provider: record why and let the
+        // fallback loop below try the rest. A cancellation never reaches
+        // here - it was rethrown above, because falling through to another
+        // provider would defeat the entire point of stopping.
+        console.error(`[AIProviderFactory] Primary provider failed, trying fallbacks:`, firstError);
+        attemptErrors.push(`${this.detectedProvider.getProviderName()}: ${firstError.message}`);
       }
     }
 
