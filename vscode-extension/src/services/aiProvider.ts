@@ -262,12 +262,20 @@ Return ONLY the corrected JSON object, no explanations.`;
   }
 
   /**
-   * Builds a diagnostic message for a JSON.parse failure that includes a
-   * snippet of the actual content around the failure position (when the
-   * error reports one), not just the generic error text - "Bad escaped
-   * character at position 4999" alone gives no way to tell what's actually
-   * there without re-triggering with speckit.enableDebugLogging on and
-   * capturing a full raw response dump.
+   * Builds a diagnostic message for a JSON.parse failure showing the actual
+   * line that failed, with a caret under the offending column.
+   *
+   * A 60-character keyhole around the position (what this used to print)
+   * is not enough to tell the two causes apart, and they call for opposite
+   * responses: a model that simply omitted a colon is a formatting slip
+   * worth resampling, while an unescaped quote earlier in the payload means
+   * everything after it is being misread and the error position points
+   * nowhere near the real damage. Seeing the whole line distinguishes them
+   * at a glance.
+   *
+   * Bounded on both axes - one line, windowed to WINDOW characters either
+   * side of the column - so a 17KB response can't dump itself into the
+   * notification text.
    */
   private describeJSONParseError(jsonStr: string, error: any): string {
     const message = error?.message ?? String(error);
@@ -275,11 +283,27 @@ Return ONLY the corrected JSON object, no explanations.`;
     if (!match) {
       return message;
     }
-    const pos = parseInt(match[1], 10);
-    const start = Math.max(0, pos - 30);
-    const end = Math.min(jsonStr.length, pos + 30);
-    const snippet = jsonStr.slice(start, end).replace(/\n/g, '\\n');
-    return `${message} | near: ...${snippet}...`;
+
+    const WINDOW = 100;
+    const pos = Math.min(parseInt(match[1], 10), Math.max(0, jsonStr.length - 1));
+    const lineStart = jsonStr.lastIndexOf('\n', pos - 1) + 1;
+    const lineEndIndex = jsonStr.indexOf('\n', pos);
+    const lineEnd = lineEndIndex === -1 ? jsonStr.length : lineEndIndex;
+    const column = pos - lineStart;
+
+    const from = Math.max(lineStart, pos - WINDOW);
+    const to = Math.min(lineEnd, pos + WINDOW);
+    const excerpt = jsonStr.slice(from, to);
+    const prefix = from > lineStart ? '...' : '';
+    const suffix = to < lineEnd ? '...' : '';
+    // Tabs would misalign the caret against the text above it.
+    const rendered = `${prefix}${excerpt}${suffix}`.replace(/\t/g, ' ');
+    const caretColumn = prefix.length + (pos - from);
+
+    return (
+      `${message}\n  ${rendered}\n  ${' '.repeat(Math.max(0, caretColumn))}^ ` +
+      `(column ${column + 1})`
+    );
   }
 
   /**

@@ -273,6 +273,64 @@ describe('BaseAIProvider.parseJSON', () => {
     expect(() => provider.parseJSONFor('not json at all')).toThrow();
   });
 
+  it('shows the failing line with a caret under the offending column', () => {
+    // The live diagnostic problem: a 60-character keyhole around the error
+    // could not distinguish a model that omitted a colon from a stray quote
+    // shifting the whole parse. The line plus caret shows which it is.
+    const raw = '{\n  "title": "T",\n  "type" "normal"\n}';
+
+    let message = '';
+    try {
+      provider.parseJSONFor(raw);
+    } catch (error: any) {
+      message = error.message;
+    }
+
+    expect(message).toContain('"type" "normal"');
+    const lines = message.split('\n');
+    const excerpt = lines.findIndex(line => line.includes('"type" "normal"'));
+    expect(excerpt).toBeGreaterThan(-1);
+    // The caret sits directly under the quote that should have been a colon.
+    const caretLine = lines[excerpt + 1];
+    expect(caretLine.trim().startsWith('^')).toBe(true);
+    expect(caretLine.indexOf('^')).toBe(lines[excerpt].indexOf('"normal"'));
+  });
+
+  it('windows a very long line instead of dumping the whole payload', () => {
+    // A missing colon (not a missing comma - repair fixes those) after a
+    // long value, so the failing line is far wider than the window.
+    const raw = `{"a": "${'x'.repeat(5000)}", "b" 1}`;
+
+    let message = '';
+    try {
+      provider.parseJSONFor(raw);
+    } catch (error: any) {
+      message = error.message;
+    }
+
+    expect(message).toContain('...');
+    expect(message.length).toBeLessThan(1200);
+    expect(message).not.toContain('x'.repeat(300));
+  });
+
+  it('keeps the caret aligned when the excerpt is windowed at the front', () => {
+    const raw = `{"a": "${'y'.repeat(400)}", "b" 1}`;
+
+    let message = '';
+    try {
+      provider.parseJSONFor(raw);
+    } catch (error: any) {
+      message = error.message;
+    }
+
+    const lines = message.split('\n');
+    const excerptIndex = lines.findIndex(line => line.includes('yyy'));
+    expect(excerptIndex).toBeGreaterThan(-1);
+    const caretIndex = lines[excerptIndex + 1].indexOf('^');
+    // Points at the value that should have been preceded by a colon.
+    expect(lines[excerptIndex][caretIndex]).toBe('1');
+  });
+
   it('includes the repair bail reason when a partial repair still leaves invalid JSON', () => {
     // A truncated document (missing its closing brace) triggers the same
     // "Expected ',' or '}'" message repair uses for missing commas, but
