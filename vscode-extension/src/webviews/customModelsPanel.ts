@@ -358,15 +358,46 @@ export class CustomModelsPanel {
     border-color: var(--vscode-inputValidation-warningBorder, var(--vscode-panel-border));
   }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 16px; }
-  /* Fixed height + overflow so a provider listing dozens of models is
-     scrollable in place instead of stretching the card off-screen. */
+  /* The caret sits inside the input's right edge, so the input needs room
+     reserved for it and a positioning context to hang it off. */
+  .model-input-wrap { position: relative; }
+  .model-input-wrap input[type="text"] { padding-right: 26px; }
+  .model-caret {
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--vscode-input-foreground);
+    cursor: pointer;
+    font-size: 0.7em;
+    line-height: 1;
+  }
+  /* Qualified by the wrapper to outweigh the generic button:hover /
+     button:disabled rules further down, which would otherwise repaint the
+     caret as a filled button on hover. */
+  .model-input-wrap .model-caret:hover { color: var(--vscode-textLink-foreground); background: transparent; }
+  .model-input-wrap .model-caret:disabled { opacity: 0.4; cursor: default; background: transparent; }
+  /* Overlaid rather than in flow: an expanded list used to push the API
+     key field and the row's buttons down the card every time it opened. */
   .model-list {
+    position: absolute;
+    z-index: 5;
+    left: 0;
+    right: 0;
     max-height: 168px;
     overflow-y: auto;
-    margin-top: 4px;
+    margin-top: 2px;
     border: 1px solid var(--vscode-panel-border);
     border-radius: 3px;
     background: var(--vscode-input-background);
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
   }
   .model-option {
     padding: 3px 8px;
@@ -498,6 +529,19 @@ export class CustomModelsPanel {
   let builtinLabels = {};
   /** rowId -> transient discover/test feedback */
   let feedback = {};
+  /**
+   * rowId -> whether its model list is expanded. Kept out here rather than
+   * on the DOM because render() rebuilds every card from scratch, and
+   * closed is the default: picking a model, or clicking anywhere else,
+   * puts the list away until the caret is clicked again.
+   */
+  let modelListOpen = {};
+  /**
+   * One "close me if the click landed outside" callback per rendered model
+   * list. A single document-level listener drives them all, rather than
+   * each row registering (and having to unregister) its own.
+   */
+  let modelListClosers = [];
   /** rowId -> { field: message } from the last rejected save */
   let fieldErrors = {};
   /** index of the try-order row currently being dragged, or null */
@@ -633,21 +677,33 @@ export class CustomModelsPanel {
     ));
 
     // Model name: a free-text input (an endpoint with no /models listing
-    // still has to be typable) above a scrollable list of whatever
-    // Discover returned. A <datalist> was tried first and is the wrong
-    // control here: its popup shows only a handful of rows with no
-    // scrollbar, so an endpoint offering dozens of models presented a
-    // truncated list with no way to reach the rest.
+    // still has to be typable) with a caret that drops down a scrollable
+    // list of whatever Discover returned. A <datalist> was tried first and
+    // is the wrong control here: its popup shows only a handful of rows
+    // with no scrollbar, so an endpoint offering dozens of models
+    // presented a truncated list with no way to reach the rest.
+    //
+    // The list is collapsed until the caret is clicked, and collapses
+    // again the moment one is picked - left permanently expanded it
+    // covered the fields below it with a list the user was already done
+    // with.
     const modelWrap = document.createElement('div');
     modelWrap.className = 'field' + (errs.modelName ? ' invalid' : '');
     const modelLabel = document.createElement('label');
     modelLabel.textContent = 'Model name';
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'model-input-wrap';
     const modelInput = document.createElement('input');
     modelInput.type = 'text';
     modelInput.value = entry.modelName || '';
     modelInput.placeholder = 'llama3.1:70b';
+    const caretBtn = document.createElement('button');
+    caretBtn.className = 'model-caret';
+    caretBtn.type = 'button';
+    inputWrap.appendChild(modelInput);
+    inputWrap.appendChild(caretBtn);
     modelWrap.appendChild(modelLabel);
-    modelWrap.appendChild(modelInput);
+    modelWrap.appendChild(inputWrap);
 
     const known = (fb.models || entry.models || []);
     const listBox = document.createElement('div');
@@ -655,19 +711,44 @@ export class CustomModelsPanel {
     const modelHint = document.createElement('div');
     modelHint.className = 'hint';
 
+    function isOpen() { return known.length > 0 && !!modelListOpen[entry.id]; }
+
+    function setOpen(open) {
+      modelListOpen[entry.id] = open && known.length > 0;
+      paintModelList();
+    }
+
     function paintModelList() {
       listBox.textContent = '';
+      caretBtn.disabled = known.length === 0;
+      caretBtn.textContent = isOpen() ? '▲' : '▼';
+      caretBtn.title = known.length === 0
+        ? 'Run Discover models first to list what this endpoint supports'
+        : (isOpen() ? 'Hide discovered models' : 'Show discovered models');
+      caretBtn.setAttribute('aria-expanded', isOpen() ? 'true' : 'false');
+      caretBtn.setAttribute('aria-label', 'Show discovered models');
+
       if (known.length === 0) {
         listBox.hidden = true;
         modelHint.textContent = 'Exactly as the endpoint expects it. Use Discover to list what it supports.';
         return;
       }
-      listBox.hidden = false;
 
       const filter = (entry.modelName || '').trim().toLowerCase();
       const shown = filter
         ? known.filter(function (m) { return m.toLowerCase().indexOf(filter) !== -1; })
         : known;
+
+      // The hint stays visible while the list is collapsed - it's the only
+      // thing telling you Discover found anything at all.
+      modelHint.textContent = shown.length === known.length
+        ? known.length + ' model(s) discovered - use the arrow to pick one.'
+        : shown.length + ' of ' + known.length + ' match what you typed.';
+
+      listBox.hidden = !isOpen();
+      if (!isOpen()) {
+        return;
+      }
 
       shown.forEach(function (model) {
         const option = document.createElement('div');
@@ -679,7 +760,9 @@ export class CustomModelsPanel {
           modelInput.value = model;
           markDirty();
           updatePriorityLabel(refFor(entry.id));
-          paintModelList();
+          // Picking one is the end of the interaction - collapse rather
+          // than leaving the list sitting open over the fields below it.
+          setOpen(false);
         });
         listBox.appendChild(option);
       });
@@ -690,14 +773,19 @@ export class CustomModelsPanel {
         none.textContent = 'No discovered model matches that text - it is still sent exactly as typed.';
         listBox.appendChild(none);
       }
-
-      modelHint.textContent = shown.length === known.length
-        ? known.length + ' model(s) discovered - click one to use it.'
-        : shown.length + ' of ' + known.length + ' shown - clear the field to see all.';
     }
 
+    caretBtn.addEventListener('click', function (event) {
+      // Without this the panel-wide outside-click handler below sees the
+      // same click and closes what this just opened.
+      event.stopPropagation();
+      setOpen(!isOpen());
+    });
+
     // Typing filters the list instead of re-rendering the card, so the
-    // input keeps focus and caret while narrowing dozens of ids down.
+    // input keeps focus and caret while narrowing dozens of ids down. It
+    // deliberately doesn't open a collapsed list: the arrow is the only
+    // thing that opens one.
     modelInput.addEventListener('input', function () {
       entry.modelName = modelInput.value;
       markDirty();
@@ -705,8 +793,18 @@ export class CustomModelsPanel {
       paintModelList();
     });
 
+    // A click anywhere else - another card, the try order, the text input
+    // itself - closes the list, the way every other dropdown in the editor
+    // behaves. Clicks on the list's own options are excluded: those are
+    // handled above, and closing here first would cancel the pick.
+    modelListClosers.push(function (target) {
+      if (isOpen() && !listBox.contains(target)) {
+        setOpen(false);
+      }
+    });
+
     paintModelList();
-    modelWrap.appendChild(listBox);
+    inputWrap.appendChild(listBox);
     modelWrap.appendChild(modelHint);
     if (errs.modelName) {
       const e = document.createElement('div');
@@ -990,6 +1088,9 @@ export class CustomModelsPanel {
   }
 
   function render() {
+    // The cards about to be discarded own these, so they'd otherwise
+    // accumulate one stale entry per render.
+    modelListClosers = [];
     entriesEl.textContent = '';
     entries.forEach(function (entry, index) {
       entriesEl.appendChild(renderEntry(entry, index));
@@ -1093,6 +1194,10 @@ export class CustomModelsPanel {
       setStatus('Saved to settings.');
       render();
     }
+  });
+
+  document.addEventListener('click', function (event) {
+    modelListClosers.forEach(function (close) { close(event.target); });
   });
 
   vscode.postMessage({ type: 'ready' });
