@@ -24,6 +24,21 @@ export interface CoverageGap {
   category: DiagramCategory;
 }
 
+/**
+ * Emoji and the joining characters that build composed emoji sequences.
+ * Extended_Pictographic covers the pictographs themselves (🏗, ⚡, ™);
+ * Emoji_Modifier plus the explicit range cover skin tones and regional
+ * indicators (flags), and U+FE0E/U+FE0F/U+200D are the text and emoji
+ * variation selectors and the zero-width joiner that glue sequences together.
+ */
+/* Written as an alternation rather than one character class: a class holding
+ * both pictographs and the modifiers that combine with them trips
+ * no-misleading-character-class, which exists to catch exactly the case where
+ * a class looks like it matches whole emoji but matches their pieces. Matching
+ * the pieces individually is the intent here, since all of them are removed. */
+const DECORATION_PATTERN =
+  /\p{Extended_Pictographic}|\p{Emoji_Modifier}|[\u{1F1E6}-\u{1F1FF}]|\uFE0E|\uFE0F|\u200D/gu;
+
 const CATEGORY_PATTERNS: Array<{ category: DiagramCategory; pattern: RegExp }> = [
   { category: 'architecture', pattern: /\b(architecture|system design|components?)\b/i },
   { category: 'sequence', pattern: /\b(flow|sequence|interaction)\b/i },
@@ -62,7 +77,24 @@ export class DiagramCoverageChecker {
     return null;
   }
 
+  /**
+   * Headings and sectionRefs have to compare equal for coverage to be
+   * detected at all, and documents routinely decorate headings with emoji
+   * ("## 🏗️ Architecture") that the AI then omits from the sectionRef it
+   * reports ("Architecture"). Comparing raw text makes every such section look
+   * uncovered, so a diagram gets requested for a section that already has one.
+   *
+   * Emoji are dropped, along with the variation selectors, ZWJs and skin-tone
+   * modifiers that make up composed sequences; whitespace left behind by the
+   * removal is collapsed. Digits and "#"/"*" are deliberately NOT treated as
+   * emoji here - they carry Emoji_Component in Unicode, and stripping them
+   * would mangle ordinary headings like "Step 2: Data Flow".
+   */
   private normalize(text: string): string {
-    return text.trim().toLowerCase();
+    return (text ?? '')
+      .replace(DECORATION_PATTERN, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
   }
 }

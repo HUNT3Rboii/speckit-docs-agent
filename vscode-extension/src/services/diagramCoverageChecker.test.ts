@@ -64,6 +64,57 @@ describe('DiagramCoverageChecker', () => {
     expect(gaps).toEqual([]);
   });
 
+  it('matches an emoji-decorated heading against a plain sectionRef', () => {
+    // Real case from this project's own README: the heading is "🏗️ Architecture"
+    // but the AI reports sectionRef "Architecture", so raw comparison reported
+    // the section as uncovered and asked for a second diagram.
+    const gaps = checker.findGaps(
+      [section('\u{1F3D7}️ Architecture')],
+      [diagram('Architecture')]
+    );
+
+    expect(gaps).toEqual([]);
+  });
+
+  it('matches when the emoji is on the sectionRef instead of the heading', () => {
+    const gaps = checker.findGaps(
+      [section('Data Flow')],
+      [diagram('\u{1F504} Data Flow')]
+    );
+
+    expect(gaps).toEqual([]);
+  });
+
+  it('strips composed emoji sequences (ZWJ and skin tone) from both sides', () => {
+    const gaps = checker.findGaps(
+      [section('\u{1F469}\u{1F3FD}‍\u{1F4BB} System Design')],
+      [diagram('system design')]
+    );
+
+    expect(gaps).toEqual([]);
+  });
+
+  it('still flags an emoji-decorated heading that genuinely has no diagram', () => {
+    const gaps = checker.findGaps([section('\u{1F504} Data Flow')], []);
+
+    expect(gaps).toEqual([
+      { heading: '\u{1F504} Data Flow', category: 'sequence' }
+    ]);
+  });
+
+  it('keeps digits and punctuation that emoji stripping must not touch', () => {
+    // "2" and "#" carry Emoji_Component in Unicode; removing them would make
+    // "Step 2: Architecture" and "Step 3: Architecture" compare equal.
+    const gaps = checker.findGaps(
+      [section('Step 2: Architecture')],
+      [diagram('Step 3: Architecture')]
+    );
+
+    expect(gaps).toEqual([
+      { heading: 'Step 2: Architecture', category: 'architecture' }
+    ]);
+  });
+
   it('does not flag a section with no diagrammable heading keyword', () => {
     const gaps = checker.findGaps([section('Overview')], []);
 
