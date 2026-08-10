@@ -70,6 +70,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize backend client
     backendClient = new BackendClient(config.backendUrl, config.apiKey);
+    // "Open PDF" downloads through the same backend rather than trusting the
+    // filesystem path it reports (meaningless here when it runs in Docker).
+    notificationService.setBackendConfig(config.backendUrl, config.apiKey);
 
     // Check backend health
     notificationService.info('Checking backend connection...');
@@ -204,6 +207,7 @@ export async function activate(context: vscode.ExtensionContext) {
       // Update backend client
       backendClient.setBackendUrl(newConfig.backendUrl);
       backendClient.setApiKey(newConfig.apiKey);
+      notificationService.setBackendConfig(newConfig.backendUrl, newConfig.apiKey);
 
       // Update pipeline settings
       transformPipeline.setMaxConcurrent(newConfig.maxConcurrentProcessing);

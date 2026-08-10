@@ -157,6 +157,10 @@ export interface IngestResponse {
   pdf_location: string;
   /** Version number of the artifact */
   version: number;
+  /** Backend id of the generated doc version ("version-148-2"), used to
+   * download the PDF over HTTP instead of trusting pdf_location to be a path
+   * that exists on this machine. Absent on the legacy ingest endpoints. */
+  version_id?: string;
   /** Whether ingestion was skipped as duplicate */
   skipped?: boolean;
   /** Optional document enhancements applied */
@@ -243,7 +247,7 @@ export interface ProcessResponse {
   partial?: boolean;
   artifact_id?: string;
   pdf_location?: string;
-  version?: { version_no: number; [key: string]: unknown };
+  version?: { id?: string; version_no: number; [key: string]: unknown };
   dropped_items?: Record<string, string[]>;
   validation_warnings?: string[];
   structured_error?: StructuredError;

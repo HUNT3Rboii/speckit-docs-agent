@@ -265,6 +265,7 @@ export class TransformPipeline implements ITransformPipeline {
           artifact_id: Number(response.artifact_id) || 0,
           pdf_location: response.pdf_location || '',
           version: response.version?.version_no ?? 0,
+          version_id: response.version?.id,
           skipped: response.skipped
         });
       }
