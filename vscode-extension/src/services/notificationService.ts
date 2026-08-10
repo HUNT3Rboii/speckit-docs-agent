@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { NotificationService as INotificationService, IngestResponse, ProcessResponse } from '../types';
 import { fetchPdf, pdfTempFileName } from './pdfDownloadService';
+import { countDroppedItems, describeDroppedItems } from './partialResult';
 
 /**
  * Manages user notifications and extension logging
@@ -96,11 +97,13 @@ export class NotificationService implements INotificationService {
    */
   public partial(response: ProcessResponse): void {
     const dropped = response.dropped_items ?? {};
-    const droppedCount = Object.values(dropped).reduce(
-      (total, items) => total + (Array.isArray(items) ? items.length : 0),
-      0
-    );
-    const message = `PDF generated with ${droppedCount} item(s) excluded (evidence not grounded): ${response.pdf_location}`;
+    const droppedCount = countDroppedItems(dropped);
+    // Names what actually went missing - "2 item(s) excluded" alone left
+    // the user to open the logs to find out which two.
+    const detail = describeDroppedItems(dropped);
+    const message =
+      `PDF generated with ${droppedCount} item(s) excluded (evidence not grounded)` +
+      `${detail ? ` - ${detail}` : ''}: ${response.pdf_location}`;
 
     this.info(message, dropped);
     this.statusBarItem.text = '$(warning) Speckit: Partial Success';

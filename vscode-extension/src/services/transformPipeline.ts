@@ -23,6 +23,7 @@ import { ProjectFrameworkDetector } from './projectFrameworkDetector';
 import { DiagramCoverageChecker } from './diagramCoverageChecker';
 import { CancellationRequestedError } from './aiProvider';
 import { mergeSectionContent } from './markdownSectionParser';
+import { isPartialSuccess } from './partialResult';
 
 /**
  * Safety cap on client-side correction attempts. The backend's own
@@ -257,7 +258,16 @@ export class TransformPipeline implements ITransformPipeline {
       // Step: Update cache with successful content
       this.updateCache(fileUri, content);
 
-      if (response.partial) {
+      // partial=true with nothing actually dropped is a complete PDF, and
+      // must not be reported as a degraded one - see partialResult.ts.
+      const reportAsPartial = isPartialSuccess(response.partial, response.dropped_items);
+      if (response.partial && !reportAsPartial) {
+        this.notificationService.debug(
+          `Backend flagged ${fileName} as partial but excluded nothing - reporting as a normal success`
+        );
+      }
+
+      if (reportAsPartial) {
         this.notificationService.partial?.(response);
       } else {
         this.notificationService.success({
@@ -274,7 +284,7 @@ export class TransformPipeline implements ITransformPipeline {
         success: true,
         pdfLocation: response.pdf_location,
         provider,
-        partial: response.partial,
+        partial: reportAsPartial,
         droppedItems: response.dropped_items
       };
     } catch (error: any) {
