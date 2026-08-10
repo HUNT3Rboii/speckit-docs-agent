@@ -14,6 +14,9 @@ import type {
   VersionsResponse,
   ProcessingException,
   ExceptionsResponse,
+  ProjectFile,
+  ProjectFilesResponse,
+  AutomationMode,
   KanbanTask,
   KanbanTasksResponse,
   KanbanBoardStatus,
@@ -232,6 +235,53 @@ export class APIClient {
    */
   async removeException(projectId: string, exceptionId: number): Promise<void> {
     await this.axiosInstance.delete(`/api/projects/${projectId}/exceptions/${exceptionId}`);
+  }
+
+  /**
+   * Fetches every markdown file in the project's working tree, whether or
+   * not it has ever been turned into a PDF. Sourced from what the VS Code
+   * extension last reported - an empty list usually means the extension
+   * isn't running rather than that the project has no markdown.
+   * @param projectId - ID of the project
+   * @throws APIError on failure
+   */
+  async getProjectFiles(projectId: string): Promise<ProjectFile[]> {
+    const response = await this.axiosInstance.get<ProjectFilesResponse>(
+      `/api/projects/${projectId}/files`
+    );
+    return response.data.files;
+  }
+
+  /**
+   * Queues one markdown file for a run through the pipeline. The backend
+   * can only record the request - the VS Code extension is what has the
+   * file and the AI provider - so a successful response means "queued",
+   * not "converted".
+   * @param projectId - ID of the project
+   * @param sourcePath - workspace-relative path of the file to transform
+   * @throws APIError on failure
+   */
+  async requestFileTransform(projectId: string, sourcePath: string): Promise<ProjectFile> {
+    const response = await this.axiosInstance.post<{ file: ProjectFile }>(
+      `/api/projects/${projectId}/files/transform`,
+      { source_path: sourcePath }
+    );
+    return response.data.file;
+  }
+
+  /**
+   * Switches a project between processing every save automatically and
+   * only processing what's explicitly asked for.
+   * @param projectId - ID of the project
+   * @param mode - "automatic" or "manual"
+   * @throws APIError on failure
+   */
+  async setAutomationMode(projectId: string, mode: AutomationMode): Promise<Project> {
+    const response = await this.axiosInstance.patch<Project>(
+      `/api/projects/${projectId}/automation-mode`,
+      { mode }
+    );
+    return response.data;
   }
 
   /**

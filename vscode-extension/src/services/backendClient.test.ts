@@ -215,8 +215,9 @@ describe('BackendClient.checkCancelRequested', () => {
   });
 });
 
-describe('BackendClient.getRetryRequests', () => {
+describe('BackendClient.getPendingWork', () => {
   const originalFetch = global.fetch;
+  const EMPTY = { retryRequests: [], transformRequests: [], automationMode: 'automatic' };
 
   afterEach(() => {
     global.fetch = originalFetch;
@@ -227,19 +228,25 @@ describe('BackendClient.getRetryRequests', () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        retry_requests: [{ artifact_id: 'artifact-1', source_path: 'specs/demo/spec.md' }]
+        retry_requests: [{ artifact_id: 'artifact-1', source_path: 'specs/demo/spec.md' }],
+        transform_requests: [{ source_path: 'docs/notes.md' }],
+        automation_mode: 'manual'
       })
     });
     global.fetch = fetchMock as any;
 
     const client = new BackendClient('http://localhost:8000', 'dev-key');
-    const result = await client.getRetryRequests('demo-project');
+    const result = await client.getPendingWork('demo-project');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toBe('http://localhost:8000/api/projects/demo-project/retry-requests');
     expect(options.method).toBe('GET');
-    expect(result).toEqual([{ artifactId: 'artifact-1', sourcePath: 'specs/demo/spec.md' }]);
+    expect(result).toEqual({
+      retryRequests: [{ artifactId: 'artifact-1', sourcePath: 'specs/demo/spec.md' }],
+      transformRequests: [{ sourcePath: 'docs/notes.md' }],
+      automationMode: 'manual'
+    });
   });
 
   it('URL-encodes the project id/name', async () => {
@@ -247,31 +254,74 @@ describe('BackendClient.getRetryRequests', () => {
     global.fetch = fetchMock as any;
 
     const client = new BackendClient('http://localhost:8000', 'dev-key');
-    await client.getRetryRequests('my project');
+    await client.getPendingWork('my project');
 
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe('http://localhost:8000/api/projects/my%20project/retry-requests');
   });
 
-  it('returns an empty array, never throws, when the backend is unreachable', async () => {
+  it('reports nothing pending, never throws, when the backend is unreachable', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('network down')) as any;
 
     const client = new BackendClient('http://localhost:8000', 'dev-key');
-    await expect(client.getRetryRequests('demo-project')).resolves.toEqual([]);
+    await expect(client.getPendingWork('demo-project')).resolves.toEqual(EMPTY);
   });
 
-  it('returns an empty array, never throws, on an error response', async () => {
+  it('reports nothing pending, never throws, on an error response', async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as any;
 
     const client = new BackendClient('http://localhost:8000', 'dev-key');
-    await expect(client.getRetryRequests('demo-project')).resolves.toEqual([]);
+    await expect(client.getPendingWork('demo-project')).resolves.toEqual(EMPTY);
   });
 
-  it('returns an empty array when the response has no retry_requests field', async () => {
+  it('reports nothing pending when the response has no request fields', async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as any;
 
     const client = new BackendClient('http://localhost:8000', 'dev-key');
-    await expect(client.getRetryRequests('demo-project')).resolves.toEqual([]);
+    await expect(client.getPendingWork('demo-project')).resolves.toEqual(EMPTY);
+  });
+
+  it('falls back to automatic mode rather than stalling the watcher when the backend is down', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network down')) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const result = await client.getPendingWork('demo-project');
+
+    expect(result.automationMode).toBe('automatic');
+  });
+});
+
+describe('BackendClient.syncProjectFiles', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('POSTs the full inventory in snake_case to the project-scoped sync endpoint', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'ok' }) });
+    global.fetch = fetchMock as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    const ok = await client.syncProjectFiles('demo-project', [
+      { sourcePath: 'docs/notes.md', sizeBytes: 42, modifiedAt: '2024-03-15T10:30:00.000Z' }
+    ]);
+
+    expect(ok).toBe(true);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:8000/api/projects/demo-project/files/sync');
+    expect(options.method).toBe('POST');
+    expect(JSON.parse(options.body)).toEqual({
+      files: [{ source_path: 'docs/notes.md', size_bytes: 42, modified_at: '2024-03-15T10:30:00.000Z' }]
+    });
+  });
+
+  it('reports failure, never throws, when the backend is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network down')) as any;
+
+    const client = new BackendClient('http://localhost:8000', 'dev-key');
+    await expect(client.syncProjectFiles('demo-project', [])).resolves.toBe(false);
   });
 });
 

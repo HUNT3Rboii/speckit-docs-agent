@@ -17,7 +17,7 @@ import { GitignoreService } from './services/gitignoreService';
 import { ProgressFileWatcher } from './services/progressFileWatcher';
 import { discoverModels } from './services/modelDiscoveryService';
 import { CustomModelsPanel } from './webviews/customModelsPanel';
-import { CustomModelEntry } from './types';
+import { AutomationMode, CustomModelEntry, ProjectFileEntry } from './types';
 
 // Global service instances
 let configManager: ConfigurationManager;
@@ -33,6 +33,37 @@ let progressFileWatcher: ProgressFileWatcher;
 let processingStatusBarItem: vscode.StatusBarItem;
 let processingStatusBarInterval: ReturnType<typeof setInterval> | undefined;
 let retryPollInterval: ReturnType<typeof setInterval> | undefined;
+
+/**
+ * Per-project automatic/manual mode, refreshed on every poll tick. Cached
+ * rather than fetched at save time so the file watcher stays synchronous
+ * and a slow/offline backend can't stall a save; the cost is that a mode
+ * change takes up to one poll interval to be felt.
+ *
+ * Missing entry means "not polled yet" and is treated as automatic - a
+ * project must never silently stop processing saves just because the
+ * extension hasn't heard back from the backend yet.
+ */
+const automationModes = new Map<string, AutomationMode>();
+
+/**
+ * Debounce handles for the markdown-inventory push, one per workspace
+ * folder. A rename or a git branch switch fires dozens of watcher events
+ * at once and each would otherwise cost a full workspace scan.
+ */
+const fileSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+const FILE_SYNC_DEBOUNCE_MS = 3000;
+
+/**
+ * Include/exclude globs for the inventory scan, kept in sync with the
+ * user's configuration so the dashboard lists exactly the files the
+ * watcher would have acted on.
+ */
+let fileScanPatterns: { includePatterns: string[]; excludePatterns: string[] } = {
+  includePatterns: ['**/*.md'],
+  excludePatterns: []
+};
 
 /**
  * Extension activation
@@ -156,15 +187,16 @@ export async function activate(context: vscode.ExtensionContext) {
       processingStatusBarItem.show();
     }, 1000);
 
-    // Poll for retry requests made from the web dashboard's PDF viewer -
-    // the backend can only flag "please reprocess this" (it has no way to
-    // run the AI itself), so the extension is what actually has to notice
-    // and act. A workspace folder that was never processed (no matching
-    // project on the backend yet) just gets an empty list back each time,
-    // at negligible cost.
+    // Poll for work queued from the web dashboard - the backend can only
+    // flag "please process this" (it has no way to run the AI itself), so
+    // the extension is what actually has to notice and act. The same tick
+    // refreshes each project's automatic/manual mode. A workspace folder
+    // the backend has never seen just gets an empty response each time, at
+    // negligible cost.
     retryPollInterval = setInterval(() => {
-      void pollForRetryRequests();
+      void pollForPendingWork();
     }, 15000);
+    void pollForPendingWork();
 
     // Live Kanban task-progress tracking: auto-provision Copilot
     // instructions + a progress-signal watcher for any Speckit project in
@@ -176,22 +208,47 @@ export async function activate(context: vscode.ExtensionContext) {
     await setupCopilotProgressTracking(config);
 
     // Initialize file watcher
+    fileScanPatterns = {
+      includePatterns: config.includePatterns,
+      excludePatterns: config.excludePatterns
+    };
     fileWatcher = new FileWatcher({
       includePatterns: config.includePatterns,
       excludePatterns: config.excludePatterns,
       debounceMs: config.debounceMs
     });
 
-    // Wire file watcher events to pipeline
+    // Wire file watcher events to pipeline. The handlers are registered
+    // whenever watching is on at all; whether a save actually *processes*
+    // is decided per-project at event time by the backend-owned automation
+    // mode, so flipping a project to manual on the dashboard takes effect
+    // without a config change or a reload. speckit.autoProcess stays a
+    // hard local kill switch on top of that: with it off nothing is
+    // watched, and only explicit dashboard requests are ever acted on.
     if (config.autoProcess) {
       fileWatcher.onFileChanged(async (uri) => {
+        scheduleFileSync(uri);
+        if (!shouldAutoProcess(uri)) {
+          notificationService.debug(`File changed, project is in manual mode - skipping: ${uri.fsPath}`);
+          return;
+        }
         notificationService.debug(`File changed: ${uri.fsPath}`);
         await transformPipeline.process(uri);
       });
 
       fileWatcher.onFileCreated(async (uri) => {
+        scheduleFileSync(uri);
+        if (!shouldAutoProcess(uri)) {
+          notificationService.debug(`File created, project is in manual mode - skipping: ${uri.fsPath}`);
+          return;
+        }
         notificationService.debug(`File created: ${uri.fsPath}`);
         await transformPipeline.process(uri);
+      });
+
+      fileWatcher.onFileDeleted((uri) => {
+        notificationService.debug(`File deleted: ${uri.fsPath}`);
+        scheduleFileSync(uri);
       });
 
       await fileWatcher.start();
@@ -199,6 +256,10 @@ export async function activate(context: vscode.ExtensionContext) {
     } else {
       notificationService.info('Auto-processing disabled');
     }
+
+    // Seed the dashboard's Context Files page straight away, rather than
+    // leaving it empty until the first markdown file happens to change.
+    void syncAllWorkspaceFiles();
 
     // Register configuration change handler
     configManager.onConfigChange(async (newConfig) => {
@@ -221,6 +282,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
       // Restart file watcher with new patterns
       await fileWatcher.stop();
+      fileScanPatterns = {
+        includePatterns: newConfig.includePatterns,
+        excludePatterns: newConfig.excludePatterns
+      };
       fileWatcher.updateConfig({
         includePatterns: newConfig.includePatterns,
         excludePatterns: newConfig.excludePatterns,
@@ -230,6 +295,10 @@ export async function activate(context: vscode.ExtensionContext) {
       if (newConfig.autoProcess) {
         await fileWatcher.start();
       }
+
+      // The patterns decide what the Context Files page lists, so a change
+      // to them has to be reflected there too.
+      void syncAllWorkspaceFiles();
 
       // Re-check backend health
       const healthy = await backendClient.checkHealth();
@@ -258,18 +327,25 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 /**
- * Checks every open workspace folder for pending retry requests (made via
- * the Retry button in the web dashboard's PDF viewer) and reprocesses each
- * one, exactly as if that file had just been saved. Best-effort: a failed
- * poll for one folder must not stop the others from being checked.
+ * Checks every open workspace folder for work queued from the web
+ * dashboard - artifacts flagged for reprocessing via the PDF viewer's
+ * Retry button, and markdown files flagged for a first transform via the
+ * Context Files page - and runs each one exactly as if that file had just
+ * been saved. Also refreshes each project's automatic/manual mode, which
+ * is what the file watcher consults on every save.
+ *
+ * Best-effort: a failed poll for one folder must not stop the others from
+ * being checked.
  */
-async function pollForRetryRequests(): Promise<void> {
+async function pollForPendingWork(): Promise<void> {
   const folders = vscode.workspace.workspaceFolders ?? [];
   for (const folder of folders) {
     try {
       const projectName = path.basename(folder.uri.fsPath);
-      const requests = await backendClient.getRetryRequests(projectName);
-      for (const request of requests) {
+      const pending = await backendClient.getPendingWork(projectName);
+      automationModes.set(projectName, pending.automationMode);
+
+      for (const request of pending.retryRequests) {
         const fileUri = vscode.Uri.joinPath(folder.uri, request.sourcePath);
         notificationService.info(`Retry requested from the dashboard: ${request.sourcePath}`);
         // force: true - the file's content is unchanged (that's the whole
@@ -277,10 +353,125 @@ async function pollForRetryRequests(): Promise<void> {
         // silently skipped by the normal unchanged-content dedup.
         void transformPipeline.process(fileUri, { force: true });
       }
+
+      for (const request of pending.transformRequests) {
+        const fileUri = vscode.Uri.joinPath(folder.uri, request.sourcePath);
+        notificationService.info(`Transform requested from the dashboard: ${request.sourcePath}`);
+        // force: true for the same reason as a retry, and additionally
+        // because a manual-mode project's file may well be byte-identical
+        // to a version processed before the project was switched to
+        // manual - the user asking for it explicitly is the whole signal.
+        void transformPipeline.process(fileUri, { force: true });
+      }
     } catch (error: any) {
-      notificationService.debug(`Retry-request poll failed for ${folder.name}: ${error.message}`);
+      notificationService.debug(`Pending-work poll failed for ${folder.name}: ${error.message}`);
     }
   }
+}
+
+/**
+ * Whether a save of `uri` should run the pipeline on its own, per the
+ * owning project's dashboard setting. Unknown projects (never polled, or
+ * a file outside any workspace folder) count as automatic - see
+ * automationModes.
+ */
+function shouldAutoProcess(uri: vscode.Uri): boolean {
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  if (!folder) {
+    return true;
+  }
+  const projectName = path.basename(folder.uri.fsPath);
+  return automationModes.get(projectName) !== 'manual';
+}
+
+/**
+ * Queue an inventory push for the workspace folder owning `uri`, coalescing
+ * the burst of events a rename or branch switch produces into one scan.
+ */
+function scheduleFileSync(uri: vscode.Uri): void {
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  if (!folder) {
+    return;
+  }
+
+  const key = folder.uri.fsPath;
+  const existing = fileSyncTimers.get(key);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  fileSyncTimers.set(
+    key,
+    setTimeout(() => {
+      fileSyncTimers.delete(key);
+      void syncWorkspaceFolderFiles(folder);
+    }, FILE_SYNC_DEBOUNCE_MS)
+  );
+}
+
+async function syncAllWorkspaceFiles(): Promise<void> {
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    await syncWorkspaceFolderFiles(folder);
+  }
+}
+
+/**
+ * Scan one workspace folder for markdown and push the complete result to
+ * the backend, which has no filesystem visibility of its own. This is what
+ * lets the dashboard's Context Files page list files that have never been
+ * turned into a PDF - they have no artifact row to be listed from.
+ */
+async function syncWorkspaceFolderFiles(folder: vscode.WorkspaceFolder): Promise<void> {
+  if (!backendClient) {
+    return;
+  }
+
+  try {
+    const projectName = path.basename(folder.uri.fsPath);
+    const files = await scanMarkdownFiles(folder);
+    await backendClient.syncProjectFiles(projectName, files);
+    notificationService?.debug(`Synced ${files.length} markdown file(s) for ${projectName}`);
+  } catch (error: any) {
+    notificationService?.debug(`File sync failed for ${folder.name}: ${error.message}`);
+  }
+}
+
+async function scanMarkdownFiles(folder: vscode.WorkspaceFolder): Promise<ProjectFileEntry[]> {
+  // findFiles takes a single exclude glob, so several patterns have to be
+  // combined into one brace expression; a single pattern is passed through
+  // as-is since "{a}" isn't valid brace syntax everywhere.
+  const excludes = fileScanPatterns.excludePatterns;
+  const exclude =
+    excludes.length === 0 ? null : excludes.length === 1 ? excludes[0] : `{${excludes.join(',')}}`;
+
+  // Deduplicated across include patterns, which may well overlap.
+  const uris = new Map<string, vscode.Uri>();
+  for (const pattern of fileScanPatterns.includePatterns) {
+    const matches = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, pattern),
+      exclude
+    );
+    for (const uri of matches) {
+      uris.set(uri.fsPath, uri);
+    }
+  }
+
+  const files: ProjectFileEntry[] = [];
+  for (const uri of uris.values()) {
+    // Forward-slashed workspace-relative paths, matching the source_path
+    // convention every other backend call uses.
+    const sourcePath = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join('/');
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      files.push({
+        sourcePath,
+        sizeBytes: stat.size,
+        modifiedAt: new Date(stat.mtime).toISOString()
+      });
+    } catch {
+      // Deleted between the scan and the stat - just leave it out.
+    }
+  }
+  return files;
 }
 
 /**
@@ -358,6 +549,10 @@ export async function deactivate() {
     if (retryPollInterval) {
       clearInterval(retryPollInterval);
     }
+
+    fileSyncTimers.forEach(timer => clearTimeout(timer));
+    fileSyncTimers.clear();
+    automationModes.clear();
 
     // Dispose services
     if (notificationService) {

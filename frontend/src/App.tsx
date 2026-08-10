@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ProjectDashboard } from './pages/ProjectDashboard'
 import { ArtifactListView } from './pages/ArtifactListView'
 import { KanbanBoardView } from './pages/KanbanBoardView'
+import { ContextFilesView } from './pages/ContextFilesView'
 import { PDFViewer } from './pages/PDFViewer'
 import Layout from './components/Layout/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -37,6 +38,7 @@ function App() {
               <Route path="/" element={<ProjectDashboard />} />
               <Route path="/projects/:projectId" element={<ArtifactListView />} />
               <Route path="/projects/:projectId/board" element={<KanbanBoardView />} />
+              <Route path="/projects/:projectId/files" element={<ContextFilesView />} />
               <Route path="/projects/:projectId/artifacts/:artifactId" element={<PDFViewer />} />
               <Route path="/projects/:projectId/artifacts/:artifactId/versions/:versionId" element={<PDFViewer />} />
             </Route>

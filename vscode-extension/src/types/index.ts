@@ -458,6 +458,12 @@ export interface FileWatcher {
   onFileChanged(callback: (uri: import('vscode').Uri) => void): void;
   /** Register callback for file creation */
   onFileCreated(callback: (uri: import('vscode').Uri) => void): void;
+  /**
+   * Register callback for file deletion. Unlike change/create this never
+   * triggers processing - it exists so the backend's file inventory can be
+   * corrected when a tracked markdown file disappears.
+   */
+  onFileDeleted(callback: (uri: import('vscode').Uri) => void): void;
 }
 
 /**
@@ -511,14 +517,49 @@ export interface BackendClient {
    */
   checkCancelRequested(artifactId: string): Promise<boolean>;
   /**
-   * Poll for artifacts a web-frontend user has flagged (via the Retry
-   * button) for a full reprocess. Best-effort: implementations must never
-   * throw - a failed poll just means nothing new is picked up this tick,
-   * not a pipeline failure.
+   * Poll for everything the dashboard has queued for this project, plus
+   * its current automatic/manual mode. Best-effort: implementations must
+   * never throw - a failed poll just means nothing new is picked up this
+   * tick, not a pipeline failure.
    */
-  getRetryRequests(projectId: string): Promise<Array<{ artifactId: string; sourcePath: string }>>;
+  getPendingWork(projectId: string): Promise<PendingWork>;
+  /**
+   * Push the project's complete current markdown inventory, so the
+   * dashboard can list files that haven't been turned into a PDF yet.
+   * Best-effort: implementations must never throw.
+   */
+  syncProjectFiles(projectId: string, files: ProjectFileEntry[]): Promise<boolean>;
   /** Check backend health/availability */
   checkHealth(): Promise<boolean>;
+}
+
+/**
+ * Whether saving a markdown file runs it through the pipeline on its own
+ * ("automatic") or waits to be asked for from the dashboard's Context
+ * Files tab ("manual"). Owned by the backend, per project.
+ */
+export type AutomationMode = 'automatic' | 'manual';
+
+/**
+ * One markdown file found in a workspace folder, as reported to the
+ * backend. Paths are workspace-relative and forward-slashed, matching the
+ * source_path convention used everywhere else in the pipeline.
+ */
+export interface ProjectFileEntry {
+  sourcePath: string;
+  sizeBytes: number;
+  modifiedAt: string;
+}
+
+/**
+ * Everything a single poll tick pulls back for one project.
+ */
+export interface PendingWork {
+  /** Existing artifacts flagged for a full reprocess (the Retry button). */
+  retryRequests: Array<{ artifactId: string; sourcePath: string }>;
+  /** Markdown files flagged for a first run through the pipeline. */
+  transformRequests: Array<{ sourcePath: string }>;
+  automationMode: AutomationMode;
 }
 
 /**

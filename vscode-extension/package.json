@@ -84,7 +84,7 @@
         "speckit.autoProcess": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically process markdown files on save",
+          "description": "Watch markdown files and process them on save. Turning this off stops all watching in this workspace; leaving it on still respects each project's own Auto transform setting in the dashboard sidebar.",
           "order": 2
         },
         "speckit.includePatterns": {

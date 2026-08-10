@@ -1,6 +1,9 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { FileText, Folder, FolderOpen, KanbanSquare, LayoutGrid } from 'lucide-react';
+import { FileCode2, FileText, Folder, FolderOpen, KanbanSquare, LayoutGrid, Zap } from 'lucide-react';
 import { useProjects } from '../../hooks/useProjects';
+import { useSetAutomationMode } from '../../hooks/useAutomationMode';
+import { Switch } from '../ui/switch';
+import type { Project } from '../../types/api';
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +20,38 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from '../ui/sidebar';
+
+/**
+ * Per-project automatic/manual transformation, sitting with the project's
+ * own navigation rather than as a global control - it is a property of the
+ * project, and a global switch would have nothing sensible to show while
+ * no project is selected.
+ *
+ * Its own component because the mutation hook is project-scoped and can't
+ * be called from inside the projects map.
+ */
+function ProjectAutomationToggle({ project }: { project: Project }) {
+  const setAutomationMode = useSetAutomationMode(project.id);
+  const isAutomatic = project.automation_mode !== 'manual';
+
+  return (
+    <div className="flex h-7 min-w-0 -translate-x-px items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground">
+      <Zap className="h-4 w-4 shrink-0 text-sidebar-accent-foreground" aria-hidden="true" />
+      <span className="flex-1 truncate">Auto transform</span>
+      <Switch
+        checked={isAutomatic}
+        onCheckedChange={(checked) => setAutomationMode.mutate(checked ? 'automatic' : 'manual')}
+        disabled={setAutomationMode.isPending}
+        aria-label={`Automatic transformation for ${project.name}`}
+        title={
+          isAutomatic
+            ? 'Saving a markdown file converts it automatically'
+            : 'Files are only converted from the Context Files page'
+        }
+      />
+    </div>
+  );
+}
 
 export function AppSidebar() {
   const { projectId } = useParams<{ projectId?: string }>();
@@ -63,6 +98,7 @@ export function AppSidebar() {
                 const isActive = project.id === projectId;
                 const artifactsPath = `/projects/${project.id}`;
                 const boardPath = `/projects/${project.id}/board`;
+                const filesPath = `/projects/${project.id}/files`;
                 return (
                   <SidebarMenuItem key={project.id}>
                     <SidebarMenuButton asChild isActive={isActive} tooltip={project.name}>
@@ -92,6 +128,17 @@ export function AppSidebar() {
                               <span>Board</span>
                             </Link>
                           </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton asChild isActive={location.pathname === filesPath}>
+                            <Link to={filesPath}>
+                              <FileCode2 className="h-4 w-4 shrink-0" />
+                              <span>Context Files</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                        <SidebarMenuSubItem>
+                          <ProjectAutomationToggle project={project} />
                         </SidebarMenuSubItem>
                       </SidebarMenuSub>
                     )}

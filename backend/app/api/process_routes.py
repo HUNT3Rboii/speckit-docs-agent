@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from app.api.deps import get_api_key, get_output_dir, get_repository
-from app.models.schemas import ProcessRequest, ReportStepRequest
+from app.models.schemas import ProcessRequest, ProjectFileSyncRequest, ReportStepRequest
 from app.services.agentic_pipeline_service import AgenticPipelineService
 
 router = APIRouter()
@@ -55,6 +56,12 @@ def report_processing_step(payload: ReportStepRequest, _=Depends(require_api_key
     project_id = _resolve_or_create_project(service.repo, payload.project_id)
     if service.is_path_excluded(project_id, payload.source_path):
         return {"status": "excluded"}
+    # Whatever queued this file (a Context Files "Transform to PDF" click,
+    # most likely) has now been acted on - clear the flag here, at the
+    # first sign of client-side work, rather than on completion, so a run
+    # that dies halfway doesn't leave a request the extension re-picks-up
+    # on every poll forever. Same lifetime as manual_retry_requested.
+    service.repo.clear_file_transform_request(project_id, payload.source_path)
     artifact = service.report_step(
         project_id=project_id,
         source_path=payload.source_path,
@@ -84,6 +91,11 @@ def process_document(payload: ProcessRequest, _=Depends(require_api_key)) -> Dic
         # new status value - the exclusion list is meant to take effect
         # immediately for every caller with zero client-side changes.
         return {"status": "ok", "skipped": True, "excluded": True}
+
+    # See report_processing_step for why the queued-transform flag is
+    # cleared as soon as work arrives. Repeated here because a caller can
+    # reach /api/process without ever having reported a step.
+    service.repo.clear_file_transform_request(project_id, payload.source_path)
 
     return service.process(
         project_id=project_id,
@@ -130,15 +142,55 @@ def get_cancel_status(artifact_id: str, _=Depends(require_api_key)) -> Dict[str,
 
 @router.get("/api/projects/{project_id}/retry-requests")
 def get_retry_requests(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
-    """Pending manual-retry requests for a project, polled by the VS Code
-    extension (see TransformPipeline's retry-poll loop and
-    AgenticPipelineService.list_retry_requests). project_id here is the
-    workspace/repo root folder name, same convention as /api/process and
-    /api/processing-status - not yet resolved to an internal project id.
-    A project that's never been processed (no matching name) simply has no
-    pending retries, rather than being auto-created just from a poll."""
+    """Everything the VS Code extension needs to pull on its poll tick (see
+    extension.ts's pollForPendingWork): manual-retry requests for artifacts
+    that already exist, one-off transform requests for markdown files that
+    don't yet, and the project's current automatic/manual mode - one round
+    trip rather than three, on a loop that already runs every 15s.
+
+    project_id here is the workspace/repo root folder name, same convention
+    as /api/process and /api/processing-status - not yet resolved to an
+    internal project id. A project that's never been seen (no matching
+    name) simply has nothing pending, rather than being auto-created just
+    from a poll.
+    """
     service = get_pipeline_service()
     resolved_id = _resolve_project_id_readonly(service.repo, project_id)
     if resolved_id is None:
-        return {"retry_requests": []}
-    return {"retry_requests": service.list_retry_requests(resolved_id)}
+        return {"retry_requests": [], "transform_requests": [], "automation_mode": "automatic"}
+
+    project = service.repo.get_project(resolved_id) or {}
+    return {
+        "retry_requests": service.list_retry_requests(resolved_id),
+        "transform_requests": [
+            {"source_path": project_file["source_path"]}
+            for project_file in service.repo.list_file_transform_requests(resolved_id)
+        ],
+        "automation_mode": project.get("automation_mode", "automatic"),
+    }
+
+
+@router.post("/api/projects/{project_id}/files/sync")
+def sync_project_files(project_id: str, payload: ProjectFileSyncRequest, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """
+    Replace a project's markdown inventory with what the caller just found
+    on disk. Pushed by the VS Code extension because the backend has no
+    filesystem visibility into the caller's workspace (see
+    ProcessRequest.project_root) - without this, the Context Files page
+    could only ever list files that had already been turned into a PDF,
+    which is precisely the set it isn't for.
+
+    project_id is the workspace/repo root folder name, same convention as
+    /api/process. Unlike the read-only retry poll, this auto-creates the
+    project: a workspace with markdown in it is worth listing even before
+    anything in it has ever been processed.
+    """
+    service = get_pipeline_service()
+    resolved_id = _resolve_or_create_project(service.repo, project_id)
+    now = datetime.now(timezone.utc).isoformat()
+    tracked = service.repo.sync_project_files(
+        resolved_id,
+        [entry.model_dump() for entry in payload.files],
+        now,
+    )
+    return {"status": "ok", "project_id": resolved_id, "tracked_files": tracked}

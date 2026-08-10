@@ -9,8 +9,10 @@ import {
   StructuredJSON,
   IngestResponse,
   IngestRequest,
+  PendingWork,
   ProcessRequest,
-  ProcessResponse
+  ProcessResponse,
+  ProjectFileEntry
 } from '../types';
 import { CancellationRequestedError } from './aiProvider';
 
@@ -161,29 +163,74 @@ export class BackendClient implements IBackendClient {
   }
 
   /**
-   * Poll for artifacts a web-frontend user has flagged (via the Retry
-   * button) for a full reprocess - see TransformPipeline's retry-poll loop.
+   * Poll for everything the dashboard has queued up for this project:
+   * artifacts flagged for a full reprocess (the Retry button), markdown
+   * files flagged for a first-time transform (the Context Files page's
+   * "Transform to PDF" button), and the project's automatic/manual mode -
+   * see extension.ts's pollForPendingWork.
+   *
    * Best-effort: a flaky/offline backend just means nothing new is picked
-   * up this tick, never a thrown error.
+   * up this tick, never a thrown error. Note the fallback mode is
+   * "automatic" - an unreachable backend must not silently stop the file
+   * watcher from processing saves.
    */
-  public async getRetryRequests(projectId: string): Promise<Array<{ artifactId: string; sourcePath: string }>> {
+  public async getPendingWork(projectId: string): Promise<PendingWork> {
+    const empty: PendingWork = { retryRequests: [], transformRequests: [], automationMode: 'automatic' };
     try {
       const response = await fetch(
         `${this.backendUrl}/api/projects/${encodeURIComponent(projectId)}/retry-requests`,
         { method: 'GET', headers: this.getHeaders(), signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) }
       );
       if (!response.ok) {
-        return [];
+        return empty;
       }
       const body: any = await response.json();
-      const requests = Array.isArray(body?.retry_requests) ? body.retry_requests : [];
-      return requests.map((entry: any) => ({
-        artifactId: entry.artifact_id,
-        sourcePath: entry.source_path
-      }));
+      const retries = Array.isArray(body?.retry_requests) ? body.retry_requests : [];
+      const transforms = Array.isArray(body?.transform_requests) ? body.transform_requests : [];
+      return {
+        retryRequests: retries.map((entry: any) => ({
+          artifactId: entry.artifact_id,
+          sourcePath: entry.source_path
+        })),
+        transformRequests: transforms.map((entry: any) => ({ sourcePath: entry.source_path })),
+        automationMode: body?.automation_mode === 'manual' ? 'manual' : 'automatic'
+      };
     } catch (error) {
-      console.log('[BackendClient] getRetryRequests failed (non-fatal):', error);
-      return [];
+      console.log('[BackendClient] getPendingWork failed (non-fatal):', error);
+      return empty;
+    }
+  }
+
+  /**
+   * Push the project's complete current markdown inventory. Complete, not
+   * a delta: the backend has no filesystem visibility of its own, so a
+   * full replace is the only way a file deleted while the extension was
+   * shut down ever disappears from the dashboard's Context Files page.
+   *
+   * Best-effort, like the other side-channel calls here - a failed sync
+   * just means the tab is one tick stale, never a disrupted pipeline.
+   */
+  public async syncProjectFiles(projectId: string, files: ProjectFileEntry[]): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `${this.backendUrl}/api/projects/${encodeURIComponent(projectId)}/files/sync`,
+        {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify({
+            files: files.map((file) => ({
+              source_path: file.sourcePath,
+              size_bytes: file.sizeBytes,
+              modified_at: file.modifiedAt
+            }))
+          }),
+          signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS)
+        }
+      );
+      return response.ok;
+    } catch (error) {
+      console.log('[BackendClient] syncProjectFiles failed (non-fatal):', error);
+      return false;
     }
   }
 

@@ -41,6 +41,14 @@ Behind that: the extension reads your file, asks your AI to structure it, and se
 
 Your PDFs are also in `pdf-output/` at the repo root, and browsable in the dashboard at **http://localhost:5173**.
 
+### Converting files by hand
+
+Not every project wants a PDF on every save. In the dashboard sidebar, each project has an **Auto transform** switch. Turn it off and saving stops converting anything for that project — the other projects are unaffected.
+
+You then convert files when you want to, from the project's **Context Files** page in the sidebar (next to Artifacts and Board). It lists every `.md` in the project, converted or not, with two buttons on each: **Transform to PDF** runs that file through the same pipeline a save would, and the eye icon adds it to the **Exceptions** list so it's never converted.
+
+The list comes from the extension, so VS Code needs to be open on that project for it to fill in. Pressing Transform queues the file — the extension picks it up within about 15 seconds and the row updates as it goes.
+
 ### Commands
 
 `Ctrl+Shift+P`, then:
@@ -59,7 +67,7 @@ Your PDFs are also in `pdf-output/` at the repo root, and browsable in the dashb
 
 | Setting | Default | What it's for |
 |---------|---------|---------------|
-| `speckit.autoProcess` | `true` | Process on every save. Turn off to only run the command manually |
+| `speckit.autoProcess` | `true` | Watch for saves at all. Turn off to only run the command manually — for a single project, prefer the dashboard's Auto transform switch |
 | `speckit.includePatterns` | `["**/*.md"]` | Which files to process |
 | `speckit.excludePatterns` | *(node_modules, .git, …)* | Which to skip |
 | `speckit.allowRuleBasedFallback` | `false` | Produce a plain PDF when no AI is available, instead of an error |
@@ -72,9 +80,11 @@ The remaining settings (`backendUrl`, `apiKey`, `debounceMs`, `maxConcurrentProc
 
 ### Nothing happens when I save
 
-1. Check `speckit.autoProcess` is on, and that your file matches `speckit.includePatterns`
-2. Run `Speckit: Show Extension Logs` — every run is logged there
-3. Try `Speckit: Process Current File` to rule out the file watcher
+1. Check the project's **Auto transform** switch in the dashboard sidebar — with it off, saving is meant to do nothing, and you convert from the **Context Files** page instead
+2. Check `speckit.autoProcess` is on, and that your file matches `speckit.includePatterns`
+3. Check the file isn't on the project's **Exceptions** list
+4. Run `Speckit: Show Extension Logs` — every run is logged there
+5. Try `Speckit: Process Current File` to rule out the file watcher
 
 ### "Backend is not available"
 

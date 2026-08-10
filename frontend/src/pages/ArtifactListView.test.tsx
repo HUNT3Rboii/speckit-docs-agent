@@ -362,4 +362,52 @@ describe("ArtifactListView", () => {
       expect(screen.getByText(".specify/templates")).toBeInTheDocument();
     });
   });
+
+  it("leaves context files to their own sidebar page rather than a tab here", () => {
+    vi.spyOn(useArtifactsModule, "useArtifacts").mockReturnValue({
+      data: [createMockArtifact({ id: "1" })],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isError: false,
+      isSuccess: true,
+      isPending: false,
+      status: "success",
+    } as any);
+
+    render(
+      <TestWrapper>
+        <ArtifactListView />
+      </TestWrapper>
+    );
+
+    expect(screen.queryByRole("tab", { name: "Context Files" })).not.toBeInTheDocument();
+  });
+
+  it("hides the artifact search box on tabs it cannot filter", async () => {
+    vi.spyOn(useArtifactsModule, "useArtifacts").mockReturnValue({
+      data: [createMockArtifact({ id: "1" })],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isError: false,
+      isSuccess: true,
+      isPending: false,
+      status: "success",
+    } as any);
+
+    render(
+      <TestWrapper>
+        <ArtifactListView />
+      </TestWrapper>
+    );
+
+    expect(screen.getByLabelText("Search artifacts")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Exceptions" }));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Search artifacts")).not.toBeInTheDocument();
+    });
+  });
 });

@@ -35,6 +35,9 @@ export function useAddException(projectId: string) {
       // of showing a now-hidden artifact until the next unrelated refetch
       // happens to occur.
       queryClient.invalidateQueries({ queryKey: ['artifacts', projectId] });
+      // The Context Files page hides excluded paths, so the row the user
+      // just excluded has to disappear from it in the same beat.
+      queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
     },
   });
 }
@@ -49,6 +52,9 @@ export function useRemoveException(projectId: string) {
       // (see backend's remove_exception route) - refetch the artifact
       // list so they reappear immediately.
       queryClient.invalidateQueries({ queryKey: ['artifacts', projectId] });
+      // Likewise the file itself becomes actionable again on the Context
+      // Files tab.
+      queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
     },
   });
 }

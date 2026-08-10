@@ -151,6 +151,16 @@ Notification with PDF link (or a partial-success warning naming what was dropped
 6. **Store** → Saved to database + file volume, dropped items (if any) recorded for `/api/status`
 7. **Notify** → User gets a notification with the PDF link (or a partial-success warning)
 
+Step 1 is skipped when the project is in manual mode (the dashboard's per-project **Auto transform** switch, stored on the `projects` row). The extension reads the current mode off the poll it already runs against `GET /api/projects/{name}/retry-requests`, so a change on the dashboard takes effect within one 15s tick without a reload.
+
+### Dashboard-initiated runs
+
+The backend has no filesystem access to your workspace and no AI provider of its own, so it can never start a run — it can only record that one was asked for, and the extension acts on it:
+
+- The extension pushes its complete markdown inventory to `POST /api/projects/{name}/files/sync` on activation and (debounced) on every watcher event. This is what the Context Files page lists — files with no artifact row yet have no other way to be known about.
+- `POST /api/projects/{project_id}/files/transform` flags one of those files. The same poll that carries retry requests carries these back as `transform_requests`, and the extension runs each with `force: true`.
+- The flag is cleared as soon as client-side work arrives (`/api/processing-status` or `/api/process`), not on completion — a run that dies halfway must not leave a request the extension re-picks-up forever.
+
 ## Project structure
 
 ```

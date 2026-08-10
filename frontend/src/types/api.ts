@@ -10,7 +10,21 @@ export interface Project {
   id: string;
   name: string;
   repo_url?: string;
+  /**
+   * Optional so a project row written before this setting existed (or a
+   * backend that predates it) still parses - absent is read as automatic,
+   * which is what the pipeline did before the setting existed.
+   */
+  automation_mode?: AutomationMode;
 }
+
+/**
+ * Whether saving a markdown file in a project runs it through the pipeline
+ * on its own ("automatic") or waits to be asked for from the Context Files
+ * tab ("manual"). Per-project: one noisy workspace shouldn't force every
+ * other project into manual mode.
+ */
+export type AutomationMode = 'automatic' | 'manual';
 
 /**
  * API response for projects list endpoint
@@ -106,6 +120,33 @@ export interface ProcessingException {
  */
 export interface ExceptionsResponse {
   exceptions: ProcessingException[];
+}
+
+/**
+ * A markdown file that exists in the project's working tree, as last
+ * reported by the VS Code extension (the backend has no filesystem
+ * visibility of its own). Unlike an Artifact, this exists whether or not
+ * the file has ever been turned into a PDF - which is exactly what the
+ * Context Files page is for.
+ */
+export interface ProjectFile {
+  id: number;
+  project_id: string;
+  source_path: string;
+  size_bytes: number;
+  modified_at: string | null;
+  /** A transform has been asked for and is waiting to be picked up. */
+  transform_requested: boolean;
+  requested_at: string | null;
+  last_seen_at: string;
+  is_excluded: boolean;
+  /** Set once this file has been through the pipeline at least once. */
+  artifact_id: string | null;
+  artifact_status: string | null;
+}
+
+export interface ProjectFilesResponse {
+  files: ProjectFile[];
 }
 
 export type KanbanBoardStatus = 'todo' | 'in_progress' | 'done';

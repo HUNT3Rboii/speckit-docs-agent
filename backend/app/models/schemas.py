@@ -13,6 +13,42 @@ class ProjectResponse(BaseModel):
     id: str
     name: str
     repo_url: Optional[str] = None
+    automation_mode: str = "automatic"
+
+
+class AutomationModeUpdate(BaseModel):
+    """
+    Whether saving a markdown file in this project should run it through the
+    pipeline on its own ("automatic", the file watcher's original behaviour)
+    or wait to be asked from the Context Files page ("manual"). Per-project
+    rather than global: one workspace being noisy shouldn't force every
+    other project into manual mode.
+    """
+    mode: str = Field(..., pattern="^(automatic|manual)$")
+
+
+class ProjectFileEntry(BaseModel):
+    """One markdown file found in the caller's working tree."""
+    source_path: str
+    size_bytes: int = 0
+    modified_at: Optional[str] = None
+
+
+class ProjectFileSyncRequest(BaseModel):
+    """
+    The complete current markdown inventory of a workspace folder, pushed by
+    the VS Code extension. Complete, not a delta: the backend has no
+    filesystem visibility of its own (see ProcessRequest.project_root), so a
+    full replace is the only way a file deleted while the extension was shut
+    down ever disappears from the Context Files page.
+    """
+    files: List[ProjectFileEntry] = Field(default_factory=list)
+
+
+class FileTransformRequest(BaseModel):
+    """Queue a single markdown file for a one-off run through the pipeline
+    (the Context Files page's "Transform to PDF" button)."""
+    source_path: str
 
 
 class ExceptionCreate(BaseModel):

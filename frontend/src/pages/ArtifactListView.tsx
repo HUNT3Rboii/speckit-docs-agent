@@ -98,13 +98,17 @@ export function ArtifactListView() {
   }
 
   const hasNoArtifacts = !artifacts || artifacts.length === 0;
+  // Exceptions brings its own controls and isn't filtered by the artifact
+  // search, so leaving that box above it would just be a control that
+  // visibly does nothing.
+  const isPanelTab = activeTab === 'exceptions';
 
   return (
     <div>
       <h1 className="text-3xl font-bold mb-8">Artifacts</h1>
 
       <div className="space-y-4 mb-6">
-        {!hasNoArtifacts && <SearchBar value={searchTerm} onChange={setSearchTerm} />}
+        {!hasNoArtifacts && !isPanelTab && <SearchBar value={searchTerm} onChange={setSearchTerm} />}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>

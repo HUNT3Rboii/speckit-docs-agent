@@ -6,9 +6,16 @@ interface SearchBarProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  /** Accessible name, for reuse over lists that aren't artifacts. */
+  ariaLabel?: string;
 }
 
-export function SearchBar({ value, onChange, placeholder = 'Search by title or source path...' }: SearchBarProps) {
+export function SearchBar({
+  value,
+  onChange,
+  placeholder = 'Search by title or source path...',
+  ariaLabel = 'Search artifacts',
+}: SearchBarProps) {
   const [inputValue, setInputValue] = useState(value);
   const debouncedValue = useDebounce(inputValue, 300);
   const isFirstRender = useRef(true);
@@ -41,7 +48,7 @@ export function SearchBar({ value, onChange, placeholder = 'Search by title or s
         onChange={(e) => setInputValue(e.target.value)}
         placeholder={placeholder}
         className="w-full pl-9 pr-9 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        aria-label="Search artifacts"
+        aria-label={ariaLabel}
       />
       {inputValue && (
         <button

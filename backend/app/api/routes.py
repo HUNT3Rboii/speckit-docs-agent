@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_api_key, get_output_dir, get_project_name, get_repository
-from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ArtifactTagsUpdate, ExceptionCreate, KanbanTaskProgressReport, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
+from app.models.schemas import ArtifactIngestRawRequest, ArtifactIngestStructuredRequest, ArtifactTagsUpdate, AutomationModeUpdate, ExceptionCreate, FileTransformRequest, KanbanTaskProgressReport, KanbanTaskStatusUpdate, ProjectCreate, ProjectResponse
 from app.services.agent_transform import AgentTransformService
 from app.services.agentic_pipeline_service import AgenticPipelineService
 from app.services.ingestion import IngestionService
@@ -265,6 +265,74 @@ def remove_exception(project_id: str, exception_id: int, _=Depends(require_api_k
             unhidden_artifact_ids.append(artifact["id"])
 
     return {"status": "ok", "unhidden_artifact_ids": unhidden_artifact_ids}
+
+
+@router.patch("/api/projects/{project_id}/automation-mode", response_model=ProjectResponse)
+def set_automation_mode(project_id: str, payload: AutomationModeUpdate, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Switch a project between processing every save automatically and
+    only processing what's explicitly asked for from the Context Files page.
+    The VS Code extension (which is what actually runs the pipeline) reads
+    the current mode off its existing retry-request poll, so a change here
+    takes effect within one poll interval without any extension reload."""
+    repo, _, _, _, _, _ = get_services()
+    project = repo.set_project_automation_mode(project_id, payload.mode)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.get("/api/projects/{project_id}/files")
+def list_project_files(project_id: str, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Every markdown file in the project's working tree, as last reported
+    by the VS Code extension (see POST .../files/sync), annotated with
+    whether it's excluded and whether it already has an artifact. Excluded
+    files are returned rather than filtered out so the caller can decide
+    what to show - the Context Files page hides them, since the Exceptions
+    tab is where they're managed."""
+    repo, _, _, _, _, _ = get_services()
+    exceptions = repo.list_exceptions(project_id)
+    artifacts_by_path = {
+        artifact["source_path"]: artifact for artifact in repo.list_artifacts(project_id)
+    }
+
+    files = []
+    for project_file in repo.list_project_files(project_id):
+        source_path = project_file["source_path"]
+        artifact = artifacts_by_path.get(source_path)
+        files.append(
+            {
+                **project_file,
+                "is_excluded": any(
+                    path_matches_exception(source_path, exc["source_path"]) for exc in exceptions
+                ),
+                "artifact_id": artifact["id"] if artifact else None,
+                "artifact_status": artifact["status"] if artifact else None,
+            }
+        )
+    return {"files": files}
+
+
+@router.post("/api/projects/{project_id}/files/transform")
+def request_file_transform(project_id: str, payload: FileTransformRequest, _=Depends(require_api_key)) -> Dict[str, Any]:
+    """Queue one markdown file for a run through the pipeline. The backend
+    can only record the request - it has neither the file nor an AI provider
+    - so this just flags it for the VS Code extension to pick up on its next
+    poll, the same shape as the per-artifact Retry button."""
+    repo, _, _, _, _, _ = get_services()
+
+    # An excluded file must not be transformable: the Context Files page
+    # hides those rows, but a stale tab (exclusion added from another
+    # window since it last loaded) would otherwise still be able to fire
+    # off a request that /api/process silently drops anyway.
+    for exception in repo.list_exceptions(project_id):
+        if path_matches_exception(payload.source_path, exception["source_path"]):
+            raise HTTPException(status_code=409, detail="Path is excluded from processing")
+
+    now = datetime.now(timezone.utc).isoformat()
+    project_file = repo.request_file_transform(project_id, payload.source_path, now)
+    if project_file is None:
+        raise HTTPException(status_code=404, detail="File not found in this project")
+    return {"file": project_file}
 
 
 @router.get("/api/projects/{project_id}/kanban-tasks")

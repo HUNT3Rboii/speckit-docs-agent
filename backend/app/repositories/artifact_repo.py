@@ -115,6 +115,27 @@ class ArtifactRepository:
                 )
                 """
             )
+            # Inventory of every markdown file that exists in the project's
+            # working tree, pushed by the VS Code extension (the backend has
+            # no filesystem visibility into the caller's workspace - see
+            # ProcessRequest.project_root). Backs the Context Files page,
+            # which lists files that have NOT been turned into a PDF yet and
+            # therefore have no artifacts row to be listed from.
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS project_files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT NOT NULL,
+                    source_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    modified_at TEXT,
+                    transform_requested INTEGER NOT NULL DEFAULT 0,
+                    requested_at TEXT,
+                    last_seen_at TEXT NOT NULL,
+                    UNIQUE(project_id, source_path)
+                )
+                """
+            )
             connection.commit()
 
             # Migration: an existing database created before tagging was
@@ -126,6 +147,17 @@ class ArtifactRepository:
             existing_columns = {row[1] for row in cursor.execute("PRAGMA table_info(artifacts)").fetchall()}
             if "tags" not in existing_columns:
                 cursor.execute("ALTER TABLE artifacts ADD COLUMN tags TEXT")
+                connection.commit()
+
+            # Same migration shape for per-project automatic/manual
+            # transformation. Defaults to "automatic" so every pre-existing
+            # project keeps behaving exactly as it did before the setting
+            # existed.
+            existing_project_columns = {row[1] for row in cursor.execute("PRAGMA table_info(projects)").fetchall()}
+            if "automation_mode" not in existing_project_columns:
+                cursor.execute(
+                    "ALTER TABLE projects ADD COLUMN automation_mode TEXT NOT NULL DEFAULT 'automatic'"
+                )
                 connection.commit()
 
             # Enforce one project per name so two concurrent create_project()
@@ -207,15 +239,26 @@ class ArtifactRepository:
                         (project_id, default_path, now),
                     )
                 connection.commit()
-                return {"id": project_id, "name": name, "repo_url": repo_url}
+                return {"id": project_id, "name": name, "repo_url": repo_url, "automation_mode": "automatic"}
             except sqlite3.IntegrityError:
                 connection.rollback()
                 row = connection.execute(
-                    "SELECT id, name, repo_url FROM projects WHERE name = ?", (name,)
+                    "SELECT id, name, repo_url, automation_mode FROM projects WHERE name = ?", (name,)
                 ).fetchone()
-                return {"id": row["id"], "name": row["name"], "repo_url": row["repo_url"]}
+                return self._row_to_project(row)
         finally:
             connection.close()
+
+    @staticmethod
+    def _row_to_project(row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "repo_url": row["repo_url"],
+            # Older rows written before the column existed read back as
+            # NULL rather than the column default, so normalize here.
+            "automation_mode": row["automation_mode"] or "automatic",
+        }
 
     def next_artifact_id(self) -> str:
         """Atomically reserve and return the next global artifact id
@@ -233,15 +276,32 @@ class ArtifactRepository:
 
     def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as connection:
-            row = connection.execute("SELECT id, name, repo_url FROM projects WHERE id = ?", (project_id,)).fetchone()
+            row = connection.execute(
+                "SELECT id, name, repo_url, automation_mode FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
         if row is None:
             return None
-        return {"id": row["id"], "name": row["name"], "repo_url": row["repo_url"]}
+        return self._row_to_project(row)
 
     def list_projects(self) -> List[Dict[str, Any]]:
         with self._connect() as connection:
-            rows = connection.execute("SELECT id, name, repo_url FROM projects ORDER BY id").fetchall()
-        return [{"id": row["id"], "name": row["name"], "repo_url": row["repo_url"]} for row in rows]
+            rows = connection.execute(
+                "SELECT id, name, repo_url, automation_mode FROM projects ORDER BY id"
+            ).fetchall()
+        return [self._row_to_project(row) for row in rows]
+
+    def set_project_automation_mode(self, project_id: str, mode: str) -> Optional[Dict[str, Any]]:
+        """Switch a project between "automatic" (the file watcher processes
+        every save) and "manual" (nothing is processed until it's asked for
+        explicitly from the Context Files page). Returns the updated project,
+        or None if it doesn't exist."""
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE projects SET automation_mode = ? WHERE id = ?",
+                (mode, project_id),
+            )
+            connection.commit()
+        return self.get_project(project_id)
 
     def upsert_artifact(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
         metadata = json.dumps(artifact.get("metadata") or {})
@@ -374,6 +434,107 @@ class ArtifactRepository:
             connection.execute(
                 "DELETE FROM excluded_paths WHERE id = ? AND project_id = ?",
                 (exception_id, project_id),
+            )
+            connection.commit()
+
+    _PROJECT_FILE_COLUMNS = (
+        "id, project_id, source_path, size_bytes, modified_at, "
+        "transform_requested, requested_at, last_seen_at"
+    )
+
+    @staticmethod
+    def _row_to_project_file(row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "project_id": row["project_id"],
+            "source_path": row["source_path"],
+            "size_bytes": row["size_bytes"],
+            "modified_at": row["modified_at"],
+            "transform_requested": bool(row["transform_requested"]),
+            "requested_at": row["requested_at"],
+            "last_seen_at": row["last_seen_at"],
+        }
+
+    def sync_project_files(self, project_id: str, files: List[Dict[str, Any]], now: str) -> int:
+        """Replace the project's markdown inventory with what the client
+        just found on disk. Files that disappeared are deleted rather than
+        kept as tombstones - a pending transform request for a file that no
+        longer exists is meaningless, and letting it linger would have the
+        extension keep trying to read a missing path forever. Returns the
+        number of files now tracked."""
+        with self._connect() as connection:
+            for entry in files:
+                connection.execute(
+                    """
+                    INSERT INTO project_files
+                        (project_id, source_path, size_bytes, modified_at, last_seen_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(project_id, source_path) DO UPDATE SET
+                        size_bytes=excluded.size_bytes,
+                        modified_at=excluded.modified_at,
+                        last_seen_at=excluded.last_seen_at
+                    """,
+                    (
+                        project_id,
+                        entry["source_path"],
+                        int(entry.get("size_bytes") or 0),
+                        entry.get("modified_at"),
+                        now,
+                    ),
+                )
+            connection.execute(
+                "DELETE FROM project_files WHERE project_id = ? AND last_seen_at != ?",
+                (project_id, now),
+            )
+            connection.commit()
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM project_files WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        return int(row["total"])
+
+    def list_project_files(self, project_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT {self._PROJECT_FILE_COLUMNS} FROM project_files "
+                "WHERE project_id = ? ORDER BY source_path",
+                (project_id,),
+            ).fetchall()
+        return [self._row_to_project_file(row) for row in rows]
+
+    def request_file_transform(self, project_id: str, source_path: str, now: str) -> Optional[Dict[str, Any]]:
+        """Queue a known-on-disk markdown file for a one-off run through the
+        pipeline. Returns the updated row, or None if the file isn't in the
+        project's inventory (never synced, or deleted since)."""
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE project_files SET transform_requested = 1, requested_at = ? "
+                "WHERE project_id = ? AND source_path = ?",
+                (now, project_id, source_path),
+            )
+            connection.commit()
+            row = connection.execute(
+                f"SELECT {self._PROJECT_FILE_COLUMNS} FROM project_files "
+                "WHERE project_id = ? AND source_path = ?",
+                (project_id, source_path),
+            ).fetchone()
+        return self._row_to_project_file(row) if row is not None else None
+
+    def list_file_transform_requests(self, project_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT {self._PROJECT_FILE_COLUMNS} FROM project_files "
+                "WHERE project_id = ? AND transform_requested = 1 ORDER BY requested_at",
+                (project_id,),
+            ).fetchall()
+        return [self._row_to_project_file(row) for row in rows]
+
+    def clear_file_transform_request(self, project_id: str, source_path: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE project_files SET transform_requested = 0, requested_at = NULL "
+                "WHERE project_id = ? AND source_path = ?",
+                (project_id, source_path),
             )
             connection.commit()
 

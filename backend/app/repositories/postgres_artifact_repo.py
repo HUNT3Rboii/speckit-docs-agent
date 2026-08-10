@@ -150,6 +150,35 @@ class PostgresArtifactRepository:
                     )
                     """
                 )
+                # Per-project automatic/manual transformation. Defaults to
+                # "automatic" so every pre-existing project keeps behaving
+                # exactly as it did before the setting existed.
+                cursor.execute(
+                    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS "
+                    "automation_mode TEXT NOT NULL DEFAULT 'automatic'"
+                )
+                # Inventory of every markdown file that exists in the
+                # project's working tree, pushed by the VS Code extension
+                # (the backend has no filesystem visibility into the
+                # caller's workspace - see ProcessRequest.project_root).
+                # Backs the Context Files page, which lists files that have
+                # NOT been turned into a PDF yet and therefore have no
+                # artifacts row to be listed from.
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_files (
+                        id SERIAL PRIMARY KEY,
+                        project_id TEXT NOT NULL REFERENCES projects(id),
+                        source_path TEXT NOT NULL,
+                        size_bytes BIGINT NOT NULL DEFAULT 0,
+                        modified_at TEXT,
+                        transform_requested BOOLEAN NOT NULL DEFAULT FALSE,
+                        requested_at TEXT,
+                        last_seen_at TEXT NOT NULL,
+                        UNIQUE(project_id, source_path)
+                    )
+                    """
+                )
                 # Sequences for atomic id generation - see create_project's
                 # docstring for why "SELECT COUNT(*) + 1" isn't safe under
                 # concurrent writers.
@@ -223,7 +252,7 @@ class PostgresArtifactRepository:
                         """
                         INSERT INTO projects (id, name, repo_url) VALUES (%s, %s, %s)
                         ON CONFLICT (name) DO NOTHING
-                        RETURNING id, name, repo_url
+                        RETURNING id, name, repo_url, automation_mode
                         """,
                         (project_id, name, repo_url),
                     )
@@ -231,23 +260,27 @@ class PostgresArtifactRepository:
                     if result:
                         self._seed_default_exceptions(cursor, project_id)
                         conn.commit()
-                        return dict(result)
+                        return self._row_to_project(result)
                     # Another concurrent call already created this name -
                     # return that row instead.
                     conn.commit()
-                    cursor.execute("SELECT id, name, repo_url FROM projects WHERE name = %s", (name,))
-                    return dict(cursor.fetchone())
+                    cursor.execute(
+                        "SELECT id, name, repo_url, automation_mode FROM projects WHERE name = %s",
+                        (name,),
+                    )
+                    return self._row_to_project(cursor.fetchone())
 
                 # No unique constraint available on this (legacy/dirty)
                 # database - fall back to the old unprotected insert.
                 cursor.execute(
-                    "INSERT INTO projects (id, name, repo_url) VALUES (%s, %s, %s) RETURNING id, name, repo_url",
+                    "INSERT INTO projects (id, name, repo_url) VALUES (%s, %s, %s) "
+                    "RETURNING id, name, repo_url, automation_mode",
                     (project_id, name, repo_url),
                 )
                 result = cursor.fetchone()
                 self._seed_default_exceptions(cursor, project_id)
                 conn.commit()
-                return dict(result)
+                return self._row_to_project(result)
 
     def _seed_default_exceptions(self, cursor, project_id: str) -> None:
         """Seeds DEFAULT_EXCLUDED_PATHS for a brand-new project. Only ever
@@ -279,17 +312,44 @@ class PostgresArtifactRepository:
         """Get a project by ID."""
         with self._connect() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("SELECT id, name, repo_url FROM projects WHERE id = %s", (project_id,))
+                cursor.execute(
+                    "SELECT id, name, repo_url, automation_mode FROM projects WHERE id = %s",
+                    (project_id,),
+                )
                 result = cursor.fetchone()
-                return dict(result) if result else None
+                return self._row_to_project(result) if result else None
 
     def list_projects(self) -> List[Dict[str, Any]]:
         """List all projects."""
         with self._connect() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("SELECT id, name, repo_url FROM projects ORDER BY id")
+                cursor.execute("SELECT id, name, repo_url, automation_mode FROM projects ORDER BY id")
                 results = cursor.fetchall()
-                return [dict(row) for row in results]
+                return [self._row_to_project(row) for row in results]
+
+    @staticmethod
+    def _row_to_project(row) -> Dict[str, Any]:
+        project = dict(row)
+        # Older rows written before the column existed read back as NULL
+        # rather than the column default, so normalize here.
+        project["automation_mode"] = project.get("automation_mode") or "automatic"
+        return project
+
+    def set_project_automation_mode(self, project_id: str, mode: str) -> Optional[Dict[str, Any]]:
+        """Switch a project between "automatic" (the file watcher processes
+        every save) and "manual" (nothing is processed until it's asked for
+        explicitly from the Context Files page). Returns the updated project,
+        or None if it doesn't exist."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE projects SET automation_mode = %s WHERE id = %s "
+                    "RETURNING id, name, repo_url, automation_mode",
+                    (mode, project_id),
+                )
+                result = cursor.fetchone()
+                conn.commit()
+                return self._row_to_project(result) if result else None
 
     def upsert_artifact(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
         """Insert or update an artifact."""
@@ -479,6 +539,103 @@ class PostgresArtifactRepository:
                 cursor.execute(
                     "DELETE FROM excluded_paths WHERE id = %s AND project_id = %s",
                     (exception_id, project_id),
+                )
+                conn.commit()
+
+    _PROJECT_FILE_COLUMNS = (
+        "id, project_id, source_path, size_bytes, modified_at, "
+        "transform_requested, requested_at, last_seen_at"
+    )
+
+    @staticmethod
+    def _row_to_project_file(row) -> Dict[str, Any]:
+        project_file = dict(row)
+        project_file["transform_requested"] = bool(project_file.get("transform_requested"))
+        return project_file
+
+    def sync_project_files(self, project_id: str, files: List[Dict[str, Any]], now: str) -> int:
+        """Replace the project's markdown inventory with what the client
+        just found on disk. Files that disappeared are deleted rather than
+        kept as tombstones - a pending transform request for a file that no
+        longer exists is meaningless, and letting it linger would have the
+        extension keep trying to read a missing path forever. Returns the
+        number of files now tracked."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                for entry in files:
+                    cursor.execute(
+                        """
+                        INSERT INTO project_files
+                            (project_id, source_path, size_bytes, modified_at, last_seen_at)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (project_id, source_path) DO UPDATE SET
+                            size_bytes = EXCLUDED.size_bytes,
+                            modified_at = EXCLUDED.modified_at,
+                            last_seen_at = EXCLUDED.last_seen_at
+                        """,
+                        (
+                            project_id,
+                            entry["source_path"],
+                            int(entry.get("size_bytes") or 0),
+                            entry.get("modified_at"),
+                            now,
+                        ),
+                    )
+                cursor.execute(
+                    "DELETE FROM project_files WHERE project_id = %s AND last_seen_at != %s",
+                    (project_id, now),
+                )
+                cursor.execute(
+                    "SELECT COUNT(*) AS total FROM project_files WHERE project_id = %s",
+                    (project_id,),
+                )
+                total = int(cursor.fetchone()["total"])
+                conn.commit()
+                return total
+
+    def list_project_files(self, project_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {self._PROJECT_FILE_COLUMNS} FROM project_files "
+                    "WHERE project_id = %s ORDER BY source_path",
+                    (project_id,),
+                )
+                return [self._row_to_project_file(row) for row in cursor.fetchall()]
+
+    def request_file_transform(self, project_id: str, source_path: str, now: str) -> Optional[Dict[str, Any]]:
+        """Queue a known-on-disk markdown file for a one-off run through the
+        pipeline. Returns the updated row, or None if the file isn't in the
+        project's inventory (never synced, or deleted since)."""
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE project_files SET transform_requested = TRUE, requested_at = %s "
+                    "WHERE project_id = %s AND source_path = %s "
+                    f"RETURNING {self._PROJECT_FILE_COLUMNS}",
+                    (now, project_id, source_path),
+                )
+                result = cursor.fetchone()
+                conn.commit()
+                return self._row_to_project_file(result) if result else None
+
+    def list_file_transform_requests(self, project_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {self._PROJECT_FILE_COLUMNS} FROM project_files "
+                    "WHERE project_id = %s AND transform_requested ORDER BY requested_at",
+                    (project_id,),
+                )
+                return [self._row_to_project_file(row) for row in cursor.fetchall()]
+
+    def clear_file_transform_request(self, project_id: str, source_path: str) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE project_files SET transform_requested = FALSE, requested_at = NULL "
+                    "WHERE project_id = %s AND source_path = %s",
+                    (project_id, source_path),
                 )
                 conn.commit()
 

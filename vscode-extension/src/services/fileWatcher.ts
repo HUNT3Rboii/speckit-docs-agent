@@ -15,6 +15,7 @@ export class FileWatcher implements IFileWatcher {
   private watchers: vscode.FileSystemWatcher[] = [];
   private fileChangeCallbacks: Array<(uri: vscode.Uri) => void> = [];
   private fileCreateCallbacks: Array<(uri: vscode.Uri) => void> = [];
+  private fileDeleteCallbacks: Array<(uri: vscode.Uri) => void> = [];
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private contentHashes: Map<string, string> = new Map();
   private contentHashService: ContentHashService;
@@ -40,6 +41,9 @@ export class FileWatcher implements IFileWatcher {
 
       // Handle file creation
       watcher.onDidCreate((uri) => this.handleFileCreate(uri));
+
+      // Handle file deletion
+      watcher.onDidDelete((uri) => this.handleFileDelete(uri));
 
       this.watchers.push(watcher);
     }
@@ -73,6 +77,17 @@ export class FileWatcher implements IFileWatcher {
    */
   public onFileCreated(callback: (uri: vscode.Uri) => void): void {
     this.fileCreateCallbacks.push(callback);
+  }
+
+  /**
+   * Register callback for file deletion. Unlike change/create this never
+   * leads to processing - it exists so the backend's markdown inventory
+   * (which backs the dashboard's Context Files page) can be corrected when
+   * a file disappears, and so a deleted file's cached hash doesn't survive
+   * to make a same-content recreation look like a duplicate.
+   */
+  public onFileDeleted(callback: (uri: vscode.Uri) => void): void {
+    this.fileDeleteCallbacks.push(callback);
   }
 
   /**
@@ -143,6 +158,32 @@ export class FileWatcher implements IFileWatcher {
         callback(uri);
       } catch (error) {
         console.error('Error in file create callback:', error);
+      }
+    });
+  }
+
+  /**
+   * Handle file deletion
+   */
+  private handleFileDelete(uri: vscode.Uri): void {
+    if (!this.shouldProcess(uri)) {
+      return;
+    }
+
+    // A pending debounced change for a file that no longer exists would
+    // fire against a missing path.
+    const pendingTimer = this.debounceTimers.get(uri.fsPath);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.debounceTimers.delete(uri.fsPath);
+    }
+    this.contentHashes.delete(uri.fsPath);
+
+    this.fileDeleteCallbacks.forEach(callback => {
+      try {
+        callback(uri);
+      } catch (error) {
+        console.error('Error in file delete callback:', error);
       }
     });
   }
