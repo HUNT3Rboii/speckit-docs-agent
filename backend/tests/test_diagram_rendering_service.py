@@ -555,13 +555,18 @@ class TestDiagramRenderingServiceProperties:
         """
         mermaid_code = "graph TD\nA --> B"
         
-        with patch.object(service, "render_with_mmdc") as mock_mmdc:
-            mock_mmdc.return_value = RenderResult(
+        # The real renderer writes a PNG to the output path it is handed, and
+        # _cache_diagram refuses to cache a file that isn't there - so the mock
+        # has to produce the file, not just claim success.
+        def fake_mmdc(_code, output_path):
+            Path(output_path).write_bytes(b"\x89PNG\r\n\x1a\n")
+            return RenderResult(
                 success=True,
-                image_path="/path/to/diagram.png",
+                image_path=output_path,
                 rendering_method="mmdc"
             )
-            
+
+        with patch.object(service, "render_with_mmdc", side_effect=fake_mmdc) as mock_mmdc:
             # First render
             result1 = service.render_diagram(mermaid_code, "diagram1")
             assert result1.success is True

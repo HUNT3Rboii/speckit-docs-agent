@@ -29,16 +29,18 @@ import type {
 export class APIError extends Error {
   statusCode: number;
   message: string;
-  details?: any;
+  details?: unknown;
 
-  constructor(statusCode: number, message: string, details?: any) {
+  constructor(statusCode: number, message: string, details?: unknown) {
     super(message);
     this.statusCode = statusCode;
     this.message = message;
     this.details = details;
     this.name = 'APIError';
     // Maintains proper stack trace for where our error was thrown (only available on V8)
-    const captureStackTrace = (Error as any).captureStackTrace;
+    const { captureStackTrace } = Error as unknown as {
+      captureStackTrace?: (target: object, constructor?: new (...args: never[]) => object) => void;
+    };
     if (captureStackTrace) {
       captureStackTrace(this, APIError);
     }

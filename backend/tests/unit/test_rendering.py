@@ -2,10 +2,19 @@ from app.services.rendering import RenderingService
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
+import base64
 import requests
 import hashlib
 import time
 import os
+
+
+# A real 1x1 PNG. The reportlab path hands downloaded diagram bytes to PIL,
+# which rejects arbitrary placeholder bytes with UnidentifiedImageError, so any
+# test that renders an embedded diagram needs a file PIL can actually decode.
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 
 def test_build_html_groups_sections_by_type(tmp_path) -> None:
@@ -435,8 +444,8 @@ def test_render_with_reportlab_section_with_diagram(tmp_path) -> None:
     # Mock successful diagram conversion
     mock_response = Mock()
     mock_response.status_code = 200
-    mock_response.content = b"test_diagram_image"
-    
+    mock_response.content = PNG_1X1
+
     with patch('requests.get', return_value=mock_response):
         service._render_with_reportlab(
             output_path,
@@ -498,8 +507,8 @@ def test_render_with_reportlab_multiple_sections_with_diagrams(tmp_path) -> None
     
     mock_response = Mock()
     mock_response.status_code = 200
-    mock_response.content = b"diagram_image"
-    
+    mock_response.content = PNG_1X1
+
     with patch('requests.get', return_value=mock_response):
         service._render_with_reportlab(
             output_path,
@@ -621,7 +630,10 @@ def test_build_html_with_no_diagrams(tmp_path) -> None:
     
     assert "Introduction" in html
     assert "This is a test section" in html
-    assert "diagram-img" not in html  # No diagram CSS class should be present
+    # The .diagram-img rule lives in the stylesheet unconditionally (see
+    # test_build_html_diagram_css_styling), so absence of diagrams shows up as
+    # no <img> element, not as a missing CSS class.
+    assert '<img' not in html
 
 
 def test_build_html_with_single_diagram(tmp_path) -> None:
@@ -854,7 +866,7 @@ def test_build_html_no_diagrams_key(tmp_path) -> None:
     
     assert "Content" in html
     assert "Text content" in html
-    assert "diagram-img" not in html
+    assert '<img' not in html
 
 
 def test_build_html_diagram_css_styling(tmp_path) -> None:

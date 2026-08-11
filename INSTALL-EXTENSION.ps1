@@ -2,7 +2,13 @@
 # Uninstalls any existing copy, rebuilds, tests, packages, and reinstalls the
 # VS Code extension locally.
 
-$ExtensionId = "speckit.speckit-auto-ai"
+$ExtensionId = "HUNT3Rboii.speckit-auto-ai"
+
+# The publisher field changed from the placeholder "speckit" to a real one, so
+# the extension id changed with it. VS Code treats the old id as a separate
+# extension and would happily keep running it alongside the new build; uninstall
+# it too, or a machine that installed a pre-rename build ends up with both.
+$LegacyExtensionIds = @("speckit.speckit-auto-ai")
 
 # Resolve paths from the script's own location so this works regardless of the
 # caller's working directory.
@@ -35,7 +41,9 @@ Set-Location vscode-extension
 
 # Step 0: Uninstall any existing copy first (ignore failure if not installed)
 Write-Host "[1/6] Uninstalling any existing copy..." -ForegroundColor Yellow
-code --uninstall-extension $ExtensionId 2>$null
+foreach ($id in @($ExtensionId) + $LegacyExtensionIds) {
+    code --uninstall-extension $id 2>$null
+}
 Write-Host "[OK] Uninstall step complete (no-op if it wasn't installed)" -ForegroundColor Green
 Write-Host ""
 

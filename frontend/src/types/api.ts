@@ -91,7 +91,7 @@ export interface Version {
   artifact_id: string;
   version_no: number;
   pdf_path: string;
-  structured_json: Record<string, any>;
+  structured_json: Record<string, unknown>;
   generated_by: string;
   generated_at: string;
 }
@@ -188,6 +188,6 @@ export interface KanbanTasksResponse {
 export interface ErrorResponse {
   detail: string | {
     message: string;
-    details?: any;
+    details?: unknown;
   };
 }

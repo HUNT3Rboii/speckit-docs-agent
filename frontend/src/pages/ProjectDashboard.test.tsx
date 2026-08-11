@@ -4,7 +4,7 @@
  * **Validates: Requirements 1.1, 1.4, 1.5, 5.1, 5.2, 5.3, 5.4, 7.1, 7.5, 8.1, 8.2, 8.3, 8.4**
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';

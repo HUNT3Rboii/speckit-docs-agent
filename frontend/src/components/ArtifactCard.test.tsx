@@ -1,10 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ArtifactCard } from './ArtifactCard';
 import type { Artifact } from '../types/api';
-import { formatDistanceToNow } from 'date-fns';
 import * as clientModule from '../api/client';
 
 /**
@@ -435,14 +433,7 @@ describe('ArtifactCard', () => {
       renderCard(artifact, onClick);
 
       const card = screen.getByRole('button', { name: /^Open artifact/ });
-      // Create a keyboard event with event properties
-      const event = new KeyboardEvent('keydown', {
-        key: ' ',
-        code: 'Space',
-        bubbles: true,
-        cancelable: true,
-      });
-      
+
       // Dispatch the event - the component should handle Space key
       fireEvent.keyDown(card, { key: ' ', code: 'Space' });
       

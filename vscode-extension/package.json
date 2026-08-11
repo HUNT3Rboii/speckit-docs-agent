@@ -3,15 +3,15 @@
   "displayName": "Speckit Auto-AI",
   "description": "Fully automatic AI-powered markdown-to-PDF documentation generation for VS Code",
   "version": "0.1.0",
-  "publisher": "speckit",
-  "author": "Speckit Team",
+  "publisher": "HUNT3Rboii",
+  "author": "Mohamed Yassine Reggui",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/speckit/vscode-speckit-auto-ai"
+    "url": "https://github.com/HUNT3Rboii/speckit-docs-agent"
   },
   "bugs": {
-    "url": "https://github.com/speckit/vscode-speckit-auto-ai/issues"
+    "url": "https://github.com/HUNT3Rboii/speckit-docs-agent/issues"
   },
   "engines": {
     "vscode": "^1.85.0"

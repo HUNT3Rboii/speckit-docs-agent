@@ -132,23 +132,6 @@ class SectionSchema(BaseModel):
     type: str = Field(..., pattern="^(task|user_story|design_decision|normal)$")
 
 
-class AgentTransformRequest(BaseModel):
-    """Request from IDE extension with AI transformation result."""
-    source_path: str
-    artifact_type: str
-    title: str
-    abstract: str
-    sections: List[SectionSchema]
-
-
-class AgentTransformResponse(BaseModel):
-    """Response confirming receipt of AI transformation."""
-    status: str
-    message: str
-    result: dict[str, Any]
-
-
-
 class TransformationModeRequest(BaseModel):
     """Request to change transformation mode."""
     mode: str = Field(..., pattern="^(ai|agentic|ai-powered|rule-based|classic|heuristic)$")

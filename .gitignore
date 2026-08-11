@@ -114,5 +114,15 @@ pdf-output/
 .kiro-task-*.md
 
 # graphify knowledge graph output - 22MB of generated artifacts, rebuilt
-# locally with `graphify update .` (see the graphify section in claude.md).
+# locally with `graphify update .`.
 graphify-out/
+
+# Local AI-assistant context. These describe how one contributor's assistant
+# should work in this checkout, not how the project works - README.md and
+# DEVELOPMENT.md are the shared documentation. Keep your own copies locally;
+# they are deliberately not shared through git.
+.claude/
+skills-lock.json
+claude.md
+CLAUDE.md
+CONTEXT.md

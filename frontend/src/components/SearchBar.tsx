@@ -17,14 +17,17 @@ export function SearchBar({
   ariaLabel = 'Search artifacts',
 }: SearchBarProps) {
   const [inputValue, setInputValue] = useState(value);
+  const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const debouncedValue = useDebounce(inputValue, 300);
   const isFirstRender = useRef(true);
 
-  // Sync internal state when external value prop changes
-  useEffect(() => {
-    // Always update the input value when prop changes, regardless of first render
+  // Sync internal state when the external value prop changes. Adjusting during
+  // render rather than in an effect keeps the input from briefly showing the
+  // stale value, and re-runs this component only - not its children.
+  if (value !== lastSyncedValue) {
+    setLastSyncedValue(value);
     setInputValue(value);
-  }, [value]);
+  }
 
   useEffect(() => {
     // Skip the first render to avoid calling onChange on mount

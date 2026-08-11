@@ -137,7 +137,7 @@ describe('CategoryFilter', () => {
     it('applies visual styling to selected categories', () => {
       const selectedCategories = new Set(['spec'] as ArtifactCategory[]);
       
-      const { container } = render(
+      render(
         <CategoryFilter
           selectedCategories={selectedCategories}
           onCategoryToggle={mockOnCategoryToggle}

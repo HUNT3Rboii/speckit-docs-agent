@@ -10,8 +10,6 @@ try:
 except Exception:  # pragma: no cover
     httpx = None
 
-from app.services.agent_integration import AgentIntegrationService
-
 
 def get_transformation_mode() -> bool:
     """Get current transformation mode from config routes."""
@@ -25,12 +23,17 @@ def get_transformation_mode() -> bool:
 
 class AgentTransformService:
     """
-    Agentic transformation service that uses the active IDE AI agent for intelligent markdown parsing.
-    
+    Server-side transformation of raw markdown into a structured document.
+
+    This is the backend's own path, used when something submits raw markdown
+    rather than an already-structured payload. The normal flow does not reach
+    it: the VS Code extension runs the transformation against whatever AI is
+    active in the IDE and posts the structured result.
+
     Priority:
-    1. IDE Agent (Copilot, Claude, Kiro) - uses whatever model you're already using
-    2. Fallback to heuristics if agent unavailable
-    
+    1. External API (OpenAI-compatible) when OPENAI_API_KEY is configured
+    2. Fallback to rule-based heuristics
+
     Features:
     - Smart title extraction and improvement
     - Intelligent abstract generation
@@ -39,10 +42,7 @@ class AgentTransformService:
     """
 
     def __init__(self, model_endpoint: Optional[str] = None, model_name: Optional[str] = None, api_key: Optional[str] = None) -> None:
-        # IDE Agent Integration (Primary)
-        self.agent_integration = AgentIntegrationService()
-        
-        # External API Configuration (Fallback)
+        # External API Configuration
         self.model_endpoint = model_endpoint or os.getenv("SPECKIT_MODEL_ENDPOINT") or "https://api.openai.com/v1/chat/completions"
         self.model_name = model_name or os.getenv("SPECKIT_MODEL_NAME") or "gpt-4o-mini"
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -54,27 +54,17 @@ class AgentTransformService:
         
         Pipeline:
         1. Check if AI mode is enabled
-        2. Try IDE Agent (Copilot, Claude, Kiro) - uses your current model
-        3. Try external API if configured (OpenAI, Azure, etc.)
-        4. Fallback to rule-based heuristics
+        2. Try external API if configured (OpenAI, Azure, etc.)
+        3. Fallback to rule-based heuristics
         """
         # Check if AI transformation is enabled
         ai_mode_enabled = get_transformation_mode()
-        
+
         if not ai_mode_enabled:
             print(f"⚡ AI mode disabled - using rule-based transformation: {source_path}")
             return self._heuristic_transform(source_path, raw_content, artifact_type)
-        
-        # Priority 1: Use IDE Agent (leverages user's existing AI model)
-        try:
-            agent_result = self.agent_integration.transform_markdown(source_path, raw_content, artifact_type)
-            if agent_result:
-                print(f"✅ AI-enhanced transformation via IDE agent: {source_path}")
-                return self._merge_with_heuristics(agent_result, source_path, raw_content, artifact_type)
-        except Exception as e:
-            print(f"IDE agent transformation failed: {e}")
 
-        # Priority 2: Use external API if configured
+        # Priority 1: Use external API if configured
         if self.use_external_api and self._has_model_config():
             try:
                 model_result = self._call_external_model(source_path, raw_content, artifact_type)
@@ -84,22 +74,9 @@ class AgentTransformService:
             except Exception as e:
                 print(f"External API transformation failed: {e}")
 
-        # Priority 3: Fallback to heuristics
+        # Priority 2: Fallback to heuristics
         print(f"⚠️  Using rule-based transformation (AI unavailable): {source_path}")
         return self._heuristic_transform(source_path, raw_content, artifact_type)
-
-    def _merge_with_heuristics(self, agent_result: Dict[str, Any], source_path: str, raw_content: str, artifact_type: str) -> Dict[str, Any]:
-        """Merge AI results with heuristic fallbacks for missing fields."""
-        return {
-            "title": agent_result.get("title") or self._derive_title(source_path, raw_content),
-            "abstract": agent_result.get("abstract") or self._derive_abstract(raw_content),
-            "artifact_type": artifact_type,
-            "source_path": source_path,
-            "sections": agent_result.get("sections") or self._build_sections(raw_content, artifact_type),
-            "headings": self._extract_headings(raw_content),
-            "ai_enhanced": agent_result.get("ai_enhanced", True),
-            "agent_source": agent_result.get("agent_source", "ide_agent")
-        }
 
     def _has_model_config(self) -> bool:
         return bool(self.model_endpoint and self.api_key)

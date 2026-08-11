@@ -218,11 +218,22 @@ The backend has no filesystem access to your workspace and no AI provider of its
 
 ## Testing
 
+Everything below also runs on push and pull request via [`.github/workflows/ci.yml`](.github/workflows/ci.yml), in three independent jobs (backend, extension, dashboard). [CONTRIBUTING.md](CONTRIBUTING.md) has the short version.
+
 ### Backend
 
 ```powershell
 cd backend
 pytest tests/
+```
+
+`reportlab` and WeasyPrint's native GTK/Pango libraries both have to be present or a handful of rendering tests fail on import — `pip install -r requirements.txt` covers the former, [WeasyPrint's install docs](https://weasyprint.readthedocs.io/en/stable/install.html) the latter.
+
+### Dashboard
+
+```powershell
+cd frontend
+npm run test
 ```
 
 ### Extension — unit tests (pure logic, no VS Code needed)

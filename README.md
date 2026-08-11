@@ -2,8 +2,9 @@
 
 Turn your markdown into polished PDF documentation, automatically, every time you save.
 
+[![CI](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
-![License](https://img.shields.io/badge/license-MIT-orange)
+[![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 
 Save a `.md` file in VS Code and you get back a professional PDF — cover page, table of contents, Mermaid diagrams, and a glossary — built by whatever AI is already running in your editor. Every diagram and glossary entry has to quote your actual document to make it into the PDF, so nothing invented ends up in there.
 
@@ -21,7 +22,7 @@ Save a `.md` file in VS Code and you get back a professional PDF — cover page,
 **No configuration required.** The defaults already agree with each other.
 
 ```powershell
-git clone <your-repo-url> speckit-docs-agent
+git clone https://github.com/HUNT3Rboii/speckit-docs-agent
 cd speckit-docs-agent
 .\START-EVERYTHING.ps1      # backend on :8000, dashboard on :5173
 .\INSTALL-EXTENSION.ps1     # builds and installs the VS Code extension
@@ -32,6 +33,33 @@ Then reload VS Code: `Ctrl+Shift+P` → **Developer: Reload Window**.
 That's it. Save any markdown file and a PDF appears.
 
 > `INSTALL-EXTENSION.ps1` needs the `code` command on your PATH. If it's missing: `Ctrl+Shift+P` → "Shell Command: Install 'code' command in PATH".
+
+<details>
+<summary><b>macOS / Linux</b> — the same steps without the scripts</summary>
+
+Both scripts are PowerShell and run fine under [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) (`pwsh ./START-EVERYTHING.ps1`). Without it, run what they do by hand:
+
+```bash
+git clone https://github.com/HUNT3Rboii/speckit-docs-agent
+cd speckit-docs-agent
+
+# Backend on :8000
+cd infra && docker compose up -d --build && cd ..
+
+# Dashboard on :5173
+cp frontend/.env.example frontend/.env.development
+cd frontend && npm install && npm run dev &
+cd ..
+
+# Build and install the extension
+cd vscode-extension
+npm install && npm run compile && npx vsce package
+code --install-extension speckit-auto-ai-0.1.0.vsix --force
+```
+
+Then reload VS Code. Everything after this point is identical.
+
+</details>
 
 ## Using it
 
@@ -109,3 +137,9 @@ That's the evidence check doing its job — anything the AI couldn't back with a
 ## Working on the code
 
 Architecture, configuration reference, project layout, tests, and running the backend without Docker: **[DEVELOPMENT.md](DEVELOPMENT.md)**.
+
+Pull requests are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for how to set up, what runs in CI, and what a reviewable change looks like.
+
+## License
+
+[MIT](LICENSE).
