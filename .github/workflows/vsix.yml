@@ -1,0 +1,120 @@
+name: VSIX
+
+on:
+  push:
+    branches: [main, standalone-vsix]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: vsix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix webview-ui ci
+
+      # The backend imports markdown-it-py from server/vendor, exactly as it
+      # does when shipped, so the tests exercise the vendored copy rather than
+      # a differently-resolved one from the runner's site-packages.
+      - name: Vendor backend dependencies
+        run: pip install --quiet --target server/vendor -r server/requirements.txt
+
+      - name: Install pytest
+        run: pip install --quiet pytest
+
+      - name: Compile
+        run: npm run build
+
+      - name: TypeScript tests
+        run: node --test "out/src/test/**/*.test.js"
+
+      # Runtimes are not fetched here, so the tests that need a real typst
+      # binary skip themselves; the packaging job below is what proves those.
+      - name: Python tests
+        run: python -m pytest server/tests -q
+
+  package:
+    name: Package ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            os: windows-latest
+          - target: linux-x64
+            os: ubuntu-latest
+          - target: darwin-x64
+            os: macos-13
+          - target: darwin-arm64
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix webview-ui ci
+
+      # Downloads the pinned interpreter and Typst for this target and verifies
+      # them against runtimes.lock.json. A checksum mismatch fails the build
+      # rather than shipping something unverified.
+      - name: Fetch runtimes
+        run: npm run fetch-runtimes -- ${{ matrix.target }}
+
+      - name: Vendor backend dependencies
+        run: npm run vendor-deps -- ${{ matrix.target }}
+
+      - name: Build
+        run: npm run build
+
+      # Runs the whole pipeline on this platform - spawn, handshake, RPC, and a
+      # real Typst compile - which is the only thing that catches a runtime that
+      # downloaded but cannot execute.
+      - name: End-to-end smoke test
+        run: node scripts/smoke-host.mjs
+
+      - name: Python tests
+        run: |
+          pip install --quiet pytest
+          python -m pytest server/tests -q
+
+      - name: Package
+        run: npx @vscode/vsce package --target ${{ matrix.target }} --out speckit-${{ matrix.target }}.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: speckit-${{ matrix.target }}.vsix
+          retention-days: 14

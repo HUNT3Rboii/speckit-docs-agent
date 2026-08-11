@@ -1,144 +1,106 @@
-# Speckit Auto-AI
+# Speckit
 
-Turn your markdown into polished PDF documentation, automatically, every time you save.
+Turn markdown into typeset PDF documentation, inside VS Code, with nothing to install.
 
-[![CI](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/ci.yml)
+[![VSIX](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/vsix.yml/badge.svg)](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/vsix.yml)
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 [![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 
-Save a `.md` file in VS Code and you get back a professional PDF — cover page, table of contents, Mermaid diagrams, and a glossary — built by whatever AI is already running in your editor. Every diagram and glossary entry has to quote your actual document to make it into the PDF, so nothing invented ends up in there.
+Open a `.md` file, run **Speckit Preview: Convert Current File to PDF**, and you get a
+typeset document: cover page, contents, numbered headings, running headers, page-breaking
+tables, syntax-highlighted code, and your mermaid diagrams rendered as figures.
 
-## What you need
+No Docker. No database to run. No API key. The extension carries its own Python and its own
+typesetter, and uses whatever AI you already have in your editor.
 
-| | |
-|---|---|
-| [Docker Desktop](https://docs.docker.com/desktop/) | Runs the backend |
-| [Node.js 20+](https://nodejs.org/) | Builds the extension and dashboard |
-| [VS Code 1.85+](https://code.visualstudio.com/) | Where you work |
-| An AI provider | GitHub Copilot, Claude, or any model already active in VS Code. You can also point it at your own OpenAI-compatible endpoint (Ollama, etc). Without one, see [No AI provider](#no-ai-provider) |
+## Install
 
-## Setup
+Install from the Marketplace, or from a `.vsix`:
 
-**No configuration required.** The defaults already agree with each other.
-
-```powershell
-git clone https://github.com/HUNT3Rboii/speckit-docs-agent
-cd speckit-docs-agent
-.\START-EVERYTHING.ps1      # backend on :8000, dashboard on :5173
-.\INSTALL-EXTENSION.ps1     # builds and installs the VS Code extension
+```
+code --install-extension speckit-win32-x64.vsix
 ```
 
-Then reload VS Code: `Ctrl+Shift+P` → **Developer: Reload Window**.
-
-That's it. Save any markdown file and a PDF appears.
-
-> `INSTALL-EXTENSION.ps1` needs the `code` command on your PATH. If it's missing: `Ctrl+Shift+P` → "Shell Command: Install 'code' command in PATH".
-
-<details>
-<summary><b>macOS / Linux</b> — the same steps without the scripts</summary>
-
-Both scripts are PowerShell and run fine under [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) (`pwsh ./START-EVERYTHING.ps1`). Without it, run what they do by hand:
-
-```bash
-git clone https://github.com/HUNT3Rboii/speckit-docs-agent
-cd speckit-docs-agent
-
-# Backend on :8000
-cd infra && docker compose up -d --build && cd ..
-
-# Dashboard on :5173
-cp frontend/.env.example frontend/.env.development
-cd frontend && npm install && npm run dev &
-cd ..
-
-# Build and install the extension
-cd vscode-extension
-npm install && npm run compile && npx vsce package
-code --install-extension speckit-auto-ai-0.1.0.vsix --force
-```
-
-Then reload VS Code. Everything after this point is identical.
-
-</details>
+Downloads are per platform — `win32-x64`, `linux-x64`, `darwin-x64`, `darwin-arm64` — because
+the interpreter and typesetter are bundled. The Marketplace serves the right one automatically.
 
 ## Using it
 
-Save a `.md` file. A few seconds later you get a notification with an **Open PDF** button.
-
-Behind that: the extension reads your file, asks your AI to structure it, and sends the result to the backend, which checks every diagram and glossary claim against your original text before rendering. If a claim isn't backed by your document, the AI is asked to correct it; if it still can't, that item is dropped and the notification tells you which.
-
-Your PDFs are also in `pdf-output/` at the repo root, and browsable in the dashboard at **http://localhost:5173**.
-
-### Converting files by hand
-
-Not every project wants a PDF on every save. In the dashboard sidebar, each project has an **Auto transform** switch. Turn it off and saving stops converting anything for that project — the other projects are unaffected.
-
-You then convert files when you want to, from the project's **Context Files** page in the sidebar (next to Artifacts and Board). It lists every `.md` in the project, converted or not, with two buttons on each: **Transform to PDF** runs that file through the same pipeline a save would, and the eye icon adds it to the **Exceptions** list so it's never converted.
-
-The list comes from the extension, so VS Code needs to be open on that project for it to fill in. Pressing Transform queues the file — the extension picks it up within about 15 seconds and the row updates as it goes.
-
-### Commands
-
-`Ctrl+Shift+P`, then:
-
 | Command | What it does |
-|---------|--------------|
-| `Speckit: Process Current File` | Process the open file now |
-| `Speckit: Show Extension Logs` | See what happened, in detail |
-| `Speckit: Check Backend Status` | Confirm the backend is reachable |
-| `Speckit: Toggle Auto-Processing` | Stop/start processing on save |
-| `Speckit: Manage AI Providers` | Add custom models, reorder which is tried first |
+|---|---|
+| `Speckit Preview: Convert Current File to PDF` | Convert the open file |
+| `Speckit Preview: Open Panel` | List every markdown file in the workspace, convert any of them |
+| `Speckit Preview: Toggle Convert on Save` | Rebuild automatically when a file is saved, for this workspace |
 
-### Settings
+PDFs are written under the extension's own storage, which VS Code removes when you uninstall.
 
-`Ctrl+,` → search "Speckit". The ones worth knowing:
+### Diagrams
 
-| Setting | Default | What it's for |
-|---------|---------|---------------|
-| `speckit.autoProcess` | `true` | Watch for saves at all. Turn off to only run the command manually — for a single project, prefer the dashboard's Auto transform switch |
-| `speckit.includePatterns` | `["**/*.md"]` | Which files to process |
-| `speckit.excludePatterns` | *(node_modules, .git, …)* | Which to skip |
-| `speckit.allowRuleBasedFallback` | `false` | Produce a plain PDF when no AI is available, instead of an error |
-| `speckit.providerPriority` | Copilot first | Which AI is tried first — easiest to set via "Speckit: Manage AI Providers" |
-| `speckit.enableDebugLogging` | `false` | Verbose logs when something needs diagnosing |
+Fenced ` ```mermaid ` blocks become figures, captioned with the heading above them. Rendering
+happens in the panel — it is a browser, which is what mermaid needs — so **the panel must be
+open** for diagrams to render. With it closed, the diagram's source is printed instead and the
+log says so.
 
-The remaining settings (`backendUrl`, `apiKey`, `debounceMs`, `maxConcurrentProcessing`, `preferredModelId`, `customModels`, `enableCopilotProgressTracking`) only matter if you're changing where the backend runs or how it's reached — see the [development guide](DEVELOPMENT.md#environment-variables).
+### Annotation, and why you can trust it
+
+With a language model available, Speckit also proposes a summary, a glossary, and diagrams for
+relationships your document describes.
+
+Every claim has to quote your document. Each proposed glossary entry and each diagram component
+carries a verbatim excerpt, and that excerpt is checked against your text before anything is
+printed. Anything that cannot be backed is dropped, and the output channel names what went and
+why:
+
+```
+[dropped] glossary "Kubernetes" - the term does not appear in the document
+[dropped] component "d1: Redis Cache" - not backed by a quote from the document
+```
+
+Nothing invented reaches the PDF. Turn it off entirely with `speckitStandalone.enrich`.
+
+The model is whichever one your editor already provides — GitHub Copilot, or anything else
+registered with VS Code. There is no key to configure and nothing is billed twice.
+
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `speckitStandalone.enrich` | `true` | Ask the editor's model for a summary, glossary and diagrams |
+| `speckitStandalone.convertOnSave` | `false` | Rebuild a file's PDF when it is saved |
+| `speckitStandalone.debounceMs` | `1500` | How long to wait after a save before converting |
 
 ## Troubleshooting
 
-### Nothing happens when I save
+**Nothing happens on save.** `convertOnSave` is off by default. Check it, and check the file
+isn't on the exception list.
 
-1. Check the project's **Auto transform** switch in the dashboard sidebar — with it off, saving is meant to do nothing, and you convert from the **Context Files** page instead
-2. Check `speckit.autoProcess` is on, and that your file matches `speckit.includePatterns`
-3. Check the file isn't on the project's **Exceptions** list
-4. Run `Speckit: Show Extension Logs` — every run is logged there
-5. Try `Speckit: Process Current File` to rule out the file watcher
+**A diagram printed as code instead of a picture.** The panel was closed, or mermaid rejected
+the syntax. The output channel says which.
 
-### "Backend is not available"
+**A glossary entry I expected is missing.** It was dropped because its quote wasn't found in
+your document — the reason is in the output channel. That is the evidence check working.
 
-Make sure it's running: `curl http://localhost:8000/health` should return `{"status":"ok",...}`. If not, `.\START-EVERYTHING.ps1` again and check Docker Desktop is up.
+**"No language model is available."** Install and sign in to Copilot, or set
+`speckitStandalone.enrich` to `false` to build plain PDFs.
 
-### Extension seems out of date after installing
+Everything else lives in the **Speckit Preview** output channel.
 
-Installing a new build doesn't replace an already-running extension. Run `Developer: Reload Window` in **every** VS Code window you process files from.
+## Building it yourself
 
-### No AI provider
+```bash
+npm install
+npm --prefix webview-ui install
+npm run fetch-runtimes        # pinned Python + Typst for your platform
+npm run vendor-deps           # backend dependencies into server/vendor
+npm run build
+npm test                      # extension host
+npm run test:python           # backend
+npm run smoke                 # whole pipeline, no editor required
+npx @vscode/vsce package --target win32-x64
+```
 
-By default, processing fails with an explanation rather than quietly producing an empty-looking PDF. Either install GitHub Copilot or Claude (then reload the window), add your own endpoint via `Speckit: Manage AI Providers`, or set `speckit.allowRuleBasedFallback` to `true` to accept a plain PDF with no diagrams or glossary.
-
-### A diagram or glossary term is missing
-
-That's the evidence check doing its job — anything the AI couldn't back with a quote from your document gets dropped rather than printed. The notification names what went missing.
-
-### Still stuck
-
-`vscode-extension/TROUBLESHOOTING.md` goes deeper, and `Speckit: Show Extension Logs` is almost always where the answer is.
-
-## Working on the code
-
-Architecture, configuration reference, project layout, tests, and running the backend without Docker: **[DEVELOPMENT.md](DEVELOPMENT.md)**.
-
-Pull requests are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for how to set up, what runs in CI, and what a reviewable change looks like.
+Architecture, the constraints a VSIX imposes, and why Typst rather than anything else:
+[CLAUDE.md](CLAUDE.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
