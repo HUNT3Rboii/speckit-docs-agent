@@ -133,6 +133,18 @@ class TestUnsupported:
         assert "picture.png" not in result.typst
         assert any("images are not supported" in warning for warning in result.warnings)
 
+    def test_inline_html_is_kept_as_literal_text(self):
+        # Dropping it loses content the author wrote; interpreting it would mean
+        # a second rendering engine. Printing it is the honest middle.
+        result = emit("before <span>x</span> after")
+        assert "\\<span\\>" in result.typst
+        assert any("Inline HTML" in warning for warning in result.warnings)
+
+    def test_html_block_is_kept_as_literal_text(self):
+        result = emit("<div>\n  block\n</div>")
+        assert "block" in result.typst
+        assert any("HTML block" in warning for warning in result.warnings)
+
 
 class TestDiagrams:
     def test_diagrams_become_figures(self):

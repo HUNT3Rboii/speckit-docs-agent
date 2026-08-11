@@ -185,6 +185,13 @@ class TypstEmitter:
         inner = self._blocks(node.children, depth).strip()
         return f"#quote(block: true)[\n{inner}\n]\n"
 
+    def _block_html_block(self, node: SyntaxTreeNode, _depth: int) -> str:
+        # Same reasoning as inline HTML: kept verbatim rather than silently
+        # discarded, so an author can see what did not survive the change of
+        # medium.
+        self.warnings.append("HTML block kept as literal text")
+        return _escape_line_start(escape(node.content.strip())) + "\n"
+
     def _block_hr(self, _node: SyntaxTreeNode, _depth: int) -> str:
         return "#line(length: 100%, stroke: 0.5pt + luma(180))\n"
 
@@ -250,6 +257,12 @@ class TypstEmitter:
         if node.type == "image":
             self.warnings.append("Markdown images are not supported and were dropped")
             return ""
+        if node.type == "html_inline":
+            # A PDF has nothing to do with a tag. Printing it as written is at
+            # least honest about what was in the source; interpreting it would
+            # mean a second rendering engine.
+            self.warnings.append(f"Inline HTML kept as literal text: {node.content.strip()}")
+            return escape(node.content)
         if node.children:
             return self._inline_children(node)
 
