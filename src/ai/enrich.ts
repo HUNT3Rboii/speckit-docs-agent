@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { EMPTY_ENRICHMENT, ProposedEnrichment, parseEnrichment } from './parse';
+import { NoProviderAvailableError, requestEnrichment } from './providers';
 
 export { EMPTY_ENRICHMENT, parseEnrichment };
 export type { ProposedComponent, ProposedDiagram, ProposedEnrichment, ProposedGlossaryEntry } from './parse';
@@ -49,55 +50,39 @@ Rules:
 - An empty list is a valid and correct answer.
 - No markdown fences, no commentary, no explanation. JSON only.`;
 
-export class NoModelAvailableError extends Error {
-  constructor() {
-    super(
-      'No language model is available. Install GitHub Copilot (or another provider that registers with VS Code) ' +
-        'and sign in, or turn enrichment off to build plain PDFs.'
-    );
-    this.name = 'NoModelAvailableError';
-  }
-}
-
 /**
- * Ask the editor's model to annotate a document.
+ * Ask the configured providers to annotate a document.
  *
- * A failure here is never fatal to a conversion: the caller falls back to a
- * plain PDF, which is what the document is anyway without annotation.
+ * Which provider answers is decided by speckitStandalone.providerPriority - the
+ * editor's own models first by default, then any custom endpoint the user
+ * added. A failure here is never fatal to a conversion: the caller falls back
+ * to a plain PDF, which is what the document is anyway without annotation.
  */
 export async function proposeEnrichment(
   markdown: string,
   token: vscode.CancellationToken,
   log: (message: string) => void
 ): Promise<ProposedEnrichment> {
-  const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-  const model = models[0] ?? (await vscode.lm.selectChatModels())[0];
-
-  if (!model) {
-    throw new NoModelAvailableError();
-  }
-
-  log(`enriching with ${model.vendor}/${model.family}`);
-
   const document = markdown.length > MAX_CHARS ? markdown.slice(0, MAX_CHARS) : markdown;
   if (document.length < markdown.length) {
     log(`document truncated to ${MAX_CHARS} characters for enrichment`);
   }
 
-  const response = await model.sendRequest(
-    [
-      vscode.LanguageModelChatMessage.User(SYSTEM_PROMPT),
-      vscode.LanguageModelChatMessage.User(`Document:\n\n${document}`),
-    ],
-    {},
-    token
+  const answer = await requestEnrichment(
+    { system: SYSTEM_PROMPT, user: `Document:
+
+${document}` },
+    token,
+    log
   );
 
-  let text = '';
-  for await (const fragment of response.text) {
-    text += fragment;
+  if (!answer) {
+    log('no provider produced usable enrichment; building a plain PDF');
+    return EMPTY_ENRICHMENT;
   }
 
-  return parseEnrichment(text);
+  log(`enriched by ${answer.provider}`);
+  return answer.enrichment;
 }
 
+export { NoProviderAvailableError };

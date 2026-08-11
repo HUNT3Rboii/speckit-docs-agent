@@ -5,6 +5,7 @@ import { ConvertOutcome, MermaidResult } from '../shared/protocol';
 import { EMPTY_ENRICHMENT, ProposedEnrichment, proposeEnrichment } from './ai/enrich';
 import { BackendProcess } from './backend/process';
 import { findMermaidBlocks } from './markdown/mermaid';
+import { checkBackendStatus, discoverModelsCommand, manageProviders, showLogs, stopProcessing } from './commands';
 import { SaveWatcher } from './watcher';
 import { SpeckitPanel } from './webview/panel';
 
@@ -16,8 +17,22 @@ interface ConvertResponse {
   reused: boolean;
 }
 
-const MARKDOWN_GLOB = '**/*.md';
-const EXCLUDED = '**/{node_modules,.git,out,dist,.venv,bin}/**';
+const DEFAULT_INCLUDE = ['**/*.md'];
+
+function settings() {
+  return vscode.workspace.getConfiguration('speckitStandalone');
+}
+
+/** One glob for findFiles, from the include list the user controls. */
+function includeGlob(): string {
+  const patterns = settings().get<string[]>('includePatterns', DEFAULT_INCLUDE);
+  return patterns.length === 1 ? patterns[0] : `{${patterns.join(',')}}`;
+}
+
+function excludeGlob(): string | undefined {
+  const patterns = settings().get<string[]>('excludePatterns', []);
+  return patterns.length ? `{${patterns.join(',')}}` : undefined;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Speckit Preview');
@@ -30,6 +45,17 @@ export function activate(context: vscode.ExtensionContext): void {
   const backend = new BackendProcess(context.extensionPath, storagePath, output);
   context.subscriptions.push(backend);
 
+  // Every in-flight model request, so "Stop Processing" has something to cancel.
+  const inFlight = new Set<vscode.CancellationTokenSource>();
+  context.subscriptions.push({
+    dispose: () => {
+      for (const source of inFlight) {
+        source.cancel();
+      }
+      inFlight.clear();
+    },
+  });
+
   const handleWebviewRequest = (method: string, params: Record<string, unknown>): Promise<unknown> =>
     routeWebviewRequest(method, params, backend, output);
 
@@ -41,13 +67,22 @@ export function activate(context: vscode.ExtensionContext): void {
       SpeckitPanel.createOrShow(context, handleWebviewRequest)
     ),
     vscode.commands.registerCommand('speckitStandalone.toggleConvertOnSave', () => toggleConvertOnSave()),
+    vscode.commands.registerCommand('speckitStandalone.showLogs', () => showLogs(output)),
+    vscode.commands.registerCommand('speckitStandalone.checkBackendStatus', () =>
+      checkBackendStatus(backend, output)
+    ),
+    vscode.commands.registerCommand('speckitStandalone.stopProcessing', () =>
+      stopProcessing(inFlight, backend, output)
+    ),
+    vscode.commands.registerCommand('speckitStandalone.discoverModels', () => discoverModelsCommand(output)),
+    vscode.commands.registerCommand('speckitStandalone.manageProviders', () => manageProviders(output)),
     SpeckitPanel.registerSerializer(context, handleWebviewRequest),
     { dispose: () => SpeckitPanel.active?.dispose() }
   );
 
   // The panel lists what is on disk, so it has to hear about files appearing
   // and disappearing rather than only refreshing when asked.
-  const watcher = vscode.workspace.createFileSystemWatcher(MARKDOWN_GLOB);
+  const watcher = vscode.workspace.createFileSystemWatcher(includeGlob());
   const refreshInventory = () => {
     void syncWorkspace(backend, output).then(() => SpeckitPanel.active?.emit('documentsChanged', {}));
   };
@@ -87,7 +122,7 @@ export function activate(context: vscode.ExtensionContext): void {
  * converting at all.
  */
 async function shouldConvertOnSave(document: vscode.TextDocument, backend: BackendProcess): Promise<boolean> {
-  if (!vscode.workspace.getConfiguration('speckitStandalone').get<boolean>('convertOnSave', false)) {
+  if (!settings().get<boolean>('autoProcess', settings().get<boolean>('convertOnSave', false))) {
     return false;
   }
 
@@ -179,7 +214,7 @@ async function syncWorkspace(backend: BackendProcess, output: vscode.OutputChann
   }
 
   try {
-    const found = await vscode.workspace.findFiles(MARKDOWN_GLOB, EXCLUDED, 2000);
+    const found = await vscode.workspace.findFiles(includeGlob(), excludeGlob(), 2000);
     const files = await Promise.all(
       found.map(async (uri) => {
         const stat = await vscode.workspace.fs.stat(uri);
@@ -239,10 +274,10 @@ async function convert(
   document: vscode.TextDocument,
   backend: BackendProcess,
   output: vscode.OutputChannel,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; inFlight?: Set<vscode.CancellationTokenSource> } = {}
 ): Promise<ConvertOutcome> {
   const markdown = document.getText();
-  const enrichment = await enrich(markdown, output);
+  const enrichment = await enrich(markdown, output, options.inFlight ?? new Set());
 
   // AI-proposed diagrams are appended to the ones already written by hand, so
   // both kinds render through the same path.
@@ -312,19 +347,33 @@ function projectNameFor(uri: vscode.Uri): string {
  * document without annotation, which is a perfectly good outcome; a failed
  * conversion is not.
  */
-async function enrich(markdown: string, output: vscode.OutputChannel): Promise<ProposedEnrichment> {
-  const enabled = vscode.workspace.getConfiguration('speckitStandalone').get<boolean>('enrich', true);
-  if (!enabled) {
+async function enrich(
+  markdown: string,
+  output: vscode.OutputChannel,
+  inFlight: Set<vscode.CancellationTokenSource>
+): Promise<ProposedEnrichment> {
+  if (!settings().get<boolean>('enrich', true)) {
     return EMPTY_ENRICHMENT;
   }
 
   const cancellation = new vscode.CancellationTokenSource();
+  inFlight.add(cancellation);
+
   try {
     return await proposeEnrichment(markdown, cancellation.token, (message) => output.appendLine(`[ai] ${message}`));
   } catch (error) {
-    output.appendLine(`[ai] enrichment skipped: ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+
+    // With the fallback off, a missing provider is meant to be noticed rather
+    // than quietly producing a document with no glossary or diagrams.
+    if (!settings().get<boolean>('allowRuleBasedFallback', false)) {
+      throw error;
+    }
+
+    output.appendLine(`[ai] enrichment skipped: ${message}`);
     return EMPTY_ENRICHMENT;
   } finally {
+    inFlight.delete(cancellation);
     cancellation.dispose();
   }
 }

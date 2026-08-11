@@ -25,15 +25,35 @@
     "commands": [
       {
         "command": "speckitStandalone.convertCurrentFile",
-        "title": "Speckit Preview: Convert Current File to PDF"
+        "title": "Speckit: Process Current File"
       },
       {
         "command": "speckitStandalone.openPanel",
-        "title": "Speckit Preview: Open Panel"
+        "title": "Speckit: Open Dashboard"
+      },
+      {
+        "command": "speckitStandalone.showLogs",
+        "title": "Speckit: Show Extension Logs"
+      },
+      {
+        "command": "speckitStandalone.checkBackendStatus",
+        "title": "Speckit: Check Backend Status"
       },
       {
         "command": "speckitStandalone.toggleConvertOnSave",
-        "title": "Speckit Preview: Toggle Convert on Save"
+        "title": "Speckit: Toggle Auto-Processing"
+      },
+      {
+        "command": "speckitStandalone.stopProcessing",
+        "title": "Speckit: Stop Processing"
+      },
+      {
+        "command": "speckitStandalone.discoverModels",
+        "title": "Speckit: Discover Models for Custom Provider"
+      },
+      {
+        "command": "speckitStandalone.manageProviders",
+        "title": "Speckit: Manage AI Providers"
       }
     ],
     "configuration": {
@@ -54,6 +74,114 @@
           "default": 1500,
           "minimum": 200,
           "description": "How long to wait after a save before converting."
+        },
+        "speckitStandalone.autoProcess": {
+          "type": "boolean",
+          "default": false,
+          "description": "Process a markdown file when it is saved. Per-project automation is set from the dashboard's Auto transform switch; this is the global gate."
+        },
+        "speckitStandalone.includePatterns": {
+          "type": "array",
+          "default": [
+            "**/*.md"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns for files to include in auto-processing."
+        },
+        "speckitStandalone.excludePatterns": {
+          "type": "array",
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/out/**",
+            "**/dist/**",
+            "**/.venv/**",
+            "**/bin/**",
+            "**/.github/agents/**",
+            "**/.github/prompts/**",
+            "**/.specify/**",
+            "**/.kiro/**"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns to skip. Tool-generated scaffolding is excluded by default."
+        },
+        "speckitStandalone.maxConcurrentProcessing": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum number of files converted at once."
+        },
+        "speckitStandalone.allowRuleBasedFallback": {
+          "type": "boolean",
+          "default": false,
+          "description": "Produce a plain PDF when no AI provider is available, instead of reporting an error. Off by default so missing AI is noticed rather than silently producing a document with no glossary or diagrams."
+        },
+        "speckitStandalone.enableDebugLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Verbose logging in the Speckit output channel."
+        },
+        "speckitStandalone.preferredModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Substring matched case-insensitively against the id, family or name of the available models, e.g. \"gpt-4o\". If it matches, that model is tried first."
+        },
+        "speckitStandalone.providerPriority": {
+          "type": "array",
+          "default": [
+            "copilot",
+            "claude",
+            "kiro",
+            "generic",
+            "custom"
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "^(copilot|claude|kiro|generic|custom|custom:.+)$"
+          },
+          "description": "Order in which AI providers are tried. Use custom:<id> to name one entry from speckitStandalone.customModels."
+        },
+        "speckitStandalone.customModels": {
+          "type": "array",
+          "default": [],
+          "description": "OpenAI-compatible endpoints of your own - a local Ollama, a company gateway. Easiest to manage through \"Speckit: Manage AI Providers\".",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "endpoint"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable identifier for this entry."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "label": {
+                "type": "string"
+              },
+              "endpoint": {
+                "type": "string",
+                "description": "Chat completions URL."
+              },
+              "model": {
+                "type": "string"
+              },
+              "apiKey": {
+                "type": "string"
+              },
+              "headers": {
+                "type": "object"
+              }
+            }
+          }
         }
       }
     }
