@@ -8,8 +8,9 @@ import { SpeckitPanel } from './webview/panel';
 
 interface ConvertResponse {
   pdfPath: string;
-  typstSource: string;
+  typstSource: string | null;
   warnings: string[];
+  reused: boolean;
 }
 
 const MARKDOWN_GLOB = '**/*.md';
@@ -106,7 +107,8 @@ async function listDocuments(): Promise<DocumentEntry[]> {
 async function convert(
   document: vscode.TextDocument,
   backend: BackendProcess,
-  output: vscode.OutputChannel
+  output: vscode.OutputChannel,
+  options: { force?: boolean } = {}
 ): Promise<ConvertOutcome> {
   const markdown = document.getText();
   const diagrams = await renderDiagrams(markdown, output);
@@ -114,14 +116,36 @@ async function convert(
   const result = await backend.request<ConvertResponse>('convert', {
     markdown,
     sourcePath: document.uri.fsPath,
+    workspace: workspaceKeyFor(document.uri),
+    force: options.force ?? false,
     diagrams: diagrams.map((diagram) => ({ id: diagram.id, svg: diagram.svg, title: diagram.title })),
   });
+
+  if (result.reused) {
+    output.appendLine(`[info] ${path.basename(document.uri.fsPath)} is unchanged; kept the existing PDF.`);
+  }
 
   for (const warning of result.warnings) {
     output.appendLine(`[warning] ${warning}`);
   }
 
-  return { pdfPath: result.pdfPath, warnings: result.warnings, diagramCount: diagrams.length };
+  return {
+    pdfPath: result.pdfPath,
+    warnings: result.warnings,
+    diagramCount: diagrams.length,
+    reused: result.reused,
+  };
+}
+
+/**
+ * Scope key for stored state.
+ *
+ * A path is only unique within a workspace: the same checkout opened twice, or
+ * two clones of one repository, are different projects with different
+ * exceptions and history.
+ */
+function workspaceKeyFor(uri: vscode.Uri): string {
+  return vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath ?? '';
 }
 
 async function renderDiagrams(markdown: string, output: vscode.OutputChannel): Promise<MermaidResult[]> {

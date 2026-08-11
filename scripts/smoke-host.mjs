@@ -109,6 +109,7 @@ const vscodeStub = {
   ViewColumn: { One: 1 },
   ProgressLocation: { Notification: 15 },
   workspace: {
+    getWorkspaceFolder: () => ({ uri: { fsPath: REPO_ROOT } }),
     findFiles: () => Promise.resolve([{ fsPath: source }]),
     asRelativePath: (target) => String(target?.fsPath ?? target),
     openTextDocument: (uri) =>
@@ -189,7 +190,12 @@ function fail(message) {
 }
 
 async function main() {
-  rmSync(storagePath, { recursive: true, force: true });
+  // Each run starts clean unless asked otherwise; --keep-storage is how the
+  // rebuild-skipping path gets exercised, since it needs a previous build to
+  // find.
+  if (!args.includes('--keep-storage')) {
+    rmSync(storagePath, { recursive: true, force: true });
+  }
 
   process.stdout.write(`extension path: ${extensionPath}\n`);
   const extension = require(join(extensionPath, 'out', 'src', 'extension.js'));

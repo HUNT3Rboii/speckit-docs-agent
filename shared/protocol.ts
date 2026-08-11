@@ -53,6 +53,8 @@ export interface ConvertOutcome {
   pdfPath: string;
   warnings: string[];
   diagramCount: number;
+  /** True when identical content already had a PDF, so nothing was rebuilt. */
+  reused: boolean;
 }
 
 export interface MermaidRequest {
