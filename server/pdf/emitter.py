@@ -79,6 +79,23 @@ class EmitResult:
     warnings: List[str] = field(default_factory=list)
 
 
+def emit_glossary(entries: Sequence[dict]) -> str:
+    """Render validated glossary entries as a terms section.
+
+    Everything here has already been checked against the document; the emitter
+    does not decide what is true, only how it looks.
+    """
+    if not entries:
+        return ""
+
+    lines = ["= Glossary", ""]
+    for entry in entries:
+        term = escape(str(entry.get("term", "")))
+        definition = escape(str(entry.get("definition", "")))
+        lines.append(f"/ {term}: {definition}")
+    return "\n".join(lines) + "\n"
+
+
 def build_parser() -> MarkdownIt:
     # `breaks=True` keeps the single-newline-is-a-line-break behaviour the HTML
     # pipeline got from python-markdown's nl2br extension. Users write specs

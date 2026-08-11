@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 from db import Store, content_hash  # noqa: E402
 from pdf.compile import TypstCompileError, convert, write_diagrams  # noqa: E402
 from rpc import Server, log  # noqa: E402
+from validation import EnrichmentValidator  # noqa: E402
 
 PROTOCOL_VERSION = 2
 
@@ -43,6 +44,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def build_server(storage_path: Path, typst_binary: Path, store: Store) -> Server:
     server = Server()
+    validator = EnrichmentValidator()
 
     @server.method("ping")
     def _ping(_params: dict) -> dict:
@@ -86,6 +88,13 @@ def build_server(storage_path: Path, typst_binary: Path, store: Store) -> Server
 
         diagrams = write_diagrams(build_dir, params.get("diagrams") or [])
 
+        # Enrichment arrives already proposed by the model in the editor, and is
+        # revalidated here rather than trusted: the host is not where the source
+        # document lives, and this is the last point before it reaches a reader.
+        enrichment = validator.validate(markdown, params.get("enrichment") or {})
+        for item in enrichment.dropped:
+            log(f"dropped {item.kind} {item.label}: {item.reason}")
+
         try:
             result = convert(
                 markdown,
@@ -94,6 +103,8 @@ def build_server(storage_path: Path, typst_binary: Path, store: Store) -> Server
                 output_path=output_path,
                 source_label=label,
                 diagrams=diagrams,
+                summary=enrichment.summary,
+                glossary=enrichment.glossary,
             )
         except TypstCompileError as exc:
             log(f"typst failed; generated markup kept at {exc.typst_source}")
@@ -112,8 +123,17 @@ def build_server(storage_path: Path, typst_binary: Path, store: Store) -> Server
             "pdfPath": str(result.pdf_path),
             "typstSource": str(result.typst_source),
             "warnings": result.warnings,
+            "dropped": [item.to_dict() for item in enrichment.dropped],
+            "glossaryCount": len(enrichment.glossary),
             "reused": False,
         }
+
+    @server.method("validateEnrichment")
+    def _validate_enrichment(params: dict) -> dict:
+        markdown = params.get("markdown")
+        if not isinstance(markdown, str) or not markdown.strip():
+            raise ValueError("validateEnrichment requires the source markdown")
+        return validator.validate(markdown, params.get("enrichment") or {}).to_dict()
 
     @server.method("history")
     def _history(params: dict) -> dict:

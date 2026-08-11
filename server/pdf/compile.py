@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Sequence
 
-from .emitter import Diagram, escape, escape_string, emit
+from .emitter import Diagram, emit, emit_glossary, escape, escape_string
 
 TEMPLATE = Path(__file__).with_name("template.typ")
 
@@ -54,6 +54,8 @@ def build_document(
     title: str,
     source_label: str | None,
     diagrams: Sequence[Diagram] = (),
+    summary: str | None = None,
+    glossary: Sequence[dict] = (),
 ) -> tuple[str, List[str]]:
     """Wrap emitted body markup in the template call."""
     result = emit(markdown, diagrams)
@@ -64,12 +66,20 @@ def build_document(
         "#show: doc.with(",
         f'  title: "{escape_string(title)}",',
     ]
+    if summary:
+        preamble.append(f'  subtitle: "{escape_string(summary)}",')
     if source_label:
         preamble.append(f'  source: "{escape_string(source_label)}",')
     preamble.append(f'  generated: "{generated}",')
     preamble.append(")")
 
-    return "\n".join(preamble) + "\n\n" + result.typst, result.warnings
+    body = result.typst
+    # The glossary goes last, after the document it describes.
+    glossary_markup = emit_glossary(list(glossary))
+    if glossary_markup:
+        body = body.rstrip() + "\n\n" + glossary_markup
+
+    return "\n".join(preamble) + "\n\n" + body, result.warnings
 
 
 def convert(
@@ -80,6 +90,8 @@ def convert(
     output_path: Path,
     source_label: str | None = None,
     diagrams: Sequence[Diagram] = (),
+    summary: str | None = None,
+    glossary: Sequence[dict] = (),
 ) -> ConversionResult:
     """Markdown in, PDF on disk out.
 
@@ -90,7 +102,14 @@ def convert(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     title = _document_title(markdown, output_path.stem)
-    document, warnings = build_document(markdown, title=title, source_label=source_label, diagrams=diagrams)
+    document, warnings = build_document(
+        markdown,
+        title=title,
+        source_label=source_label,
+        diagrams=diagrams,
+        summary=summary,
+        glossary=glossary,
+    )
 
     shutil.copyfile(TEMPLATE, build_dir / TEMPLATE.name)
     typst_source = build_dir / "document.typ"
