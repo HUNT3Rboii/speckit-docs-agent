@@ -26,13 +26,27 @@ the interpreter and typesetter are bundled. The Marketplace serves the right one
 
 ## Using it
 
+Run **Speckit: Open Dashboard** for the full interface — projects, artifacts with their
+categories and tags, the kanban board built from your `tasks.md`, context files, exceptions,
+version history and the PDF viewer. It opens as an editor tab.
+
 | Command | What it does |
 |---|---|
-| `Speckit Preview: Convert Current File to PDF` | Convert the open file |
-| `Speckit Preview: Open Panel` | List every markdown file in the workspace, convert any of them |
-| `Speckit Preview: Toggle Convert on Save` | Rebuild automatically when a file is saved, for this workspace |
+| `Speckit: Process Current File` | Convert the open file |
+| `Speckit: Open Dashboard` | The full panel |
+| `Speckit: Show Extension Logs` | Everything that happened, in detail |
+| `Speckit: Check Backend Status` | Confirm the bundled backend is running |
+| `Speckit: Toggle Auto-Processing` | Convert on save, for this workspace |
+| `Speckit: Stop Processing` | Cancel in-flight AI requests and queued work |
+| `Speckit: Manage AI Providers` | Add endpoints, reorder which is tried first |
+| `Speckit: Discover Models for Custom Provider` | Ask an endpoint what it can run |
 
 PDFs are written under the extension's own storage, which VS Code removes when you uninstall.
+
+### The board
+
+A `tasks.md` file becomes a kanban board, re-synced on every render. The file owns everything
+except where a card sits — drag a card and the next save will not undo it.
 
 ### Diagrams
 
@@ -48,8 +62,12 @@ relationships your document describes.
 
 Every claim has to quote your document. Each proposed glossary entry and each diagram component
 carries a verbatim excerpt, and that excerpt is checked against your text before anything is
-printed. Anything that cannot be backed is dropped, and the output channel names what went and
-why:
+printed.
+
+When something fails that check, the model is told exactly which quotes were not found and asked
+again — a line quoted from memory with one word wrong is a real entry about a real term, and
+usually gets fixed on the second pass. What still cannot be backed after that is dropped, and the
+output channel names what went and why:
 
 ```
 [dropped] glossary "Kubernetes" - the term does not appear in the document
@@ -65,9 +83,23 @@ registered with VS Code. There is no key to configure and nothing is billed twic
 
 | Setting | Default | What it does |
 |---|---|---|
-| `speckitStandalone.enrich` | `true` | Ask the editor's model for a summary, glossary and diagrams |
-| `speckitStandalone.convertOnSave` | `false` | Rebuild a file's PDF when it is saved |
+| `speckitStandalone.enrich` | `true` | Ask an AI provider for a summary, glossary and diagrams |
+| `speckitStandalone.autoProcess` | `false` | Convert a file when it is saved |
+| `speckitStandalone.includePatterns` | `["**/*.md"]` | Which files to process |
+| `speckitStandalone.excludePatterns` | *(scaffolding)* | Which to skip — tool-generated folders by default |
+| `speckitStandalone.providerPriority` | Copilot first | Order in which AI providers are tried |
+| `speckitStandalone.customModels` | `[]` | Your own OpenAI-compatible endpoints |
+| `speckitStandalone.preferredModelId` | *(empty)* | Prefer a model whose id contains this |
+| `speckitStandalone.allowRuleBasedFallback` | `false` | Build a plain PDF when no AI is available, instead of failing |
 | `speckitStandalone.debounceMs` | `1500` | How long to wait after a save before converting |
+| `speckitStandalone.maxConcurrentProcessing` | `3` | How many files convert at once |
+| `speckitStandalone.enableDebugLogging` | `false` | Verbose logging |
+
+### Your own models
+
+**Speckit: Manage AI Providers** adds an OpenAI-compatible endpoint — a local Ollama, a company
+gateway — and sets the order providers are tried in. A provider that fails or returns nothing
+usable falls through to the next one.
 
 ## Troubleshooting
 

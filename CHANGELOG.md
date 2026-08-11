@@ -9,6 +9,10 @@ stack for now happens inside VS Code.
 
 - Convert a markdown file to a typeset PDF: cover page, contents, numbered headings, running
   headers, page-breaking tables and syntax-highlighted code.
+- The full dashboard, as an editor tab: projects, artifacts with categories and tags, the kanban
+  board, context files, exceptions, version history and the PDF viewer.
+- Custom AI providers with a priority order, and model discovery for endpoints that support it.
+- Sections typed as tasks, user stories or design decisions, labelled in the PDF.
 - Mermaid diagrams render as captioned figures, placed where the code block was.
 - A panel listing every markdown file in the workspace, with per-file conversion.
 - Optional annotation — summary, glossary, diagrams — from the language model already

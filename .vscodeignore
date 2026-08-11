@@ -30,6 +30,8 @@ webview-ui/package-lock.json
 webview-ui/tsconfig.json
 webview-ui/tsconfig.tsbuildinfo
 webview-ui/vite.config.ts
+webview-ui/tailwind.config.js
+webview-ui/postcss.config.js
 
 # Python tests and caches travel with server/ otherwise.
 server/tests/**
