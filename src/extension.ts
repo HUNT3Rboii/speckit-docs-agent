@@ -78,10 +78,11 @@ async function shouldConvertOnSave(document: vscode.TextDocument, backend: Backe
     return false;
   }
 
-  const { paths } = await backend.request<{ paths: string[] }>('listExceptions', {
-    workspace: workspaceKeyFor(document.uri),
+  const { excluded } = await backend.request<{ excluded: boolean }>('isExcepted', {
+    projectId: workspaceKeyFor(document.uri),
+    sourcePath: document.uri.fsPath,
   });
-  return !paths.includes(document.uri.fsPath);
+  return !excluded;
 }
 
 export function deactivate(): void {
@@ -161,7 +162,8 @@ async function convert(
   const result = await backend.request<ConvertResponse>('convert', {
     markdown,
     sourcePath: document.uri.fsPath,
-    workspace: workspaceKeyFor(document.uri),
+    projectId: workspaceKeyFor(document.uri),
+    projectName: projectNameFor(document.uri),
     force: options.force ?? false,
     enrichment,
     diagrams: diagrams.map((diagram) => ({ id: diagram.id, svg: diagram.svg, title: diagram.title })),
@@ -199,6 +201,11 @@ async function convert(
  */
 function workspaceKeyFor(uri: vscode.Uri): string {
   return vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath ?? '';
+}
+
+/** The folder name is what the dashboard shows; the path is what identifies it. */
+function projectNameFor(uri: vscode.Uri): string {
+  return vscode.workspace.getWorkspaceFolder(uri)?.name ?? 'Workspace';
 }
 
 /**

@@ -57,6 +57,129 @@ MIGRATIONS: List[Migration] = [
         );
         """,
     ),
+    (
+        2,
+        # The full model the HTTP backend carried: projects own artifacts,
+        # artifacts own versions, and the board and file inventory hang off the
+        # project. Migration 1's flat documents table was the subset needed to
+        # prove the pipeline; this restores the rest of it.
+        #
+        # Existing rows are carried across rather than dropped: one project per
+        # workspace, one artifact per document.
+        """
+        CREATE TABLE projects (
+            id              TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            repo_url        TEXT,
+            automation_mode TEXT NOT NULL DEFAULT 'automatic'
+                            CHECK (automation_mode IN ('automatic', 'manual')),
+            created_at      TEXT NOT NULL
+        );
+
+        CREATE TABLE artifacts (
+            id            TEXT PRIMARY KEY,
+            project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            source_path   TEXT NOT NULL,
+            artifact_type TEXT NOT NULL DEFAULT 'other'
+                          CHECK (artifact_type IN ('spec', 'plan', 'task', 'constitution', 'other')),
+            title         TEXT,
+            status        TEXT NOT NULL DEFAULT 'pending',
+            content_hash  TEXT NOT NULL DEFAULT '',
+            tags          TEXT NOT NULL DEFAULT '[]',
+            metadata      TEXT NOT NULL DEFAULT '{}',
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL,
+            UNIQUE (project_id, source_path)
+        );
+
+        CREATE INDEX idx_artifacts_project ON artifacts(project_id, created_at DESC);
+
+        CREATE TABLE artifact_versions (
+            id              TEXT PRIMARY KEY,
+            artifact_id     TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+            version_no      INTEGER NOT NULL,
+            pdf_path        TEXT NOT NULL,
+            structured_json TEXT NOT NULL DEFAULT '{}',
+            generated_by    TEXT NOT NULL DEFAULT 'speckit',
+            diagram_count   INTEGER NOT NULL DEFAULT 0,
+            warnings        TEXT NOT NULL DEFAULT '[]',
+            generated_at    TEXT NOT NULL,
+            UNIQUE (artifact_id, version_no)
+        );
+
+        CREATE TABLE project_files (
+            id                  INTEGER PRIMARY KEY,
+            project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            source_path         TEXT NOT NULL,
+            size_bytes          INTEGER NOT NULL DEFAULT 0,
+            modified_at         TEXT,
+            transform_requested INTEGER NOT NULL DEFAULT 0,
+            requested_at        TEXT,
+            last_seen_at        TEXT NOT NULL,
+            UNIQUE (project_id, source_path)
+        );
+
+        CREATE TABLE kanban_tasks (
+            id            INTEGER PRIMARY KEY,
+            project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            artifact_id   TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+            source_path   TEXT NOT NULL,
+            task_key      TEXT NOT NULL,
+            phase         TEXT NOT NULL DEFAULT '',
+            phase_order   INTEGER NOT NULL DEFAULT 0,
+            parallel      INTEGER NOT NULL DEFAULT 0,
+            story         TEXT,
+            description   TEXT NOT NULL DEFAULT '',
+            checkbox_done INTEGER NOT NULL DEFAULT 0,
+            board_status  TEXT NOT NULL DEFAULT 'todo'
+                          CHECK (board_status IN ('todo', 'in_progress', 'done')),
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL,
+            UNIQUE (project_id, task_key)
+        );
+
+        CREATE TABLE project_exceptions (
+            id          INTEGER PRIMARY KEY,
+            project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            source_path TEXT NOT NULL,
+            created_at  TEXT NOT NULL,
+            UNIQUE (project_id, source_path)
+        );
+
+        INSERT INTO projects (id, name, repo_url, automation_mode, created_at)
+        SELECT DISTINCT workspace,
+               workspace,
+               NULL,
+               'automatic',
+               COALESCE(MIN(created_at), datetime('now'))
+        FROM documents
+        GROUP BY workspace;
+
+        INSERT INTO artifacts (id, project_id, source_path, artifact_type, title, status,
+                               content_hash, tags, metadata, created_at, updated_at)
+        SELECT 'doc-' || d.id, d.workspace, d.source_path, 'other', d.title, 'complete',
+               COALESCE((SELECT v.content_hash FROM versions v
+                         WHERE v.document_id = d.id ORDER BY v.id DESC LIMIT 1), ''),
+               '[]', '{}', d.created_at, d.updated_at
+        FROM documents d;
+
+        INSERT INTO artifact_versions (id, artifact_id, version_no, pdf_path, structured_json,
+                                       generated_by, diagram_count, warnings, generated_at)
+        SELECT 'ver-' || v.id,
+               'doc-' || v.document_id,
+               (SELECT COUNT(*) FROM versions earlier
+                WHERE earlier.document_id = v.document_id AND earlier.id <= v.id),
+               v.pdf_path, '{}', 'speckit', v.diagram_count, v.warnings, v.created_at
+        FROM versions v;
+
+        INSERT INTO project_exceptions (project_id, source_path, created_at)
+        SELECT workspace, source_path, created_at FROM exceptions;
+
+        DROP TABLE versions;
+        DROP TABLE exceptions;
+        DROP TABLE documents;
+        """,
+    ),
 ]
 
 
