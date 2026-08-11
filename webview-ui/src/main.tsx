@@ -1,9 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { App } from './App';
+import App from './App';
 import { registerMermaidHandler } from './mermaid';
-import './styles.css';
+import './index.css';
 
 // Registered before the first render: the host may ask for a diagram as soon as
 // the panel exists, and a request arriving before its handler is a silent

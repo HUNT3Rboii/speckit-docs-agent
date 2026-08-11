@@ -40,7 +40,10 @@ export class SpeckitPanel {
       // The alternative to a serializer is holding the entire DOM in memory for
       // every hidden tab; restoring state on reveal is cheaper.
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist')],
+      localResourceRoots: [
+        vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist'),
+        context.globalStorageUri,
+      ],
     });
 
     SpeckitPanel.current = new SpeckitPanel(panel, context, handler);
@@ -53,7 +56,10 @@ export class SpeckitPanel {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
         panel.webview.options = {
           enableScripts: true,
-          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist')],
+          localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist'),
+            context.globalStorageUri,
+          ],
         };
         SpeckitPanel.current = new SpeckitPanel(panel, context, handler);
       },
@@ -94,6 +100,16 @@ export class SpeckitPanel {
 
     const result = await this.request<{ rendered: MermaidResult[] }>('renderMermaid', { diagrams });
     return result.rendered;
+  }
+
+  /**
+   * Rewrite a local path into something the webview may load.
+   *
+   * A webview cannot read files by path; every local resource has to go through
+   * this, and a raw path fails with nothing in the console to explain it.
+   */
+  toWebviewUri(fsPath: string): string {
+    return this.panel.webview.asWebviewUri(vscode.Uri.file(fsPath)).toString();
   }
 
   emit(event: string, payload: Record<string, unknown>): void {

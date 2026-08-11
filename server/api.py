@@ -12,6 +12,7 @@ to answer now that the backend is a child process of the editor.
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
@@ -202,6 +203,59 @@ def register(
             raise ValueError("validateEnrichment requires the source markdown")
         return validator.validate(markdown, params.get("enrichment") or {}).to_dict()
 
+    @server.method("readVersionPdf")
+    def _read_version_pdf(params: Dict[str, Any]) -> Dict[str, Any]:
+        """The PDF's bytes, base64-encoded, for the panel's download button.
+
+        Only the download path needs these - viewing goes through a webview URI
+        rather than pushing megabytes across the message channel.
+        """
+        version_id = _required(params, "versionId")
+        version = store.version(version_id)
+        if not version:
+            raise ValueError(f"No such version: {version_id}")
+
+        pdf = Path(version.pdf_path)
+        if not pdf.exists():
+            raise ValueError(f"The PDF for this version is no longer on disk: {pdf}")
+        return {"base64": base64.b64encode(pdf.read_bytes()).decode("ascii"), "name": pdf.name}
+
+    @server.method("cancelArtifact")
+    def _cancel_artifact(params: Dict[str, Any]) -> Dict[str, Any]:
+        """Best-effort, exactly as before.
+
+        The work runs in the editor, not here, so this records the request and
+        the extension notices it the next time it reports progress. Nothing in
+        this process can interrupt a model call.
+        """
+        artifact_id = _required(params, "artifactId")
+        store.set_status(artifact_id, "cancelling", {"cancel_requested": True})
+        return {"cancelling": True}
+
+    @server.method("cancelStatus")
+    def _cancel_status(params: Dict[str, Any]) -> Dict[str, Any]:
+        artifact = store.artifact(_required(params, "artifactId"))
+        if not artifact:
+            raise ValueError("No such artifact")
+        return {"cancel_requested": bool(artifact.metadata.get("cancel_requested", False))}
+
+    @server.method("retryArtifact")
+    def _retry_artifact(params: Dict[str, Any]) -> Dict[str, Any]:
+        """Queue a rebuild from scratch.
+
+        Like a transform request: the extension re-reads the file and re-runs
+        the pipeline, because it is the side that can read the workspace and
+        reach a model.
+        """
+        artifact_id = _required(params, "artifactId")
+        artifact = store.artifact(artifact_id)
+        if not artifact:
+            raise ValueError(f"No such artifact: {artifact_id}")
+
+        store.set_status(artifact_id, "pending", {"cancel_requested": False})
+        store.request_transform(artifact.project_id, artifact.source_path)
+        return {"queued": True, "sourcePath": artifact.source_path}
+
     # -- project files --------------------------------------------------------
 
     @server.method("syncFiles")
@@ -219,8 +273,16 @@ def register(
 
     @server.method("requestTransform")
     def _request_transform(params: Dict[str, Any]) -> Dict[str, Any]:
-        store.request_transform(_required(params, "projectId"), _required(params, "sourcePath"))
-        return {"requested": True}
+        project_id = _required(params, "projectId")
+        source_path = _required(params, "sourcePath")
+        store.request_transform(project_id, source_path)
+
+        # The updated row, not an acknowledgement: the file list re-renders from
+        # what comes back, and "queued" is a state the user should see.
+        for entry in store.files(project_id):
+            if entry.source_path == source_path:
+                return entry.to_dict()
+        raise ValueError(f"No such file in this project: {source_path}")
 
     @server.method("takeTransformRequests")
     def _take_transform_requests(params: Dict[str, Any]) -> Dict[str, Any]:

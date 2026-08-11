@@ -1,4 +1,7 @@
+import { fileURLToPath } from 'node:url';
+
 import react from '@vitejs/plugin-react';
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 
 // The host references dist/index.js and dist/index.css by name when it builds
@@ -6,6 +9,17 @@ import { defineConfig } from 'vite';
 // they are read from disk inside the extension.
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    css: true,
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
