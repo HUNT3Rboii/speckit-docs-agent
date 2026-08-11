@@ -1,0 +1,12 @@
+{
+  "python": {
+    "win32-x64": "18bcc65b17921806b72cdc88bcf000bf67a2c99a8fc381fe1629f2b9ba56858d"
+  },
+  "typst": {
+    "win32-x64": "19ce3551153c2fe7ee9fa2f95208310c8f4d3209fedb699e0333faf8913f6736"
+  },
+  "pins": {
+    "python": "3.12.13+20260807",
+    "typst": "v0.15.1"
+  }
+}

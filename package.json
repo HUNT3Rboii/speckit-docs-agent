@@ -1,0 +1,47 @@
+{
+  "name": "speckit-auto-ai-standalone",
+  "displayName": "Speckit Auto-AI (Standalone Preview)",
+  "description": "Markdown to typeset PDF documentation, with no Docker and no setup",
+  "version": "0.1.0",
+  "publisher": "HUNT3Rboii",
+  "license": "MIT",
+  "author": "Mohamed Yassine Reggui",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HUNT3Rboii/speckit-docs-agent"
+  },
+  "bugs": {
+    "url": "https://github.com/HUNT3Rboii/speckit-docs-agent/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Documentation",
+    "Other"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "speckitStandalone.convertCurrentFile",
+        "title": "Speckit Preview: Convert Current File to PDF"
+      }
+    ]
+  },
+  "scripts": {
+    "fetch-runtimes": "node scripts/fetch-runtimes.mjs",
+    "vendor-deps": "node scripts/vendor-deps.mjs",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build": "npm run compile",
+    "test": "npm run compile && node --test \"out/src/test/**/*.test.js\"",
+    "test:python": "python -m pytest server/tests -q",
+    "package": "npm run compile && vsce package --target win32-x64"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.9",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.9.3"
+  }
+}

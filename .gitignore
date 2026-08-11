@@ -87,6 +87,17 @@ pdf-output/
 *.pyc
 *.pyo
 
+# Standalone VSIX build artefacts. The runtimes are ~118MB per platform and the
+# vendored dependencies are reproducible, so both are fetched rather than
+# committed - runtimes.lock.json pins exactly what gets downloaded.
+/bin/
+/out/
+/node_modules/
+/server/vendor/
+*.vsix
+.scratch-storage/
+.scratch-typst/
+
 # Speckit Auto-AI: local-only task-progress signal files, never meant to be committed
 .speckit-auto-ai/
 

@@ -1,0 +1,53 @@
+# The VSIX ships: out/ (compiled host), server/ (Python source), bin/ (bundled
+# interpreter + typst), resources/, and the root metadata files. Everything
+# else in this repo belongs to the Docker-era stack or to development, and
+# `vsce ls` should be checked before every package to confirm that.
+
+# Docker-era components, still present on this branch while the standalone
+# path is being proven. None of them belong in the extension.
+backend/**
+frontend/**
+vscode-extension/**
+infra/**
+specs/**
+pdf-output/**
+*.ps1
+
+# Extension host sources - out/ is what runs.
+src/**
+tsconfig.json
+**/*.ts.map
+**/*.map
+
+# Python tests and caches travel with server/ otherwise.
+server/tests/**
+**/__pycache__/**
+**/*.pyc
+.pytest_cache/**
+
+# Extension-host tests. They exercise the host in isolation and have no job
+# inside a shipped extension.
+out/src/test/**
+
+# Tooling scaffolding. vsce ignores .gitignore entirely, so every one of these
+# has to be named here or it rides along - which is what `vsce ls` is for.
+.specify/**
+.kiro/**
+.speckit-auto-ai/**
+.claude/**
+.scratch-*/**
+skills-lock.json
+
+# Repo tooling and docs that are not user-facing.
+.github/**
+.vscode/**
+.venv/**
+scripts/**
+graphify-out/**
+node_modules/**
+CLAUDE.md
+CONTRIBUTING.md
+DEVELOPMENT.md
+runtimes.lock.json
+.gitignore
+.env.example

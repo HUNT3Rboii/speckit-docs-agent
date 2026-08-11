@@ -1,0 +1,4 @@
+# Vendored into server/vendor/ by `npm run vendor-deps`, not installed into the
+# bundled interpreter. Keep this list short: every entry ships in all four
+# platform VSIXes.
+markdown-it-py==4.0.0
