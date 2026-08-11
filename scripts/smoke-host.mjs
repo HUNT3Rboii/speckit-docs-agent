@@ -27,24 +27,106 @@ const Module = require('node:module');
 const args = process.argv.slice(2);
 const flagIndex = args.indexOf('--extension-path');
 const extensionPath = flagIndex === -1 ? REPO_ROOT : args[flagIndex + 1];
-const positional = args.filter((arg, index) => !arg.startsWith('--') && index !== flagIndex + 1);
+// `flagIndex + 1` is only the flag's value when the flag is actually present;
+// with no flag it is index 0, which would swallow the document argument.
+const valueIndex = flagIndex === -1 ? -1 : flagIndex + 1;
+const positional = args.filter((arg, index) => !arg.startsWith('--') && index !== valueIndex);
 
 const source = positional[0] ?? join(REPO_ROOT, 'server', 'tests', 'fixtures', 'kitchen-sink.md');
 const storagePath = join(REPO_ROOT, '.smoke-storage');
 
+const withPanel = args.includes('--panel');
+
 const log = [];
 const notifications = [];
-let registeredCommand;
+const commands = new Map();
 let opened;
+let panelRequests = 0;
+
+// A canned diagram standing in for mermaid's output: real SVG text, no
+// <foreignObject>, which is the shape the webview is configured to produce.
+const STUB_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 60">
+  <rect x="1" y="1" width="218" height="58" fill="none" stroke="#333"/>
+  <text x="14" y="34" font-family="DejaVu Sans" font-size="12">Gateway to Order Service</text>
+</svg>`;
+
+/**
+ * Stands in for the webview.
+ *
+ * Everything up to and including the message bridge is real: the host builds
+ * its HTML, posts a renderMermaid request, and waits for a reply keyed to the
+ * id it sent. Only mermaid itself is replaced - rendering needs a browser, and
+ * this is Node.
+ */
+function createStubWebviewPanel() {
+  const listeners = [];
+  const disposeListeners = [];
+
+  const panel = {
+    webview: {
+      cspSource: 'vscode-webview://stub',
+      html: '',
+      asWebviewUri: (uri) => ({ toString: () => `https://stub/${uri.fsPath.replace(/\\/g, '/')}` }),
+      onDidReceiveMessage(listener) {
+        listeners.push(listener);
+        return { dispose() {} };
+      },
+      postMessage(message) {
+        if (message.kind === 'request' && message.method === 'renderMermaid') {
+          panelRequests += 1;
+          const rendered = message.params.diagrams.map((diagram) => ({
+            id: diagram.id,
+            svg: STUB_SVG,
+            title: diagram.title,
+          }));
+          for (const listener of listeners) {
+            listener({ kind: 'response', id: message.id, result: { rendered } });
+          }
+        }
+        return Promise.resolve(true);
+      },
+    },
+    reveal() {},
+    onDidDispose(listener) {
+      disposeListeners.push(listener);
+      return { dispose() {} };
+    },
+    dispose() {
+      for (const listener of disposeListeners.splice(0)) {
+        listener();
+      }
+    },
+  };
+
+  return panel;
+}
 
 const vscodeStub = {
   Uri: {
     file: (fsPath) => ({ fsPath, scheme: 'file' }),
+    joinPath: (base, ...segments) => ({ fsPath: join(base.fsPath, ...segments), scheme: 'file' }),
   },
+  ViewColumn: { One: 1 },
   ProgressLocation: { Notification: 15 },
+  workspace: {
+    findFiles: () => Promise.resolve([{ fsPath: source }]),
+    asRelativePath: (target) => String(target?.fsPath ?? target),
+    openTextDocument: (uri) =>
+      Promise.resolve({
+        languageId: 'markdown',
+        uri,
+        getText: () => readFileSync(uri.fsPath, 'utf8'),
+      }),
+    createFileSystemWatcher: () => ({
+      onDidCreate() {},
+      onDidDelete() {},
+      onDidChange() {},
+      dispose() {},
+    }),
+  },
   commands: {
     registerCommand(id, handler) {
-      registeredCommand = { id, handler };
+      commands.set(id, handler);
       return { dispose() {} };
     },
   },
@@ -76,7 +158,10 @@ const vscodeStub = {
       notifications.push(['error', message]);
       return Promise.resolve(undefined);
     },
+    createWebviewPanel: () => createStubWebviewPanel(),
+    registerWebviewPanelSerializer: () => ({ dispose() {} }),
     activeTextEditor: {
+      viewColumn: 1,
       document: {
         languageId: 'markdown',
         uri: { fsPath: source },
@@ -111,16 +196,23 @@ async function main() {
   const context = {
     subscriptions: [],
     extensionPath,
+    extensionUri: { fsPath: extensionPath, scheme: 'file' },
     globalStorageUri: { fsPath: storagePath },
   };
 
   extension.activate(context);
-  assert.ok(registeredCommand, 'activate() registered no command');
-  assert.equal(registeredCommand.id, 'speckitStandalone.convertCurrentFile');
-  process.stdout.write(`activate() registered ${registeredCommand.id}\n`);
+  const convertCommand = commands.get('speckitStandalone.convertCurrentFile');
+  assert.ok(convertCommand, 'activate() did not register the convert command');
+  process.stdout.write(`activate() registered ${[...commands.keys()].join(', ')}\n`);
+
+  if (withPanel) {
+    // Diagrams are only rendered when a panel exists to render them in.
+    commands.get('speckitStandalone.openPanel')?.();
+    process.stdout.write('opened stub panel\n');
+  }
 
   const startedAt = Date.now();
-  await registeredCommand.handler();
+  await convertCommand();
   const elapsed = Date.now() - startedAt;
 
   const errors = notifications.filter(([kind]) => kind === 'error');
@@ -128,9 +220,13 @@ async function main() {
     fail(errors.map(([, message]) => message).join('\n'));
   }
 
-  const pdf = join(storagePath, 'pdf', 'kitchen-sink.pdf');
+  const stem = source.replace(/\\/g, '/').split('/').pop().replace(/\.md$/i, '');
+  const pdf = join(storagePath, 'pdf', `${stem}.pdf`);
   if (!existsSync(pdf)) {
     fail(`no PDF at ${pdf}`);
+  }
+  if (withPanel) {
+    process.stdout.write(`panel render requests: ${panelRequests}\n`);
   }
 
   const header = readFileSync(pdf).subarray(0, 5).toString('latin1');

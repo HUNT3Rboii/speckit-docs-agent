@@ -155,6 +155,34 @@ class TestDiagrams:
         result = emit("# Doc", [Diagram(id="d1", filename="diagram-1.svg")])
         assert "caption" not in result.typst
 
+    def test_rendered_diagram_replaces_its_mermaid_block(self):
+        # Placement matters: a figure belongs with the prose that introduces it,
+        # not in a heap at the end of the document.
+        markdown = "# Doc\n\n```mermaid\ngraph TD\nA --> B\n```\n\nAfter.\n"
+        result = emit(markdown, [Diagram(id="diagram-1", filename="diagram-1.svg")])
+
+        assert "graph TD" not in result.typst
+        assert result.typst.index('image("diagram-1.svg"') < result.typst.index("After.")
+
+    def test_mermaid_blocks_are_claimed_in_document_order(self):
+        markdown = "```mermaid\nfirst\n```\n\n```mermaid\nsecond\n```\n"
+        result = emit(
+            markdown,
+            [Diagram(id="diagram-1", filename="one.svg"), Diagram(id="diagram-2", filename="two.svg")],
+        )
+        assert result.typst.index("one.svg") < result.typst.index("two.svg")
+
+    def test_unrendered_mermaid_falls_back_to_its_source(self):
+        # The panel may be closed, or mermaid may have rejected the syntax. The
+        # source in the PDF beats a silent gap where a diagram should be.
+        result = emit("```mermaid\ngraph TD\nA --> B\n```\n")
+        assert "graph TD" in result.typst
+        assert any("not rendered" in warning for warning in result.warnings)
+
+    def test_diagram_without_a_matching_block_is_appended(self):
+        result = emit("# Doc\n\nNo fences here.\n", [Diagram(id="d1", filename="orphan.svg")])
+        assert "orphan.svg" in result.typst
+
 
 class TestGolden:
     def test_kitchen_sink_matches_golden_output(self):

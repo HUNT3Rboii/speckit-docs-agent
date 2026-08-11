@@ -92,8 +92,13 @@ pdf-output/
 # committed - runtimes.lock.json pins exactly what gets downloaded.
 /bin/
 /out/
-/node_modules/
 /server/vendor/
+webview-ui/dist/
+webview-ui/tsconfig.tsbuildinfo
+
+# Unanchored: there is a node_modules at the root and another under
+# webview-ui/, and an anchored rule only catches the first.
+node_modules/
 *.vsix
 .scratch-storage/
 .scratch-typst/

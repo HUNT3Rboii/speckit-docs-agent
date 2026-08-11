@@ -26,6 +26,10 @@
       {
         "command": "speckitStandalone.convertCurrentFile",
         "title": "Speckit Preview: Convert Current File to PDF"
+      },
+      {
+        "command": "speckitStandalone.openPanel",
+        "title": "Speckit Preview: Open Panel"
       }
     ]
   },
@@ -34,11 +38,12 @@
     "vendor-deps": "node scripts/vendor-deps.mjs",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build": "npm run compile",
+    "build": "npm run compile && npm run build:webview",
     "test": "npm run compile && node --test \"out/src/test/**/*.test.js\"",
     "test:python": "python -m pytest server/tests -q",
     "smoke": "npm run compile && node scripts/smoke-host.mjs",
-    "package": "npm run compile && vsce package --target win32-x64"
+    "package": "npm run build && vsce package --target win32-x64",
+    "build:webview": "npm --prefix webview-ui run build"
   },
   "devDependencies": {
     "@types/node": "^20.19.9",

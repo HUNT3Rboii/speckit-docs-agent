@@ -89,6 +89,8 @@ def build_parser() -> MarkdownIt:
 class TypstEmitter:
     def __init__(self, diagrams: Sequence[Diagram] = ()) -> None:
         self._diagrams = list(diagrams)
+        self._placed: set[str] = set()
+        self._mermaid_seen = 0
         self.warnings: List[str] = []
 
     def emit(self, markdown: str) -> EmitResult:
@@ -96,8 +98,12 @@ class TypstEmitter:
         tree = SyntaxTreeNode(tokens)
         body = self._blocks(tree.children)
 
-        if self._diagrams:
-            body = body + "\n" + self._emit_diagrams()
+        # Diagrams are placed where their code block was, so a figure stays with
+        # the prose that introduces it. Any that were never claimed by a fence -
+        # a diagram id with no matching block - are appended rather than lost.
+        leftover = [diagram for diagram in self._diagrams if diagram.id not in self._placed]
+        if leftover:
+            body = body + "\n" + "\n".join(self._figure(diagram) for diagram in leftover)
 
         return EmitResult(typst=body.strip() + "\n", warnings=self.warnings)
 
@@ -123,6 +129,16 @@ class TypstEmitter:
     def _block_fence(self, node: SyntaxTreeNode, _depth: int) -> str:
         code = node.content.rstrip("\n")
         language = (node.info or "").strip().split()[0] if node.info else ""
+
+        if language.lower() == "mermaid":
+            figure = self._mermaid_figure()
+            if figure is not None:
+                return figure
+            # No rendered SVG for this one - the panel was closed, or mermaid
+            # rejected the syntax. The source is more useful in the PDF than a
+            # gap where a diagram should be.
+            self.warnings.append("A mermaid diagram was not rendered; its source is shown instead")
+
         if language and not _LANG.match(language):
             self.warnings.append(f"Ignored unusable code language hint: {language!r}")
             language = ""
@@ -222,14 +238,25 @@ class TypstEmitter:
         lines.append(")")
         return "\n".join(lines) + "\n"
 
-    def _emit_diagrams(self) -> str:
-        blocks = []
-        for diagram in self._diagrams:
-            caption = f",\n  caption: [{escape(diagram.title)}]" if diagram.title else ""
-            blocks.append(
-                f'#figure(\n  image("{escape_string(diagram.filename)}", width: 90%){caption}\n)\n'
-            )
-        return "\n".join(blocks)
+    def _mermaid_figure(self) -> str | None:
+        """Claim the next rendered diagram, in document order.
+
+        The host scans fences the same way and numbers them identically, so the
+        nth mermaid block here is the nth diagram it sent.
+        """
+        index = self._mermaid_seen
+        self._mermaid_seen += 1
+
+        if index >= len(self._diagrams):
+            return None
+
+        diagram = self._diagrams[index]
+        self._placed.add(diagram.id)
+        return self._figure(diagram)
+
+    def _figure(self, diagram: Diagram) -> str:
+        caption = f",\n  caption: [{escape(diagram.title)}]" if diagram.title else ""
+        return f'#figure(\n  image("{escape_string(diagram.filename)}", width: 90%){caption}\n)\n'
 
     # -- inline level ---------------------------------------------------------
 

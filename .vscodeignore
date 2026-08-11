@@ -13,11 +13,23 @@ specs/**
 pdf-output/**
 *.ps1
 
-# Extension host sources - out/ is what runs.
+# Extension host sources - out/ is what runs. shared/ is compiled into it.
 src/**
+shared/**
 tsconfig.json
 **/*.ts.map
 **/*.map
+
+# The webview ships as its built bundle. Its sources, dependencies and build
+# config are all several times the size of the output and none of it is read
+# at runtime.
+webview-ui/src/**
+webview-ui/node_modules/**
+webview-ui/package.json
+webview-ui/package-lock.json
+webview-ui/tsconfig.json
+webview-ui/tsconfig.tsbuildinfo
+webview-ui/vite.config.ts
 
 # Python tests and caches travel with server/ otherwise.
 server/tests/**
@@ -51,3 +63,4 @@ DEVELOPMENT.md
 runtimes.lock.json
 .gitignore
 .env.example
+.smoke-storage/**
