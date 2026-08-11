@@ -121,8 +121,10 @@ graphify-out/
 # should work in this checkout, not how the project works - README.md and
 # DEVELOPMENT.md are the shared documentation. Keep your own copies locally;
 # they are deliberately not shared through git.
+#
+# CLAUDE.md is the exception on this branch: it holds the architecture the
+# standalone VSIX is being built against, including decisions (Typst, mermaid
+# in the webview, bundled interpreter) that are expensive to rediscover.
 .claude/
 skills-lock.json
-claude.md
-CLAUDE.md
 CONTEXT.md
