@@ -2,14 +2,17 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { ConvertOutcome, DocumentEntry, MermaidResult } from '../shared/protocol';
+import { EMPTY_ENRICHMENT, ProposedEnrichment, proposeEnrichment } from './ai/enrich';
 import { BackendProcess } from './backend/process';
 import { findMermaidBlocks } from './markdown/mermaid';
+import { SaveWatcher } from './watcher';
 import { SpeckitPanel } from './webview/panel';
 
 interface ConvertResponse {
   pdfPath: string;
   typstSource: string | null;
   warnings: string[];
+  dropped?: { kind: string; label: string; reason: string }[];
   reused: boolean;
 }
 
@@ -37,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('speckitStandalone.openPanel', () =>
       SpeckitPanel.createOrShow(context, handleWebviewRequest)
     ),
+    vscode.commands.registerCommand('speckitStandalone.toggleConvertOnSave', () => toggleConvertOnSave()),
     SpeckitPanel.registerSerializer(context, handleWebviewRequest),
     { dispose: () => SpeckitPanel.active?.dispose() }
   );
@@ -48,6 +52,36 @@ export function activate(context: vscode.ExtensionContext): void {
   watcher.onDidCreate(notifyPanel);
   watcher.onDidDelete(notifyPanel);
   context.subscriptions.push(watcher);
+
+  context.subscriptions.push(
+    new SaveWatcher(
+      async (document) => {
+        await convert(document, backend, output);
+        SpeckitPanel.active?.emit('documentsChanged', {});
+      },
+      (document) => shouldConvertOnSave(document, backend),
+      (message) => output.appendLine(message),
+      vscode.workspace.getConfiguration('speckitStandalone').get<number>('debounceMs', 1500)
+    )
+  );
+}
+
+/**
+ * Whether a saved file should be converted without being asked for.
+ *
+ * Two gates, and both are the user's: the setting, and the per-file exception
+ * list. Converting a file someone has explicitly excluded is worse than not
+ * converting at all.
+ */
+async function shouldConvertOnSave(document: vscode.TextDocument, backend: BackendProcess): Promise<boolean> {
+  if (!vscode.workspace.getConfiguration('speckitStandalone').get<boolean>('convertOnSave', false)) {
+    return false;
+  }
+
+  const { paths } = await backend.request<{ paths: string[] }>('listExceptions', {
+    workspace: workspaceKeyFor(document.uri),
+  });
+  return !paths.includes(document.uri.fsPath);
 }
 
 export function deactivate(): void {
@@ -111,15 +145,34 @@ async function convert(
   options: { force?: boolean } = {}
 ): Promise<ConvertOutcome> {
   const markdown = document.getText();
-  const diagrams = await renderDiagrams(markdown, output);
+  const enrichment = await enrich(markdown, output);
+
+  // AI-proposed diagrams are appended to the ones already written by hand, so
+  // both kinds render through the same path.
+  const inlineBlocks = findMermaidBlocks(markdown);
+  const proposedBlocks = enrichment.diagrams.map((diagram, index) => ({
+    id: `ai-${index + 1}`,
+    code: diagram.mermaid,
+    title: diagram.title,
+  }));
+
+  const diagrams = await renderDiagrams([...inlineBlocks, ...proposedBlocks], output);
 
   const result = await backend.request<ConvertResponse>('convert', {
     markdown,
     sourcePath: document.uri.fsPath,
     workspace: workspaceKeyFor(document.uri),
     force: options.force ?? false,
+    enrichment,
     diagrams: diagrams.map((diagram) => ({ id: diagram.id, svg: diagram.svg, title: diagram.title })),
   });
+
+  for (const item of result.dropped ?? []) {
+    // Naming what was removed is the point: a silent drop looks like a bug, and
+    // the user is the only one who can tell whether the model was wrong or the
+    // document was unclear.
+    output.appendLine(`[dropped] ${item.kind} "${item.label}" - ${item.reason}`);
+  }
 
   if (result.reused) {
     output.appendLine(`[info] ${path.basename(document.uri.fsPath)} is unchanged; kept the existing PDF.`);
@@ -148,8 +201,35 @@ function workspaceKeyFor(uri: vscode.Uri): string {
   return vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath ?? '';
 }
 
-async function renderDiagrams(markdown: string, output: vscode.OutputChannel): Promise<MermaidResult[]> {
-  const blocks = findMermaidBlocks(markdown);
+/**
+ * Ask the editor's model to annotate the document.
+ *
+ * Enrichment is optional in every sense: switched off by setting, absent when
+ * no model is available, and skipped on any failure. A plain PDF is the
+ * document without annotation, which is a perfectly good outcome; a failed
+ * conversion is not.
+ */
+async function enrich(markdown: string, output: vscode.OutputChannel): Promise<ProposedEnrichment> {
+  const enabled = vscode.workspace.getConfiguration('speckitStandalone').get<boolean>('enrich', true);
+  if (!enabled) {
+    return EMPTY_ENRICHMENT;
+  }
+
+  const cancellation = new vscode.CancellationTokenSource();
+  try {
+    return await proposeEnrichment(markdown, cancellation.token, (message) => output.appendLine(`[ai] ${message}`));
+  } catch (error) {
+    output.appendLine(`[ai] enrichment skipped: ${error instanceof Error ? error.message : String(error)}`);
+    return EMPTY_ENRICHMENT;
+  } finally {
+    cancellation.dispose();
+  }
+}
+
+async function renderDiagrams(
+  blocks: { id: string; code: string; title?: string }[],
+  output: vscode.OutputChannel
+): Promise<MermaidResult[]> {
   if (!blocks.length) {
     return [];
   }
@@ -219,6 +299,16 @@ async function convertCurrentFile(backend: BackendProcess, output: vscode.Output
       output.show();
     }
   }
+}
+
+async function toggleConvertOnSave(): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration('speckitStandalone');
+  const next = !configuration.get<boolean>('convertOnSave', false);
+
+  // Workspace scope, not global: whether a project rebuilds its PDFs on every
+  // save is a property of the project, not of the person.
+  await configuration.update('convertOnSave', next, vscode.ConfigurationTarget.Workspace);
+  void vscode.window.showInformationMessage(`Convert on save is now ${next ? 'on' : 'off'} for this workspace.`);
 }
 
 /** Typst errors are multi-line with source excerpts; a toast gets the headline. */

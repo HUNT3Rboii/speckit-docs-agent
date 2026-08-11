@@ -14,7 +14,7 @@
     "url": "https://github.com/HUNT3Rboii/speckit-docs-agent/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Documentation",
@@ -30,8 +30,33 @@
       {
         "command": "speckitStandalone.openPanel",
         "title": "Speckit Preview: Open Panel"
+      },
+      {
+        "command": "speckitStandalone.toggleConvertOnSave",
+        "title": "Speckit Preview: Toggle Convert on Save"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Speckit Preview",
+      "properties": {
+        "speckitStandalone.convertOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Convert a markdown file to PDF when it is saved."
+        },
+        "speckitStandalone.enrich": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the editor's language model to add a summary, glossary and diagrams. Every claim is checked against your document before it is printed; unsupported ones are dropped."
+        },
+        "speckitStandalone.debounceMs": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 200,
+          "description": "How long to wait after a save before converting."
+        }
+      }
+    }
   },
   "scripts": {
     "fetch-runtimes": "node scripts/fetch-runtimes.mjs",
@@ -47,7 +72,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.9",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.90.0",
     "typescript": "^5.9.3"
   }
 }

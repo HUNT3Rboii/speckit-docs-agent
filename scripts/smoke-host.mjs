@@ -108,7 +108,22 @@ const vscodeStub = {
   },
   ViewColumn: { One: 1 },
   ProgressLocation: { Notification: 15 },
+  CancellationTokenSource: class {
+    token = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
+    cancel() {}
+    dispose() {}
+  },
+  ConfigurationTarget: { Workspace: 2 },
+  // No language model in Node, so enrichment is off here. The parser it feeds
+  // is covered by its own tests; what this harness proves is the pipeline
+  // around it.
+  lm: { selectChatModels: () => Promise.resolve([]) },
   workspace: {
+    getConfiguration: () => ({
+      get: (key, fallback) => (key === 'enrich' ? false : fallback),
+      update: () => Promise.resolve(),
+    }),
+    onDidSaveTextDocument: () => ({ dispose() {} }),
     getWorkspaceFolder: () => ({ uri: { fsPath: REPO_ROOT } }),
     findFiles: () => Promise.resolve([{ fsPath: source }]),
     asRelativePath: (target) => String(target?.fsPath ?? target),
