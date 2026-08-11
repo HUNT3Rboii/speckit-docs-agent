@@ -33,6 +33,7 @@ class Enrichment:
     """What survived validation."""
 
     summary: str | None = None
+    section_summaries: Dict[str, str] = field(default_factory=dict)
     glossary: List[Dict[str, str]] = field(default_factory=list)
     diagrams: List[Dict[str, Any]] = field(default_factory=list)
     dropped: List[Dropped] = field(default_factory=list)
@@ -40,6 +41,7 @@ class Enrichment:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "summary": self.summary,
+            "sectionSummaries": self.section_summaries,
             "glossary": self.glossary,
             "diagrams": self.diagrams,
             "dropped": [item.to_dict() for item in self.dropped],
@@ -56,6 +58,22 @@ class EnrichmentValidator:
         summary = proposed.get("summary")
         if isinstance(summary, str) and summary.strip():
             result.summary = summary.strip()
+
+        # Per-section summaries are prose about the document rather than claims
+        # about it, so they are not evidence-checked - there is nothing to quote.
+        # They are still only kept for headings that exist.
+        headings = {
+            line.strip().lstrip("#").strip().lower()
+            for line in source.splitlines()
+            if line.strip().startswith("#")
+        }
+        proposed_sections = proposed.get("sectionSummaries") or proposed.get("perSection") or {}
+        if isinstance(proposed_sections, dict):
+            result.section_summaries = {
+                str(heading): str(text).strip()
+                for heading, text in proposed_sections.items()
+                if str(text).strip() and str(heading).strip().lower() in headings
+            }
 
         result.glossary = self._glossary(source, proposed.get("glossary") or [], result.dropped)
         result.diagrams = self._diagrams(source, proposed.get("diagrams") or [], result.dropped)

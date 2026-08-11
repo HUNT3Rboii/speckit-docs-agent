@@ -26,6 +26,7 @@ for the escalation path.
 - #raw("payment_failed") — provider declined
 
 == Tasks
+#section-label("task")
 
 - `[x]` Implement OrderCreated event schema
 - `[x]` Wire Payment Service to the sandbox

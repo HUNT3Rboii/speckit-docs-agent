@@ -69,6 +69,7 @@ def make_pdf_builder(storage_path: Path, typst_binary: Path):
                 diagrams=diagrams,
                 summary=request.get("summary"),
                 glossary=request.get("glossary") or [],
+                section_summaries=request.get("sectionSummaries") or {},
             )
         except TypstCompileError as exc:
             log(f"typst failed; generated markup kept at {exc.typst_source}")

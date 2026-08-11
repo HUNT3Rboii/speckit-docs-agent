@@ -2,6 +2,21 @@
 // its own, so a change in here restyles every document without touching the
 // emitter.
 
+// A section's kind, as the HTML pipeline's grouping used to convey.
+#let section-label(kind) = block(above: -0.4em, below: 0.6em)[
+  #box(
+    fill: luma(238),
+    inset: (x: 5pt, y: 2pt),
+    radius: 2pt,
+    text(size: 7.5pt, weight: "medium", fill: luma(80), upper(kind)),
+  )
+]
+
+// A one-line summary of what follows, when the model produced one.
+#let section-summary(body) = block(above: -0.2em, below: 0.7em)[
+  #text(size: 9.5pt, style: "italic", fill: luma(90), body)
+]
+
 #let doc(
   title: "Untitled",
   subtitle: none,

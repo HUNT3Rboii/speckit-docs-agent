@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 
 import { EMPTY_ENRICHMENT, ProposedEnrichment, parseEnrichment } from './parse';
-import { NoProviderAvailableError, requestEnrichment } from './providers';
+import { NoProviderAvailableError, PromptPair, requestEnrichment } from './providers';
+import { DroppedItem, ValidationRound, enrichWithRetry } from './retry';
 
 export { EMPTY_ENRICHMENT, parseEnrichment };
 export type { ProposedComponent, ProposedDiagram, ProposedEnrichment, ProposedGlossaryEntry } from './parse';
@@ -61,28 +62,44 @@ Rules:
 export async function proposeEnrichment(
   markdown: string,
   token: vscode.CancellationToken,
-  log: (message: string) => void
+  log: (message: string) => void,
+  validate?: (enrichment: ProposedEnrichment) => Promise<ValidationRound>
 ): Promise<ProposedEnrichment> {
   const document = markdown.length > MAX_CHARS ? markdown.slice(0, MAX_CHARS) : markdown;
   if (document.length < markdown.length) {
     log(`document truncated to ${MAX_CHARS} characters for enrichment`);
   }
 
-  const answer = await requestEnrichment(
-    { system: SYSTEM_PROMPT, user: `Document:
+  const prompt: PromptPair = { system: SYSTEM_PROMPT, user: `Document:
 
-${document}` },
-    token,
-    log
-  );
+${document}` };
 
-  if (!answer) {
+  const ask = async (attempt: PromptPair, cancellation: vscode.CancellationToken) => {
+    const answer = await requestEnrichment(attempt, cancellation, log);
+    if (answer) {
+      log(`enriched by ${answer.provider}`);
+    }
+    return answer?.enrichment;
+  };
+
+  // Without a validator there is nothing to correct against, so a single ask is
+  // the whole of it.
+  if (!validate) {
+    return (await ask(prompt, token)) ?? EMPTY_ENRICHMENT;
+  }
+
+  const outcome = await enrichWithRetry(prompt, ask, validate, token, log);
+  if (!outcome) {
     log('no provider produced usable enrichment; building a plain PDF');
     return EMPTY_ENRICHMENT;
   }
 
-  log(`enriched by ${answer.provider}`);
-  return answer.enrichment;
+  if (outcome.attempts > 1) {
+    log(`settled after ${outcome.attempts} attempts, ${outcome.dropped.length} item(s) still unsupported`);
+  }
+  return outcome.enrichment;
 }
+
+export type { DroppedItem, ValidationRound };
 
 export { NoProviderAvailableError };

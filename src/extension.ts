@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { ConvertOutcome, MermaidResult } from '../shared/protocol';
 import { EMPTY_ENRICHMENT, ProposedEnrichment, proposeEnrichment } from './ai/enrich';
 import { BackendProcess } from './backend/process';
+import { DiagramCache } from './markdown/diagramCache';
 import { findMermaidBlocks } from './markdown/mermaid';
 import { checkBackendStatus, discoverModelsCommand, manageProviders, showLogs, stopProcessing } from './commands';
 import { SaveWatcher } from './watcher';
@@ -44,6 +45,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const backend = new BackendProcess(context.extensionPath, storagePath, output);
   context.subscriptions.push(backend);
+
+  // Rendered diagrams, keyed by their mermaid source. Most conversions are
+  // re-conversions in which the diagrams did not change.
+  diagramCache = new DiagramCache(path.join(storagePath, 'diagrams'));
 
   // Every in-flight model request, so "Stop Processing" has something to cancel.
   const inFlight = new Set<vscode.CancellationTokenSource>();
@@ -148,6 +153,8 @@ export function deactivate(): void {
  * workspace, a file on disk, or a window to open something in.
  */
 const HOST_METHODS = new Set(['currentProject', 'convertDocument', 'openPdf', 'revealPdf', 'pdfUri']);
+
+let diagramCache: DiagramCache | undefined;
 
 async function routeWebviewRequest(
   method: string,
@@ -277,7 +284,7 @@ async function convert(
   options: { force?: boolean; inFlight?: Set<vscode.CancellationTokenSource> } = {}
 ): Promise<ConvertOutcome> {
   const markdown = document.getText();
-  const enrichment = await enrich(markdown, output, options.inFlight ?? new Set());
+  const enrichment = await enrich(markdown, output, options.inFlight ?? new Set(), backend);
 
   // AI-proposed diagrams are appended to the ones already written by hand, so
   // both kinds render through the same path.
@@ -350,7 +357,8 @@ function projectNameFor(uri: vscode.Uri): string {
 async function enrich(
   markdown: string,
   output: vscode.OutputChannel,
-  inFlight: Set<vscode.CancellationTokenSource>
+  inFlight: Set<vscode.CancellationTokenSource>,
+  backend: BackendProcess
 ): Promise<ProposedEnrichment> {
   if (!settings().get<boolean>('enrich', true)) {
     return EMPTY_ENRICHMENT;
@@ -359,8 +367,29 @@ async function enrich(
   const cancellation = new vscode.CancellationTokenSource();
   inFlight.add(cancellation);
 
+  // Validation runs in the backend between attempts: it holds the source
+  // document and the matcher, and asking it is far cheaper than a second model
+  // call that was never going to pass.
+  const validate = async (proposed: ProposedEnrichment) => {
+    const result = await backend.request<{
+      glossary: unknown[];
+      diagrams: unknown[];
+      dropped: { kind: string; label: string; reason: string }[];
+    }>('validateEnrichment', { markdown, enrichment: proposed });
+
+    return {
+      dropped: result.dropped,
+      kept: { glossary: result.glossary.length, diagrams: result.diagrams.length },
+    };
+  };
+
   try {
-    return await proposeEnrichment(markdown, cancellation.token, (message) => output.appendLine(`[ai] ${message}`));
+    return await proposeEnrichment(
+      markdown,
+      cancellation.token,
+      (message) => output.appendLine(`[ai] ${message}`),
+      validate
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -386,24 +415,39 @@ async function renderDiagrams(
     return [];
   }
 
+  const { cached, missing } = diagramCache?.partition(blocks) ?? { cached: [], missing: blocks };
+  if (cached.length) {
+    output.appendLine(`[info] reused ${cached.length} cached diagram(s)`);
+  }
+
+  if (!missing.length) {
+    return cached;
+  }
+
   const panel = SpeckitPanel.active;
   if (!panel) {
     // Without a panel there is no browser to render in. The backend prints the
     // diagram source instead, so the document still converts.
     output.appendLine(
-      `[info] ${blocks.length} mermaid diagram(s) skipped: open the Speckit panel to render them.`
+      `[info] ${missing.length} mermaid diagram(s) skipped: open the Speckit panel to render them.`
     );
-    return [];
+    return cached;
   }
 
-  const rendered = await panel.renderMermaid(blocks);
+  const rendered = await panel.renderMermaid(missing);
   for (const diagram of rendered) {
     if (diagram.error) {
       output.appendLine(`[warning] mermaid could not render ${diagram.id}: ${diagram.error}`);
     }
   }
+  diagramCache?.remember(missing, rendered);
 
-  return rendered.filter((diagram) => diagram.svg);
+  // Back into the order the document had, which is the order the emitter
+  // claims them in.
+  const bySourceOrder = new Map([...cached, ...rendered].map((diagram) => [diagram.id, diagram]));
+  return blocks
+    .map((block) => bySourceOrder.get(block.id))
+    .filter((diagram): diagram is MermaidResult => Boolean(diagram?.svg));
 }
 
 async function convertCurrentFile(backend: BackendProcess, output: vscode.OutputChannel): Promise<void> {

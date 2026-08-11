@@ -154,6 +154,7 @@ def register(
                     "diagrams": params.get("diagrams") or [],
                     "summary": enrichment.summary,
                     "glossary": enrichment.glossary,
+                    "sectionSummaries": enrichment.section_summaries,
                 }
             )
         except Exception as exc:

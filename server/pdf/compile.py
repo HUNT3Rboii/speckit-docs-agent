@@ -56,13 +56,16 @@ def build_document(
     diagrams: Sequence[Diagram] = (),
     summary: str | None = None,
     glossary: Sequence[dict] = (),
+    section_summaries: dict | None = None,
 ) -> tuple[str, List[str]]:
     """Wrap emitted body markup in the template call."""
-    result = emit(markdown, diagrams)
+    result = emit(markdown, diagrams, section_summaries)
     generated = datetime.now(timezone.utc).strftime("Generated %Y-%m-%d %H:%M UTC")
 
     preamble = [
-        '#import "template.typ": doc',
+        # Everything the generated body may call has to be imported by name;
+        # Typst resolves these at compile time, not by looking around the file.
+        '#import "template.typ": doc, section-label, section-summary',
         "#show: doc.with(",
         f'  title: "{escape_string(title)}",',
     ]
@@ -92,6 +95,7 @@ def convert(
     diagrams: Sequence[Diagram] = (),
     summary: str | None = None,
     glossary: Sequence[dict] = (),
+    section_summaries: dict | None = None,
 ) -> ConversionResult:
     """Markdown in, PDF on disk out.
 
@@ -109,6 +113,7 @@ def convert(
         diagrams=diagrams,
         summary=summary,
         glossary=glossary,
+        section_summaries=section_summaries,
     )
 
     shutil.copyfile(TEMPLATE, build_dir / TEMPLATE.name)

@@ -24,6 +24,8 @@ from typing import Iterable, List, Sequence
 from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode
 
+from .sections import NORMAL, split_sections, summaries_by_heading, summary_for
+
 # Characters that begin markup in Typst content. Escaped everywhere text is
 # emitted, because a stray `#` or `[` from a user's prose is a compile error at
 # best and silently swallowed markup at worst.
@@ -104,13 +106,28 @@ def build_parser() -> MarkdownIt:
 
 
 class TypstEmitter:
-    def __init__(self, diagrams: Sequence[Diagram] = ()) -> None:
+    def __init__(
+        self,
+        diagrams: Sequence[Diagram] = (),
+        section_summaries: dict | None = None,
+    ) -> None:
         self._diagrams = list(diagrams)
         self._placed: set[str] = set()
         self._mermaid_seen = 0
+        self._summaries = summaries_by_heading(section_summaries)
+        self._types: dict = {}
         self.warnings: List[str] = []
 
     def emit(self, markdown: str) -> EmitResult:
+        # Section types come from the source text rather than the token stream:
+        # what a section *is* depends on its whole content, which the per-node
+        # walk below never sees at once.
+        self._types = {
+            section.heading.strip(): section.type
+            for section in split_sections(markdown)
+            if section.type != NORMAL
+        }
+
         tokens = build_parser().parse(markdown)
         tree = SyntaxTreeNode(tokens)
         body = self._blocks(tree.children)
@@ -138,7 +155,23 @@ class TypstEmitter:
 
     def _block_heading(self, node: SyntaxTreeNode, _depth: int) -> str:
         level = int(node.tag[1:])
-        return f"{'=' * level} {self._inline(node.children[0])}\n"
+        text = self._inline(node.children[0])
+        raw = node.children[0].content.strip()
+
+        parts = [f"{'=' * level} {text}"]
+
+        # The label carries what the HTML pipeline's grouping used to: a reader
+        # can see that a section is a task list or a decision record without
+        # having to read it first.
+        section_type = self._types.get(raw)
+        if section_type:
+            parts.append(f'#section-label("{escape_string(section_type.replace("_", " "))}")')
+
+        summary = summary_for(raw, self._summaries)
+        if summary:
+            parts.append(f"#section-summary[{escape(summary)}]")
+
+        return "\n".join(parts) + "\n"
 
     def _block_paragraph(self, node: SyntaxTreeNode, _depth: int) -> str:
         return _escape_line_start(self._inline(node.children[0])) + "\n"
@@ -317,5 +350,9 @@ class TypstEmitter:
         return "".join(self._inline_node(child) for child in node.children)
 
 
-def emit(markdown: str, diagrams: Sequence[Diagram] = ()) -> EmitResult:
-    return TypstEmitter(diagrams).emit(markdown)
+def emit(
+    markdown: str,
+    diagrams: Sequence[Diagram] = (),
+    section_summaries: dict | None = None,
+) -> EmitResult:
+    return TypstEmitter(diagrams, section_summaries).emit(markdown)
