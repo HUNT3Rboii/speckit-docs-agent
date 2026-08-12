@@ -70,6 +70,28 @@ export class SpeckitPanel {
     return SpeckitPanel.current;
   }
 
+  /**
+   * The page the React app should show once it is running.
+   *
+   * A route sent the instant the panel is created would arrive before the
+   * bundle has a listener, so it is parked here and the app asks for it on
+   * mount (`initialRoute`); an already-open panel gets the event too, which is
+   * what makes a second click on the same sidebar row move the open tab.
+   */
+  private static pendingRoute: string | undefined;
+
+  static navigate(path: string): void {
+    SpeckitPanel.pendingRoute = path;
+    SpeckitPanel.current?.emit('navigate', { path });
+  }
+
+  /** Read once: a route that has been delivered must not reappear on reload. */
+  static takePendingRoute(): string | undefined {
+    const route = SpeckitPanel.pendingRoute;
+    SpeckitPanel.pendingRoute = undefined;
+    return route;
+  }
+
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     context: vscode.ExtensionContext,

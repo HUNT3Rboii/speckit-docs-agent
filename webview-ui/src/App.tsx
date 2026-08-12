@@ -1,5 +1,9 @@
+import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom'
+import { initialRoute } from './api/host'
+import { on } from './bridge'
+import { SettingsView } from './pages/SettingsView'
 import { ProjectDashboard } from './pages/ProjectDashboard'
 import { ArtifactListView } from './pages/ArtifactListView'
 import { KanbanBoardView } from './pages/KanbanBoardView'
@@ -32,14 +36,56 @@ const queryClient = new QueryClient({
   },
 })
 
+/**
+ * Lets the extension host choose the page.
+ *
+ * The Activity Bar's "Settings" row opens this panel already pointed at
+ * /settings. Two paths, because there are two cases: a panel that is being
+ * created has nobody listening yet, so it asks for the parked route on mount;
+ * one that is already open is told by event.
+ */
+function HostRouting() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    let cancelled = false
+
+    void initialRoute()
+      .then((route) => {
+        if (!cancelled && route.path) {
+          navigate(route.path)
+        }
+      })
+      .catch(() => {
+        // An older host has no such method. The dashboard still opens on its
+        // own front page, which is the right default anyway.
+      })
+
+    const off = on('navigate', (payload) => {
+      if (typeof payload.path === 'string') {
+        navigate(payload.path)
+      }
+    })
+
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [navigate])
+
+  return null
+}
+
 function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
+          <HostRouting />
           <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<ProjectDashboard />} />
+              <Route path="/settings" element={<SettingsView />} />
               <Route path="/projects/:projectId" element={<ArtifactListView />} />
               <Route path="/projects/:projectId/board" element={<KanbanBoardView />} />
               <Route path="/projects/:projectId/files" element={<ContextFilesView />} />

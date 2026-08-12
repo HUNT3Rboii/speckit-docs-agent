@@ -40,6 +40,7 @@ const withPanel = args.includes('--panel');
 const log = [];
 const notifications = [];
 const commands = new Map();
+const treeProviders = new Map();
 let opened;
 let panelRequests = 0;
 
@@ -113,7 +114,24 @@ const vscodeStub = {
     cancel() {}
     dispose() {}
   },
-  ConfigurationTarget: { Workspace: 2 },
+  ConfigurationTarget: { Global: 1, Workspace: 2 },
+  TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
+  TreeItem: class {
+    constructor(label, collapsibleState) {
+      this.label = label;
+      this.collapsibleState = collapsibleState;
+    }
+  },
+  ThemeIcon: class {
+    constructor(id) {
+      this.id = id;
+    }
+  },
+  EventEmitter: class {
+    event = () => ({ dispose() {} });
+    fire() {}
+    dispose() {}
+  },
   // No language model in Node, so enrichment is off here. The parser it feeds
   // is covered by its own tests; what this harness proves is the pipeline
   // around it.
@@ -124,6 +142,7 @@ const vscodeStub = {
       update: () => Promise.resolve(),
     }),
     onDidSaveTextDocument: () => ({ dispose() {} }),
+    onDidChangeConfiguration: () => ({ dispose() {} }),
     getWorkspaceFolder: () => ({ uri: { fsPath: REPO_ROOT } }),
     findFiles: () => Promise.resolve([{ fsPath: source }]),
     asRelativePath: (target) => String(target?.fsPath ?? target),
@@ -176,6 +195,10 @@ const vscodeStub = {
     },
     createWebviewPanel: () => createStubWebviewPanel(),
     registerWebviewPanelSerializer: () => ({ dispose() {} }),
+    registerTreeDataProvider(id, provider) {
+      treeProviders.set(id, provider);
+      return { dispose() {} };
+    },
     activeTextEditor: {
       viewColumn: 1,
       document: {
@@ -225,6 +248,21 @@ async function main() {
   const convertCommand = commands.get('speckitStandalone.convertCurrentFile');
   assert.ok(convertCommand, 'activate() did not register the convert command');
   process.stdout.write(`activate() registered ${[...commands.keys()].join(', ')}\n`);
+
+  // The Activity Bar view is a list of commands, so the failure worth catching
+  // is a row pointing at a command nobody registered - which shows up in the
+  // editor only as a click that does nothing.
+  const actions = treeProviders.get('speckitStandalone.actions');
+  assert.ok(actions, 'activate() did not register the Activity Bar view');
+  const rows = [];
+  for (const group of actions.getChildren()) {
+    for (const child of actions.getChildren(group)) {
+      const item = actions.getTreeItem(child);
+      assert.ok(commands.has(item.command.command), `sidebar row "${item.label}" has no such command`);
+      rows.push(item.label);
+    }
+  }
+  process.stdout.write(`sidebar offers ${rows.length} action(s): ${rows.join(', ')}\n`);
 
   if (withPanel) {
     // Diagrams are only rendered when a panel exists to render them in.

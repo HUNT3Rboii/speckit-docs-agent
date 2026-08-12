@@ -36,7 +36,71 @@ export interface HostMethods {
   listDocuments: { params: Record<string, never>; result: { documents: DocumentEntry[] } };
   convertDocument: { params: { path: string }; result: ConvertOutcome };
   openPdf: { params: { path: string }; result: { opened: boolean } };
+  readSettings: { params: Record<string, never>; result: SettingsSnapshot };
+  updateSetting: { params: { key: EditableSetting; value: unknown }; result: SettingsSnapshot };
+  runCommand: { params: { command: string }; result: { ran: boolean } };
+  readPageImage: { params: { path: string }; result: { dataUri: string } };
+  initialRoute: { params: Record<string, never>; result: { path: string | null } };
 }
+
+/**
+ * The settings the dashboard's own settings page may write.
+ *
+ * An allowlist rather than "any speckitStandalone key": the webview is the
+ * least trusted side of the bridge, and the try order is not here at all
+ * because the AI models panel owns it.
+ */
+export const EDITABLE_SETTINGS = [
+  'convertOnSave',
+  'autoProcess',
+  'enrich',
+  'allowRuleBasedFallback',
+  'enableDebugLogging',
+  'debounceMs',
+  'maxConcurrentProcessing',
+  'preferredModelId',
+] as const;
+
+export type EditableSetting = (typeof EDITABLE_SETTINGS)[number];
+
+/** One provider as the settings page lists it, in the order they are tried. */
+export interface ProviderSummary {
+  token: string;
+  label: string;
+  kind: 'builtin' | 'custom';
+  included: boolean;
+  enabled?: boolean;
+}
+
+export interface SettingsSnapshot {
+  convertOnSave: boolean;
+  autoProcess: boolean;
+  enrich: boolean;
+  allowRuleBasedFallback: boolean;
+  enableDebugLogging: boolean;
+  debounceMs: number;
+  maxConcurrentProcessing: number;
+  preferredModelId: string;
+  /** Read-only here; edited in the AI models panel. */
+  providers: ProviderSummary[];
+  customModelCount: number;
+}
+
+/**
+ * Commands the dashboard may run.
+ *
+ * Anything not on this list is refused, so a bug (or an injected script) in the
+ * webview cannot reach `workbench.action.*` or any other extension's commands.
+ */
+export const WEBVIEW_COMMANDS = [
+  'speckitStandalone.manageProviders',
+  'speckitStandalone.discoverModels',
+  'speckitStandalone.convertCurrentFile',
+  'speckitStandalone.checkBackendStatus',
+  'speckitStandalone.stopProcessing',
+  'speckitStandalone.showLogs',
+  'speckitStandalone.openNativeSettings',
+] as const;
 
 /** Host -> webview. Rendering needs a DOM, which only this side has. */
 export interface WebviewMethods {

@@ -1,14 +1,25 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { ConvertOutcome, MermaidResult } from '../shared/protocol';
+import {
+  ConvertOutcome,
+  EDITABLE_SETTINGS,
+  EditableSetting,
+  MermaidResult,
+  SettingsSnapshot,
+  WEBVIEW_COMMANDS,
+} from '../shared/protocol';
+import { readCustomModels, readPriority } from './ai/providers';
+import { describePriority } from './ai/providerPriority';
 import { EMPTY_ENRICHMENT, ProposedEnrichment, proposeEnrichment } from './ai/enrich';
 import { BackendProcess } from './backend/process';
 import { DiagramCache } from './markdown/diagramCache';
 import { findMermaidBlocks } from './markdown/mermaid';
 import { checkBackendStatus, discoverModelsCommand, manageProviders, showLogs, stopProcessing } from './commands';
 import { SaveWatcher } from './watcher';
+import { CustomModelsPanel } from './webview/customModelsPanel';
 import { SpeckitPanel } from './webview/panel';
+import { SpeckitActionsProvider } from './webview/sidebar';
 
 interface ConvertResponse {
   pdfPath: string;
@@ -42,6 +53,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Per-user, cleaned up by VS Code on uninstall. Never a path the extension
   // invents under the home directory.
   const storagePath = context.globalStorageUri.fsPath;
+  storageRoot = storagePath;
 
   const backend = new BackendProcess(context.extensionPath, storagePath, output);
   context.subscriptions.push(backend);
@@ -81,8 +93,19 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('speckitStandalone.discoverModels', () => discoverModelsCommand(output)),
     vscode.commands.registerCommand('speckitStandalone.manageProviders', () => manageProviders(output)),
+    // The dashboard's own settings page, reached from the Activity Bar without
+    // having to open the dashboard and find the button first.
+    vscode.commands.registerCommand('speckitStandalone.openSettingsPage', () => {
+      SpeckitPanel.navigate('/settings');
+      SpeckitPanel.createOrShow(context, handleWebviewRequest);
+    }),
+    vscode.commands.registerCommand('speckitStandalone.openNativeSettings', () =>
+      vscode.commands.executeCommand('workbench.action.openSettings', 'speckitStandalone')
+    ),
+    ...SpeckitActionsProvider.register(),
     SpeckitPanel.registerSerializer(context, handleWebviewRequest),
-    { dispose: () => SpeckitPanel.active?.dispose() }
+    { dispose: () => SpeckitPanel.active?.dispose() },
+    { dispose: () => CustomModelsPanel.active?.dispose() }
   );
 
   // The panel lists what is on disk, so it has to hear about files appearing
@@ -152,9 +175,24 @@ export function deactivate(): void {
  * here. These four are the exceptions because they need the editor: the
  * workspace, a file on disk, or a window to open something in.
  */
-const HOST_METHODS = new Set(['currentProject', 'convertDocument', 'openPdf', 'revealPdf', 'pdfUri', 'toWebviewUris']);
+const HOST_METHODS = new Set([
+  'currentProject',
+  'convertDocument',
+  'openPdf',
+  'revealPdf',
+  'pdfUri',
+  'toWebviewUris',
+  'initialRoute',
+  'readSettings',
+  'updateSetting',
+  'runCommand',
+  'readPageImage',
+]);
 
 let diagramCache: DiagramCache | undefined;
+
+/** Where the backend writes; the boundary for anything the webview may read. */
+let storageRoot: string | undefined;
 
 async function routeWebviewRequest(
   method: string,
@@ -190,7 +228,40 @@ async function routeWebviewRequest(
         throw new Error('The Speckit panel is not open.');
       }
       const paths = Array.isArray(params.paths) ? (params.paths as string[]) : [];
-      return { uris: paths.map((target) => panel.toWebviewUri(target)) };
+      const uris = paths.map((target) => panel.toWebviewUri(target));
+
+      // Logged because a webview that refuses a resource says nothing at all -
+      // the image simply does not appear, with no console entry and no failed
+      // request to inspect. Seeing the path and the rewritten URI side by side
+      // is the only way to tell a missing file from a rejected one.
+      for (const [index, target] of paths.entries()) {
+        output.appendLine(`[preview] ${target} -> ${uris[index]}`);
+      }
+
+      return { uris };
+    }
+
+    /**
+     * The same image, inlined.
+     *
+     * `asWebviewUri` is the right way to load a local file and is tried first,
+     * but it depends on the panel's `localResourceRoots` resolving to the same
+     * place the backend wrote to - and when that fails the webview reports
+     * nothing, leaving a broken image and no diagnosis. Reading the bytes here
+     * and handing back a `data:` URI cannot fail that way: the CSP already
+     * permits `data:`, and the host is Node and may read the file outright.
+     */
+    case 'readPageImage': {
+      const target = String(params.path ?? '');
+
+      // A path from outside the extension's own storage has no business being
+      // read on the webview's say-so.
+      if (!storageRoot || !path.resolve(target).toLowerCase().startsWith(storageRoot.toLowerCase())) {
+        throw new Error('That file is not part of this extension’s storage.');
+      }
+
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(target));
+      return { dataUri: `data:image/png;base64,${Buffer.from(bytes).toString('base64')}` };
     }
 
     case 'pdfUri': {
@@ -209,6 +280,38 @@ async function routeWebviewRequest(
     case 'revealPdf': {
       await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(String(params.path ?? '')));
       return { revealed: true };
+    }
+
+    case 'initialRoute': {
+      return { path: SpeckitPanel.takePendingRoute() ?? null };
+    }
+
+    case 'readSettings': {
+      return readSettingsSnapshot();
+    }
+
+    case 'updateSetting': {
+      const key = String(params.key ?? '');
+      if (!(EDITABLE_SETTINGS as readonly string[]).includes(key)) {
+        throw new Error(`${key} is not a setting the dashboard may change.`);
+      }
+
+      // Whether this project rebuilds its PDFs on every save is a property of
+      // the project; everything else is a property of the person. Same split
+      // the "Toggle Auto-Processing" command has always used.
+      const scope =
+        key === 'convertOnSave' ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+      await settings().update(key as EditableSetting, params.value, scope);
+      return readSettingsSnapshot();
+    }
+
+    case 'runCommand': {
+      const command = String(params.command ?? '');
+      if (!(WEBVIEW_COMMANDS as readonly string[]).includes(command)) {
+        throw new Error(`${command} is not a command the dashboard may run.`);
+      }
+      await vscode.commands.executeCommand(command);
+      return { ran: true };
     }
 
     default:
@@ -255,6 +358,31 @@ async function syncWorkspace(backend: BackendProcess, output: vscode.OutputChann
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Everything the dashboard's settings page shows.
+ *
+ * The provider list is derived rather than stored: `describePriority` expands
+ * the bare "custom" token into one row per model, so the page shows the order
+ * that will actually be tried, not the shorthand the setting happens to hold.
+ */
+function readSettingsSnapshot(): SettingsSnapshot {
+  const configuration = settings();
+  const customModels = readCustomModels();
+
+  return {
+    convertOnSave: configuration.get<boolean>('convertOnSave', false),
+    autoProcess: configuration.get<boolean>('autoProcess', false),
+    enrich: configuration.get<boolean>('enrich', true),
+    allowRuleBasedFallback: configuration.get<boolean>('allowRuleBasedFallback', false),
+    enableDebugLogging: configuration.get<boolean>('enableDebugLogging', false),
+    debounceMs: configuration.get<number>('debounceMs', 1500),
+    maxConcurrentProcessing: configuration.get<number>('maxConcurrentProcessing', 3),
+    preferredModelId: configuration.get<string>('preferredModelId', ''),
+    providers: describePriority(readPriority(), customModels),
+    customModelCount: customModels.length,
+  };
 }
 
 async function drainTransformRequests(backend: BackendProcess, output: vscode.OutputChannel): Promise<void> {
@@ -312,6 +440,9 @@ async function convert(
     projectId: workspaceKeyFor(document.uri),
     projectName: projectNameFor(document.uri),
     force: options.force ?? false,
+    // For the cover page's "Enriched By" line. Only the host knows which
+    // provider answered; the backend never talks to a model.
+    provider: enrichment.provider,
     enrichment,
     diagrams: diagrams.map((diagram) => ({ id: diagram.id, svg: diagram.svg, title: diagram.title })),
   });
