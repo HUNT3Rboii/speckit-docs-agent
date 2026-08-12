@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import { CustomModelEntry, readEntry } from './customModels';
+import { PriorityEntry, ProviderId, expandPriority } from './providerPriority';
 import { ProposedEnrichment, parseEnrichment } from './parse';
 
 /**
@@ -16,18 +18,6 @@ import { ProposedEnrichment, parseEnrichment } from './parse';
  * forbids it.
  */
 
-export interface CustomModel {
-  id: string;
-  enabled: boolean;
-  label?: string;
-  endpoint: string;
-  model: string;
-  apiKey?: string;
-  headers?: Record<string, string>;
-}
-
-export type ProviderKind = 'copilot' | 'claude' | 'kiro' | 'generic' | 'custom' | string;
-
 export interface Provider {
   id: string;
   label: string;
@@ -39,7 +29,7 @@ export interface PromptPair {
   user: string;
 }
 
-const DEFAULT_PRIORITY: ProviderKind[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
+const DEFAULT_PRIORITY: PriorityEntry[] = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
 
 /** Vendor ids the Language Model API reports for the editors we know about. */
 const VENDORS: Record<string, string> = {
@@ -48,18 +38,28 @@ const VENDORS: Record<string, string> = {
   kiro: 'kiro',
 };
 
-export function readCustomModels(): CustomModel[] {
+/**
+ * Every configured custom endpoint, in the setting's own order.
+ *
+ * Entries are read through `readEntry`, so a config written by an earlier build
+ * (a full `endpoint` URL and a `model`) is understood exactly like one the
+ * panel wrote. An entry with no usable base URL is dropped rather than being
+ * offered as a provider that can only fail.
+ */
+export function readCustomModels(): CustomModelEntry[] {
   const configured = vscode.workspace
     .getConfiguration('speckitStandalone')
-    .get<CustomModel[]>('customModels', []);
+    .get<unknown[]>('customModels', []);
 
-  return configured.filter((entry) => entry && typeof entry.endpoint === 'string' && entry.endpoint);
+  return configured
+    .map((entry) => readEntry(entry))
+    .filter((entry): entry is CustomModelEntry => entry !== null);
 }
 
-export function readPriority(): ProviderKind[] {
+export function readPriority(): PriorityEntry[] {
   const configured = vscode.workspace
     .getConfiguration('speckitStandalone')
-    .get<ProviderKind[]>('providerPriority', DEFAULT_PRIORITY);
+    .get<PriorityEntry[]>('providerPriority', DEFAULT_PRIORITY);
   return configured.length ? configured : DEFAULT_PRIORITY;
 }
 
@@ -71,35 +71,29 @@ export function readPriority(): ProviderKind[] {
  * fall through to whatever is there.
  */
 export async function resolveProviders(log: (message: string) => void): Promise<Provider[]> {
-  const priority = readPriority();
-  const customModels = readCustomModels();
   const providers: Provider[] = [];
 
-  for (const entry of priority) {
-    if (entry === 'custom' || entry.startsWith('custom:')) {
-      const wanted = entry.startsWith('custom:') ? entry.slice('custom:'.length) : undefined;
-      for (const model of customModels) {
-        if (!model.enabled) {
-          continue;
-        }
-        if (wanted && model.id !== wanted) {
-          continue;
-        }
-        providers.push(customProvider(model));
+  // The order is expanded before anything is tried: "custom:<id>" names one
+  // entry, a bare "custom" stands for every entry not placed individually, and
+  // either way each model appears exactly once.
+  for (const resolved of expandPriority(readPriority(), readCustomModels())) {
+    if (resolved.kind === 'custom') {
+      if (resolved.entry.enabled) {
+        providers.push(customProvider(resolved.entry));
       }
       continue;
     }
 
-    const chatModels = await selectModels(entry);
+    const chatModels = await selectModels(resolved.id);
     for (const model of chatModels) {
-      providers.push(languageModelProvider(entry, model, log));
+      providers.push(languageModelProvider(resolved.id, model, log));
     }
   }
 
   return providers;
 }
 
-async function selectModels(kind: ProviderKind): Promise<vscode.LanguageModelChat[]> {
+async function selectModels(kind: ProviderId): Promise<vscode.LanguageModelChat[]> {
   try {
     if (kind === 'generic') {
       // Whatever is registered that the named vendors did not already cover.
@@ -120,7 +114,7 @@ async function selectModels(kind: ProviderKind): Promise<vscode.LanguageModelCha
 }
 
 function languageModelProvider(
-  kind: ProviderKind,
+  kind: ProviderId,
   model: vscode.LanguageModelChat,
   log: (message: string) => void
 ): Provider {
@@ -150,16 +144,16 @@ function languageModelProvider(
  * Deliberately plain `fetch` with no SDK: the shape is three fields, and a
  * dependency here would ship in all four platform VSIXes.
  */
-function customProvider(model: CustomModel): Provider {
+function customProvider(model: CustomModelEntry): Provider {
   return {
     id: `custom:${model.id}`,
-    label: model.label || `${model.model} at ${model.endpoint}`,
+    label: model.name || `${model.modelName} at ${model.baseUrl}`,
     async send(prompt, token) {
       const controller = new AbortController();
       const cancellation = token.onCancellationRequested(() => controller.abort());
 
       try {
-        const response = await fetch(model.endpoint, {
+        const response = await fetch(`${model.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -167,7 +161,7 @@ function customProvider(model: CustomModel): Provider {
             ...(model.headers ?? {}),
           },
           body: JSON.stringify({
-            model: model.model,
+            model: model.modelName,
             messages: [
               { role: 'system', content: prompt.system },
               { role: 'user', content: prompt.user },
@@ -178,7 +172,7 @@ function customProvider(model: CustomModel): Provider {
         });
 
         if (!response.ok) {
-          throw new Error(`${model.endpoint} answered ${response.status} ${response.statusText}`);
+          throw new Error(`${model.baseUrl} answered ${response.status} ${response.statusText}`);
         }
 
         const payload = (await response.json()) as {
@@ -190,33 +184,6 @@ function customProvider(model: CustomModel): Provider {
       }
     },
   };
-}
-
-/**
- * Ask an endpoint what it can run.
- *
- * The old extension had this so a user could fill in a model name from a list
- * instead of guessing one, which is the difference between working first try
- * and a 404 with no clue in it.
- */
-export async function discoverModels(model: CustomModel): Promise<string[]> {
-  const base = model.endpoint.replace(/\/chat\/completions\/?$/, '').replace(/\/$/, '');
-  const response = await fetch(`${base}/models`, {
-    headers: {
-      ...(model.apiKey ? { Authorization: `Bearer ${model.apiKey}` } : {}),
-      ...(model.headers ?? {}),
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`${base}/models answered ${response.status} ${response.statusText}`);
-  }
-
-  const payload = (await response.json()) as { data?: { id?: string }[] };
-  return (payload.data ?? [])
-    .map((entry) => entry.id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
-    .sort();
 }
 
 export class NoProviderAvailableError extends Error {

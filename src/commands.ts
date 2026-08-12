@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
 
 import { BackendProcess } from './backend/process';
-import { CustomModel, discoverModels, readCustomModels, resolveProviders } from './ai/providers';
+import { CustomModelEntry } from './ai/customModels';
+import { discoverModels } from './ai/endpoints';
+import { readCustomModels } from './ai/providers';
+import { CustomModelsPanel } from './webview/customModelsPanel';
 
 /**
  * The commands that are not the conversion itself.
@@ -107,8 +110,8 @@ export async function discoverModelsCommand(output: vscode.OutputChannel): Promi
 
   try {
     const discovered = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: `Asking ${target.endpoint}…` },
-      () => discoverModels(target)
+      { location: vscode.ProgressLocation.Notification, title: `Asking ${target.baseUrl}…` },
+      () => discoverModels(target.baseUrl, target.apiKey)
     );
 
     if (!discovered.length) {
@@ -117,16 +120,18 @@ export async function discoverModelsCommand(output: vscode.OutputChannel): Promi
     }
 
     const chosen = await vscode.window.showQuickPick(discovered, {
-      title: `Models available at ${target.endpoint}`,
+      title: `Models available at ${target.baseUrl}`,
       placeHolder: 'Pick one to save as this provider’s model',
     });
     if (!chosen) {
       return;
     }
 
-    await updateCustomModel(target.id, (entry) => ({ ...entry, model: chosen }));
+    // The full listing is stored alongside the choice, so the panel's model
+    // picker has something to show without going back to the network.
+    await updateCustomModel(target.id, (entry) => ({ ...entry, modelName: chosen, models: discovered }));
     output.appendLine(`[providers] ${target.id} now uses ${chosen}`);
-    void vscode.window.showInformationMessage(`${target.label ?? target.id} will use ${chosen}.`);
+    void vscode.window.showInformationMessage(`${target.name} will use ${chosen}.`);
   } catch (error) {
     const message = describe(error);
     output.appendLine(`[providers] discovery failed: ${message}`);
@@ -137,143 +142,25 @@ export async function discoverModelsCommand(output: vscode.OutputChannel): Promi
 /**
  * Add, edit, enable or reorder providers.
  *
- * Built from quick picks rather than a bespoke webview. The old panel existed
- * because the settings it edited were awkward to reach; these are ordinary
- * settings, and the editor already has good UI for those.
+ * This is the panel, not a series of quick picks. Quick picks can collect three
+ * strings; they cannot show a base URL being rejected, list what an endpoint
+ * actually serves, prove it will answer before the first document depends on
+ * it, or let every provider - each custom model individually - be dragged into
+ * the order it should be tried in.
  */
 export async function manageProviders(output: vscode.OutputChannel): Promise<void> {
-  const available = await resolveProviders(() => {});
-  const models = readCustomModels();
-
-  const actions = [
-    { label: '$(add) Add a provider…', action: 'add' as const },
-    { label: '$(edit) Edit a provider…', action: 'edit' as const },
-    { label: '$(list-ordered) Reorder which is tried first…', action: 'reorder' as const },
-    { label: '$(search) Discover models for a provider…', action: 'discover' as const },
-    { label: '$(settings-gear) Open these in Settings', action: 'settings' as const },
-  ];
-
-  const choice = await vscode.window.showQuickPick(actions, {
-    title: 'AI providers',
-    placeHolder: available.length
-      ? `${available.length} available now: ${available.map((provider) => provider.label).join(', ')}`
-      : 'No provider is currently available',
-  });
-
-  switch (choice?.action) {
-    case 'add':
-      return addProvider(output);
-    case 'edit':
-      return editProvider(models, output);
-    case 'reorder':
-      return reorderProviders();
-    case 'discover':
-      return discoverModelsCommand(output);
-    case 'settings':
-      await vscode.commands.executeCommand('workbench.action.openSettings', 'speckitStandalone');
-      return;
-    default:
-      return;
-  }
+  CustomModelsPanel.show(output);
 }
 
-async function addProvider(output: vscode.OutputChannel): Promise<void> {
-  const endpoint = await vscode.window.showInputBox({
-    title: 'Add a provider (1 of 3)',
-    prompt: 'Chat completions endpoint',
-    placeHolder: 'http://localhost:11434/v1/chat/completions',
-    validateInput: (value) => (value.trim().startsWith('http') ? undefined : 'Must be an http(s) URL'),
-  });
-  if (!endpoint) {
-    return;
-  }
-
-  const model = await vscode.window.showInputBox({
-    title: 'Add a provider (2 of 3)',
-    prompt: 'Model name. Leave blank and use "Discover models" if you are not sure.',
-    placeHolder: 'llama3.1',
-  });
-  if (model === undefined) {
-    return;
-  }
-
-  const apiKey = await vscode.window.showInputBox({
-    title: 'Add a provider (3 of 3)',
-    prompt: 'API key, if this endpoint needs one. Leave blank for a local model.',
-    password: true,
-  });
-  if (apiKey === undefined) {
-    return;
-  }
-
-  const entry: CustomModel = {
-    id: `custom-${Date.now().toString(36)}`,
-    enabled: true,
-    label: new URL(endpoint).host,
-    endpoint: endpoint.trim(),
-    model: model.trim(),
-    ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-  };
-
-  const configuration = vscode.workspace.getConfiguration('speckitStandalone');
-  await configuration.update('customModels', [...readCustomModels(), entry], vscode.ConfigurationTarget.Global);
-
-  output.appendLine(`[providers] added ${entry.label} (${entry.endpoint})`);
-  void vscode.window.showInformationMessage(`Added ${entry.label}.`);
-}
-
-async function editProvider(models: CustomModel[], output: vscode.OutputChannel): Promise<void> {
-  const target = await pickCustomModel(models, 'Which provider?');
-  if (!target) {
-    return;
-  }
-
-  const action = await vscode.window.showQuickPick(
-    [
-      { label: target.enabled ? '$(circle-slash) Disable' : '$(check) Enable', action: 'toggle' as const },
-      { label: '$(trash) Remove', action: 'remove' as const },
-    ],
-    { title: target.label ?? target.id }
-  );
-
-  const configuration = vscode.workspace.getConfiguration('speckitStandalone');
-  if (action?.action === 'toggle') {
-    await updateCustomModel(target.id, (entry) => ({ ...entry, enabled: !entry.enabled }));
-    output.appendLine(`[providers] ${target.id} ${target.enabled ? 'disabled' : 'enabled'}`);
-  } else if (action?.action === 'remove') {
-    await configuration.update(
-      'customModels',
-      readCustomModels().filter((entry) => entry.id !== target.id),
-      vscode.ConfigurationTarget.Global
-    );
-    output.appendLine(`[providers] removed ${target.id}`);
-  }
-}
-
-async function reorderProviders(): Promise<void> {
-  const kinds = ['copilot', 'claude', 'kiro', 'generic', 'custom'];
-  const picked = await vscode.window.showQuickPick(kinds, {
-    title: 'Provider priority',
-    placeHolder: 'Pick them in the order they should be tried',
-    canPickMany: true,
-  });
-
-  if (!picked?.length) {
-    return;
-  }
-
-  await vscode.workspace
-    .getConfiguration('speckitStandalone')
-    .update('providerPriority', picked, vscode.ConfigurationTarget.Global);
-  void vscode.window.showInformationMessage(`Providers will be tried in this order: ${picked.join(', ')}.`);
-}
-
-async function pickCustomModel(models: CustomModel[], title: string): Promise<CustomModel | undefined> {
+async function pickCustomModel(
+  models: CustomModelEntry[],
+  title: string
+): Promise<CustomModelEntry | undefined> {
   const picked = await vscode.window.showQuickPick(
     models.map((entry) => ({
-      label: entry.label ?? entry.id,
-      description: `${entry.model || 'no model set'} · ${entry.enabled ? 'enabled' : 'disabled'}`,
-      detail: entry.endpoint,
+      label: entry.name,
+      description: `${entry.modelName || 'no model set'} · ${entry.enabled ? 'enabled' : 'disabled'}`,
+      detail: entry.baseUrl,
       entry,
     })),
     { title }
@@ -281,7 +168,17 @@ async function pickCustomModel(models: CustomModel[], title: string): Promise<Cu
   return picked?.entry;
 }
 
-async function updateCustomModel(id: string, change: (entry: CustomModel) => CustomModel): Promise<void> {
+/**
+ * Rewrites one entry, leaving the rest as they are.
+ *
+ * The whole array is written back in the normalized shape, so an entry stored
+ * by an earlier build is migrated the first time anything touches it rather
+ * than being read through the compatibility path forever.
+ */
+async function updateCustomModel(
+  id: string,
+  change: (entry: CustomModelEntry) => CustomModelEntry
+): Promise<void> {
   const updated = readCustomModels().map((entry) => (entry.id === id ? change(entry) : entry));
   await vscode.workspace
     .getConfiguration('speckitStandalone')
