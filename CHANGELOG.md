@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.2 — unreleased
+
+### Fixed
+
+- Page previews that the webview declined to load now fall back to the bytes themselves, fetched
+  through the extension host. A rejected local resource produces no console entry and no failed
+  request - only a broken image - so the panel no longer depends on that path succeeding.
+- Each preview's path and rewritten URI are written to the output channel, which is the only way
+  to tell a missing file from a refused one.
+
+## 0.1.1 — unreleased
+
+### Added
+
+- A cover page carrying the document's title, its executive summary, and a metadata block:
+  project, the provider that enriched it, the document type, the source file and the build time.
+
+### Fixed
+
+- An extension update that restyles the PDF now reaches documents nobody has edited since. The
+  build cache keyed only on the document's text, so an unchanged file kept being served the PDF
+  its previous template drew; the renderer is now part of that decision.
+- Documents whose only build predates page rendering are rebuilt once, instead of leaving the
+  panel's viewer permanently empty for them.
+- Page previews are stored under a digest of the output path rather than `hash()`, whose seed is
+  randomised per process - the same document previously scattered previews across a new directory
+  on every restart.
+
 ## 0.1.0 — unreleased
 
 First release of the standalone extension. Everything the previous version needed a Docker
@@ -11,7 +39,12 @@ stack for now happens inside VS Code.
   headers, page-breaking tables and syntax-highlighted code.
 - The full dashboard, as an editor tab: projects, artifacts with categories and tags, the kanban
   board, context files, exceptions, version history and the PDF viewer.
-- Custom AI providers with a priority order, and model discovery for endpoints that support it.
+- An Activity Bar icon opening a view that reaches every part of the extension: the dashboard,
+  the settings page, the AI providers panel, processing, and diagnostics.
+- A settings page inside the dashboard, reached from the gear in its header: conversion, AI and
+  diagnostics, each switch writing straight to VS Code's settings.
+- A Custom AI Models panel: add endpoints, discover the models one serves, test it with a real
+  request, and drag every provider — each custom model individually — into the order it is tried.
 - Sections typed as tasks, user stories or design decisions, labelled in the PDF.
 - The viewer shows the document as rendered pages. A webview has no PDF plugin, so the pages are
   images Typst renders alongside the PDF; the PDF itself is what the button opens.

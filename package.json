@@ -2,7 +2,7 @@
   "name": "speckit-auto-ai-standalone",
   "displayName": "Speckit Auto-AI (Standalone Preview)",
   "description": "Markdown to typeset PDF documentation, with no Docker and no setup",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publisher": "HUNT3Rboii",
   "license": "MIT",
   "author": "Mohamed Yassine Reggui",
@@ -21,7 +21,26 @@
     "Other"
   ],
   "main": "./out/src/extension.js",
+  "icon": "resources/speckit.png",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "speckit",
+          "title": "Speckit",
+          "icon": "resources/speckit.svg"
+        }
+      ]
+    },
+    "views": {
+      "speckit": [
+        {
+          "id": "speckitStandalone.actions",
+          "name": "Speckit",
+          "icon": "resources/speckit.svg"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "speckitStandalone.convertCurrentFile",
@@ -54,6 +73,14 @@
       {
         "command": "speckitStandalone.manageProviders",
         "title": "Speckit: Manage AI Providers"
+      },
+      {
+        "command": "speckitStandalone.openSettingsPage",
+        "title": "Speckit: Open Settings"
+      },
+      {
+        "command": "speckitStandalone.openNativeSettings",
+        "title": "Speckit: Open Settings in VS Code"
       }
     ],
     "configuration": {
@@ -148,12 +175,11 @@
         "speckitStandalone.customModels": {
           "type": "array",
           "default": [],
-          "description": "OpenAI-compatible endpoints of your own - a local Ollama, a company gateway. Easiest to manage through \"Speckit: Manage AI Providers\".",
+          "markdownDescription": "### ➜ [Manage AI providers](command:speckitStandalone.manageProviders)\n\nOpenAI-compatible endpoints of your own - a local Ollama, a company gateway. VS Code cannot render an array-of-objects setting, so this row only offers raw JSON; the panel writes it for you, and also tests an endpoint and lists the models it actually serves.",
           "items": {
             "type": "object",
             "required": [
-              "id",
-              "endpoint"
+              "id"
             ],
             "properties": {
               "id": {
@@ -164,21 +190,42 @@
                 "type": "boolean",
                 "default": false
               },
-              "label": {
-                "type": "string"
-              },
-              "endpoint": {
+              "name": {
                 "type": "string",
-                "description": "Chat completions URL."
+                "description": "Display name, shown in logs and in the try order."
               },
-              "model": {
-                "type": "string"
+              "baseUrl": {
+                "type": "string",
+                "description": "Up to but not including /chat/completions, e.g. http://localhost:11434/v1"
+              },
+              "modelName": {
+                "type": "string",
+                "description": "Exactly as the endpoint expects it - an id from its own /models listing."
               },
               "apiKey": {
                 "type": "string"
               },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Whatever the last discovery run returned, so the model picker has something to show without going back to the network."
+              },
               "headers": {
                 "type": "object"
+              },
+              "endpoint": {
+                "type": "string",
+                "description": "Legacy: a full chat-completions URL written by an earlier build. Still read, and folded onto baseUrl the next time this entry is saved."
+              },
+              "model": {
+                "type": "string",
+                "description": "Legacy: replaced by modelName. Still read."
+              },
+              "label": {
+                "type": "string",
+                "description": "Legacy: replaced by name. Still read."
               }
             }
           }

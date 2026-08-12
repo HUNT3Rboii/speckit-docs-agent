@@ -1,14 +1,9 @@
 # The VSIX ships: out/ (compiled host), server/ (Python source), bin/ (bundled
 # interpreter + typst), resources/, and the root metadata files. Everything
-# else in this repo belongs to the Docker-era stack or to development, and
-# `vsce ls` should be checked before every package to confirm that.
+# else in this repo is development material, and `vsce ls` should be checked
+# before every package to confirm that.
 
-# Docker-era components, still present on this branch while the standalone
-# path is being proven. None of them belong in the extension.
-backend/**
-frontend/**
-vscode-extension/**
-infra/**
+# Product specifications and local build output. Neither is read at runtime.
 specs/**
 pdf-output/**
 *.ps1
@@ -64,5 +59,4 @@ CONTRIBUTING.md
 DEVELOPMENT.md
 runtimes.lock.json
 .gitignore
-.env.example
 .smoke-storage/**

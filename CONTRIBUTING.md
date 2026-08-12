@@ -4,56 +4,60 @@ Thanks for taking an interest. This is a small project, so the process is light:
 
 ## Getting set up
 
-You need Docker Desktop, Node.js 20+, Python 3.11+, and VS Code 1.85+. The [README](README.md) covers the one-command setup; [DEVELOPMENT.md](DEVELOPMENT.md) covers running the backend without Docker, every environment variable, and how the pipeline actually works.
+You need Node.js 20+, Python 3.11+, and VS Code 1.90+. Nothing else — no Docker, no database, no API key. The extension bundles its own Python interpreter and its own typesetter.
 
 ```bash
 git clone https://github.com/HUNT3Rboii/speckit-docs-agent
 cd speckit-docs-agent
+npm install
+npm --prefix webview-ui install
+npm run fetch-runtimes    # bundled Python + typst for your platform
+npm run vendor-deps       # the backend's Python dependencies, into server/vendor
+npm run build
 ```
 
-The repository holds three components that can be worked on independently:
+Press <kbd>F5</kbd> to launch an Extension Development Host with the extension loaded from source. [DEVELOPMENT.md](DEVELOPMENT.md) covers the architecture and the day-to-day loop.
 
-| Directory | What it is | Install |
-|---|---|---|
-| `backend/` | FastAPI service that validates and renders PDFs | `pip install -r backend/requirements.txt` |
-| `vscode-extension/` | The VS Code extension that talks to your IDE's AI | `cd vscode-extension && npm install` |
-| `frontend/` | React dashboard for browsing generated artifacts | `cd frontend && npm install` |
+Three parts ship together in one VSIX:
+
+| Directory | What it is |
+|---|---|
+| `src/` | Extension host (TypeScript, Node): activation, commands, process lifecycle, message broker |
+| `webview-ui/` | React dashboard, built to static assets and loaded from disk by the panel |
+| `server/` | Python backend, spawned as a child process; owns all data access |
+
+`shared/protocol.ts` is the message contract between the first two, and `server/api.py` the RPC surface of the third.
 
 ## Running the tests
 
 Every pull request runs these in CI, so run whichever ones cover your change first:
 
 ```bash
-cd backend         && pytest tests/          # backend
-cd vscode-extension && npm run test:unit     # extension, pure logic (no VS Code needed)
-cd frontend        && npm run test           # dashboard
+npm test                  # extension host, node:test (compiles first)
+npm run test:python       # backend, pytest
+npm run smoke             # spawns the real backend and builds a real PDF
 ```
 
-Type checks and linting, also enforced in CI:
-
-```bash
-cd vscode-extension && npm run compile && npm run lint
-cd frontend         && npx tsc -b --noEmit && npm run lint
-```
-
-Extension changes that touch VS Code APIs need a manual pass in the Extension Development Host — see [DEVELOPMENT.md](DEVELOPMENT.md#extension--integration-extension-development-host).
+The smoke harness needs the bundled runtimes, so run `npm run fetch-runtimes` before it. Changes touching VS Code APIs also need a manual pass in the Extension Development Host — a webview or an Activity Bar view cannot be proven headlessly.
 
 ## What a good change looks like
 
 - **One concern per pull request.** Unrelated cleanups make review slower, not faster.
-- **Tests for behaviour, not implementation.** Backend tests live beside the code they cover in `backend/tests/{unit,integration}/`; frontend and extension tests sit next to their source file as `*.test.ts(x)`.
+- **Tests for behaviour, not implementation.** Backend tests live in `server/tests/`; host tests in `src/test/`; webview tests sit next to their source file as `*.test.tsx`.
+- **Both sides of a boundary in one commit.** A change to the extension↔Python contract that updates only one half is a broken build for whoever pulls next.
 - **Match the surrounding style.** No new formatter configs or dependencies without a reason in the pull request description.
 - **Comments explain why, not what.** The existing code only comments where a decision would otherwise look arbitrary — follow that.
-- **Don't commit generated output.** PDFs, `*.sqlite3` databases, `pdf-output/`, and IDE scaffolding are gitignored on purpose.
+- **Mind the VSIX.** A new Python dependency ships on all four platforms; run `vsce ls` before packaging changes.
+- **Don't commit generated output.** PDFs, `*.sqlite3` databases, `pdf-output/`, `out/`, and IDE scaffolding are gitignored on purpose.
 
 ## Documentation
 
 If your change alters setup, configuration, or observable behaviour, update the docs in the same pull request:
 
 - [README.md](README.md) — anything a *user* of the extension sees
-- [DEVELOPMENT.md](DEVELOPMENT.md) — internals, environment variables, architecture
-- [vscode-extension/CHANGELOG.md](vscode-extension/CHANGELOG.md) — user-visible extension changes
-- [vscode-extension/TROUBLESHOOTING.md](vscode-extension/TROUBLESHOOTING.md) — new failure modes and their fixes
+- [DEVELOPMENT.md](DEVELOPMENT.md) — architecture, the build, and how the pipeline works
+- [CHANGELOG.md](CHANGELOG.md) — user-visible changes, under the next version
+- [CLAUDE.md](CLAUDE.md) — constraints that a coding agent working here has to know
 
 ## Reporting bugs
 

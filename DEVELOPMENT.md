@@ -1,315 +1,141 @@
 # Development Guide
 
-Internals, configuration reference, and how to work on the code. If you just want to *use* Speckit Auto-AI, the [README](README.md) is all you need.
+Internals and how to work on the code. If you just want to *use* the extension, the [README](README.md) is all you need.
 
 ## Contents
 
-- [Running the backend without Docker](#running-the-backend-without-docker)
-- [Environment variables](#environment-variables)
-- [How it works](#how-it-works)
-- [Architecture](#architecture)
-- [Project structure](#project-structure)
+- [What this is](#what-this-is)
+- [Layout](#layout)
+- [The build loop](#the-build-loop)
+- [The extension ↔ Python boundary](#the-extension--python-boundary)
+- [The PDF pipeline](#the-pdf-pipeline)
+- [Diagrams](#diagrams)
 - [Testing](#testing)
-- [End-to-end pipeline walkthrough](#end-to-end-pipeline-walkthrough)
+- [Packaging and installing](#packaging-and-installing)
+- [End-to-end walkthrough](#end-to-end-walkthrough)
+- [When something goes wrong](#when-something-goes-wrong)
 
----
+## What this is
 
-## Running the backend without Docker
+One VSIX with four moving parts, all on the user's machine:
 
-Faster edit-reload loop, at the cost of SQLite instead of PostgreSQL and Kroki instead of local diagram rendering.
+1. **Extension host** — TypeScript on Node, inside VS Code. Activation, commands, the child process, and the message broker.
+2. **Webview UI** — a React app rendered in an editor tab, built to static assets and loaded from disk.
+3. **Python backend** — spawned as a child process, speaking line-delimited JSON-RPC over stdio. It owns all data access.
+4. **SQLite database** — one file per user under the extension's global storage.
 
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+There is no server, no cloud, and no shared state between users. Everything dies with the editor window.
 
-$env:DOC_AGENT_DB_PATH="$PWD\doc_agent.sqlite3"
-$env:DOC_OUTPUT_DIR="$PWD\pdf-output"
-$env:SPECKIT_EXT_API_KEY="dev-key"
-$env:USE_POSTGRES="false"
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
+The constraints that follow from that shape are in [CLAUDE.md](CLAUDE.md), and they are not negotiable: a VSIX cannot contain a database server, Python cannot run inside the extension host, the React app cannot `fetch()` the backend, and the webview cannot load a file by path.
 
-Two things the Docker image handles for you and this path does not:
-
-- **PostgreSQL.** `requirements.txt` deliberately omits `psycopg2-binary`. Setting `USE_POSTGRES=true` without `pip install psycopg2-binary` logs a connection error and falls back to SQLite rather than failing.
-- **WeasyPrint's native libraries.** It needs GTK/Pango. On Windows you may need [the GTK runtime](https://weasyprint.readthedocs.io/en/stable/install.html#windows); without it PDF rendering degrades to raw HTML output.
-- **Local diagram rendering.** `mmdc` isn't installed, so diagrams go to the Kroki API instead. Install it with `npm install -g @mermaid-js/mermaid-cli` if you want local rendering.
-
-## Environment variables
-
-All backend variables are optional — each has a working default, and `infra/docker-compose.yml` sets the first three explicitly. Copy `.env.example` to `.env` at the repo root to override them; `START-EVERYTHING.ps1` passes that file to Compose.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SPECKIT_EXT_API_KEY` | `dev-key` | Shared secret for the extension and dashboard. Must match `speckit.apiKey` and `VITE_API_KEY` |
-| `DOC_OUTPUT_DIR` | `/tmp/doc-output` | PDF output dir inside the container — bind-mounted to `pdf-output/` at the repo root |
-| `USE_POSTGRES` | `true` | `false` uses SQLite. If Postgres can't be reached the backend logs the error and falls back to SQLite anyway |
-| `POSTGRES_HOST` / `_PORT` / `_DB` / `_USER` / `_PASSWORD` | `db` / `5432` / `docsagent` / `docsagent` / `docsagent` | Only read when `USE_POSTGRES=true` |
-| `DOC_AGENT_DB_PATH` | `./doc_agent.sqlite3` | SQLite file location when `USE_POSTGRES=false` |
-| `OPENAI_API_KEY` | *(unset)* | Optional, **server-side only**. The normal flow uses your IDE's AI via the extension and never needs this |
-| `SPECKIT_MODEL_ENDPOINT` | `https://api.openai.com/v1/chat/completions` | Server-side AI endpoint |
-| `SPECKIT_MODEL_NAME` | `gpt-4o-mini` | Server-side AI model |
-| `USE_AI_TRANSFORM` | `true` | `false` forces deterministic server-side parsing |
-| `ARTIFACT_CACHE_DIR` | `./artifact_cache` | Where processed-artifact cache entries are written |
-| `DIAGRAM_CACHE_ENABLED` | `true` | Cache rendered diagrams by content hash |
-| `MMDC_PUPPETEER_CONFIG` | *(set in the image)* | Puppeteer config for mmdc; leave unset outside containers |
-
-Frontend (`frontend/.env.development`, gitignored — copy from `frontend/.env.example`, or let `START-EVERYTHING.ps1` create it):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VITE_API_BASE_URL` | `http://localhost:8000` | Backend URL |
-| `VITE_API_KEY` | `dev-key` | Must match `SPECKIT_EXT_API_KEY` |
-
-Both have the same values hardcoded as fallbacks in `frontend/src/config/env.ts`, so the dashboard works with no env file at all.
-
-**Compose only auto-loads a `.env` sitting next to the compose file** (`infra/.env`). The repo-root `.env` has to be passed explicitly — `START-EVERYTHING.ps1` does it for you; by hand it's `cd infra; docker compose --env-file ../.env up -d --build`. A repo-root `.env` that appears to be ignored is almost always this.
-
-**A 401 from the backend** means the extension's `speckit.apiKey` doesn't match `SPECKIT_EXT_API_KEY`. Both default to `dev-key`; change one and you must change the other, plus `VITE_API_KEY` in `frontend/.env.development` for the dashboard.
-
-## How it works
+## Layout
 
 ```
-Save .md file in VS Code
-    ↓
-Built-in file watcher detects the change (debounced)
-    ↓
-AI transforms markdown into title/abstract/sections/diagrams/glossary/summaries,
-each diagram component and glossary term citing a verbatim source excerpt
-    ↓
-POST /api/process: backend fuzzy-matches every citation against the source (≥85%)
-    ↓
-   ├─ all grounded → render PDF
-   ├─ some ungrounded, retries left → structured error back to the AI → corrected resubmission
-   └─ retries exhausted → render PDF anyway, dropping only the ungrounded items
-    ↓
-Diagrams rendered (mmdc locally, Kroki as fallback) → HTML → PDF (WeasyPrint)
-    ↓
-Notification with PDF link (or a partial-success warning naming what was dropped)
+src/                    Extension host (TypeScript)
+  extension.ts          activate() / deactivate(), host-answered RPC methods
+  commands.ts           Everything that is not the conversion itself
+  backend/              Spawn, handshake, shutdown, RPC client
+  ai/                   Providers, prompt, parsing, retry, custom endpoints
+  webview/              The dashboard panel, the AI models panel, the Activity Bar view
+  markdown/             Mermaid block detection, diagram cache
+webview-ui/             React dashboard (own package.json, own build)
+  dist/                 Build output — this is what ships
+server/                 Python backend
+  main.py               Entry point; takes --storage-path and --typst
+  api.py                The RPC surface, one method per old HTTP endpoint
+  db/                   Schema, migrations, queries
+  pdf/                  Markdown → Typst emitter, template, compiler driver
+  vendor/               Python dependencies, vendored rather than installed
+bin/                    Bundled Python + typst, per platform
+resources/              Activity Bar icon and Marketplace logo
+shared/protocol.ts      The message contract, imported by both TypeScript sides
 ```
 
-### Backend
+## The build loop
 
-- **FastAPI server** — `/api/process` (agentic pipeline: validate → render) and `/api/status/{id}` (dropped-item visibility), plus the original `/api/artifacts/ingest-*` endpoints
-- **PostgreSQL or SQLite** — version tracking and artifact storage
-- **Evidence-grounding validators** — fuzzy-match every diagram component/glossary term against the source markdown
-- **PDF generator** — WeasyPrint (falls back to raw HTML if rendering fails)
-- **Diagram renderer** — mmdc (local) → Kroki (external fallback, with a one-time privacy warning) → cached by content hash
-
-### VS Code extension
-
-- **Automatic file monitoring** — built-in, no separate process
-- **AI provider support** — GitHub Copilot, Claude, Kiro, any other registered VS Code language model, or a custom OpenAI-compatible endpoint
-- **Rule-based fallback** — works without AI, still schema-valid (empty diagrams/glossary, still passes validation); opt-in via `speckit.allowRuleBasedFallback`
-- **Client-driven retry loop** — corrects and resubmits based on the backend's structured validation errors
-- **User notifications** — success, partial-success (naming the dropped items), and error states
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│         VS Code Extension               │
-│  ┌─────────────────────────────────┐   │
-│  │  File Watcher (automatic)       │   │
-│  └──────────────┬──────────────────┘   │
-│                 ↓                        │
-│  ┌─────────────────────────────────┐   │
-│  │  AI Providers (fallback chain)  │   │
-│  │  • Copilot → Claude → Kiro →    │   │
-│  │    Generic → Custom → Rule-based│   │
-│  └──────────────┬──────────────────┘   │
-│                 ↓                        │
-│  ┌─────────────────────────────────┐   │
-│  │  JSON Parser & Schema Validator  │   │
-│  └──────────────┬──────────────────┘   │
-└─────────────────┼────────────────────────┘
-                  ↓ POST /api/process (retry loop across requests)
-┌─────────────────────────────────────────┐
-│      Backend API                        │
-│  ┌─────────────────────────────────┐   │
-│  │  Evidence-Grounding Validators  │   │
-│  │  (headings/diagrams/glossary)   │   │
-│  └──────────────┬──────────────────┘   │
-│                 ↓                        │
-│  ┌─────────────────────────────────┐   │
-│  │  Diagram Renderer + HTML/PDF    │   │
-│  └──────────────┬──────────────────┘   │
-└─────────────────┼────────────────────────┘
-                  ↓
-              PDF Output
+```bash
+npm install
+npm --prefix webview-ui install
+npm run fetch-runtimes    # bundled Python + typst for this platform, into bin/
+npm run vendor-deps       # server/requirements.txt into server/vendor/
+npm run build             # extension host + webview
 ```
 
-### Data flow
+Then <kbd>F5</kbd> launches an Extension Development Host with the extension loaded from `out/` — no packaging, no installing. `npm run watch` recompiles the host as you edit; the webview needs `npm run build:webview` (or its own dev server) since the panel loads its built bundle from disk.
 
-1. **Save** → Extension detects markdown file change
-2. **Transform** → AI produces sections/diagrams/glossary/summaries with evidence citations (or rule-based fallback)
-3. **Validate** → Backend fuzzy-matches every citation against the source
-4. **Correct** (if needed) → Structured error back to the AI, corrected resubmission, up to 2 retries, then graceful degradation
-5. **Render** → Diagrams rendered, HTML built, PDF generated
-6. **Store** → Saved to database + file volume, dropped items (if any) recorded for `/api/status`
-7. **Notify** → User gets a notification with the PDF link (or a partial-success warning)
+`npm run fetch-runtimes` pins versions in `runtimes.lock.json`. The Typst version is pinned deliberately — compiler upgrades are breaking changes.
 
-Step 1 is skipped when the project is in manual mode (the dashboard's per-project **Auto transform** switch, stored on the `projects` row). The extension reads the current mode off the poll it already runs against `GET /api/projects/{name}/retry-requests`, so a change on the dashboard takes effect within one 15s tick without a reload.
+## The extension ↔ Python boundary
 
-### Dashboard-initiated runs
-
-The backend has no filesystem access to your workspace and no AI provider of its own, so it can never start a run — it can only record that one was asked for, and the extension acts on it:
-
-- The extension pushes its complete markdown inventory to `POST /api/projects/{name}/files/sync` on activation and (debounced) on every watcher event. This is what the Context Files page lists — files with no artifact row yet have no other way to be known about.
-- `POST /api/projects/{project_id}/files/transform` flags one of those files. The same poll that carries retry requests carries these back as `transform_requests`, and the extension runs each with `force: true`.
-- The flag is cleared as soon as client-side work arrives (`/api/processing-status` or `/api/process`), not on completion — a run that dies halfway must not leave a request the extension re-picks-up forever.
-
-## Project structure
+The webview never talks to Python directly. Every call goes:
 
 ```
-.
-├── vscode-extension/        # VS Code Extension
-│   ├── src/
-│   │   ├── extension.ts              # Entry point
-│   │   ├── services/
-│   │   │   ├── config.ts            # Configuration
-│   │   │   ├── fileWatcher.ts       # File monitoring
-│   │   │   ├── aiProviderFactory.ts # AI detection/fallback
-│   │   │   ├── enrichmentPromptBuilder.ts # Evidence-citation prompt
-│   │   │   ├── jsonParser.ts        # Parsing/schema validation
-│   │   │   ├── backendClient.ts     # API client (process/ingest)
-│   │   │   ├── pdfDownloadService.ts # Fetches generated PDFs by version id
-│   │   │   ├── partialResult.ts     # Interprets the partial-success signal
-│   │   │   ├── notificationService.ts # User feedback
-│   │   │   └── transformPipeline.ts  # Orchestration + retry loop
-│   │   ├── providers/                # AI providers
-│   │   │   ├── copilotProvider.ts
-│   │   │   ├── claudeProvider.ts
-│   │   │   ├── kiroProvider.ts
-│   │   │   ├── genericProvider.ts
-│   │   │   ├── customModelProvider.ts
-│   │   │   └── ruleBasedProvider.ts
-│   │   └── types/
-│   ├── jest.config.js                # Pure-logic unit tests (npm run test:unit)
-│   └── package.json
-│
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── process_routes.py   # /api/process, /api/status
-│   │   │   └── routes.py           # legacy /api/artifacts/ingest-*
-│   │   ├── services/
-│   │   │   ├── agentic_pipeline_service.py
-│   │   │   ├── html_generator.py
-│   │   │   ├── pdf_generator.py
-│   │   │   └── diagram_rendering_service.py
-│   │   ├── validators/              # evidence-grounding validators
-│   │   ├── repositories/            # SQLite / Postgres
-│   │   └── models/
-│   ├── tests/
-│   ├── Dockerfile                   # includes Node.js + mmdc
-│   └── requirements.txt
-│
-├── frontend/                # Dashboard (Vite + React)
-├── infra/
-│   └── docker-compose.yml
-│
-├── START-EVERYTHING.ps1     # Build + start Docker backend + frontend
-├── INSTALL-EXTENSION.ps1    # Uninstall, rebuild, test, reinstall extension
-└── README.md
+React → postMessage → extension host → JSON-RPC over stdio → Python → back
 ```
+
+- `shared/protocol.ts` holds the message shapes and is imported by both TypeScript halves. `PROTOCOL_VERSION` in `server/api.py` is checked at handshake; bump it when the contract changes.
+- A handful of methods are answered by the host itself rather than forwarded — `HOST_METHODS` in `src/extension.ts`. They are the ones needing the editor: the workspace, a file on disk, a window to open something in, or a webview URI.
+- The backend exits when stdin closes. That is the reliable parent-death signal: `deactivate()` does not always run, and an orphaned Python process is a known failure mode.
+- Migrations run on startup. An extension update arriving at an older database is the normal case.
+
+## The PDF pipeline
+
+```
+.md → markdown-it-py → AST → generated .typ → typst compile → .pdf (+ PNG per page)
+```
+
+- `server/pdf/emitter.py` decides what each markdown construct *is*. It emits Typst as text on purpose: when a PDF looks wrong, the generated `.typ` is right there to read.
+- `server/pdf/template.typ` decides what everything *looks like* — cover page, headings, code blocks, tables, figures. Generated content carries no styling of its own.
+- `server/pdf/compile.py` drives the bundled binary. `typst` is never looked up on PATH.
+- The panel shows **pages, not the PDF**: a webview has no PDF plugin, so the same document is also rendered to one PNG per page and those are displayed. The PDF is what "Open PDF" opens.
+
+Builds are cached on the document's content hash *and* a fingerprint of the renderer (`template.typ`, `emitter.py`, `compile.py`). Change the template and the next conversion rebuilds rather than serving a PDF the previous template drew.
+
+## Diagrams
+
+Mermaid renders in the webview, because a webview is a browser and the backend is not. The SVG comes back through `postMessage`, Python writes it to a temp file, and the generated Typst references it. Nothing leaves the machine, and there is no Chromium dependency.
+
+Two consequences: mermaid must be configured with `htmlLabels: false` (Typst's SVG support does not render `<foreignObject>`), and any font the SVG names has to exist at compile time.
+
+With the panel closed there is no browser to render in, so the diagram's source is printed instead and the conversion still succeeds.
 
 ## Testing
 
-Everything below also runs on push and pull request via [`.github/workflows/ci.yml`](.github/workflows/ci.yml), in three independent jobs (backend, extension, dashboard). [CONTRIBUTING.md](CONTRIBUTING.md) has the short version.
-
-### Backend
-
-```powershell
-cd backend
-pytest tests/
+```bash
+npm test                  # extension host: node:test over out/src/test/**
+npm run test:python       # backend: pytest over server/tests
+npm run smoke             # the real thing: spawn, handshake, convert, dispose
 ```
 
-`reportlab` and WeasyPrint's native GTK/Pango libraries both have to be present or a handful of rendering tests fail on import — `pip install -r requirements.txt` covers the former, [WeasyPrint's install docs](https://weasyprint.readthedocs.io/en/stable/install.html) the latter.
+The smoke harness (`scripts/smoke-host.mjs`) stubs `vscode` at the module loader and drives `activate()` the way the editor does — it is what proves the host path end to end, including that disposal actually kills the child. It needs `npm run fetch-runtimes` first.
 
-### Dashboard
+What the harness cannot prove: anything rendered. Webviews, the Activity Bar view and the panels need a manual pass in the Extension Development Host.
 
-```powershell
-cd frontend
-npm run test
+## Packaging and installing
+
+```bash
+vsce ls                             # ALWAYS inspect the file list first
+npx @vscode/vsce package --target win32-x64
 ```
 
-### Extension — unit tests (pure logic, no VS Code needed)
+Targets: `win32-x64`, `linux-x64`, `darwin-x64`, `darwin-arm64`. Because a Python interpreter and the Typst binary are bundled, VSIXes are platform-specific and each is published separately; the Marketplace serves the right one.
 
-```powershell
-cd vscode-extension
-npm run test:unit
-```
+`.vscodeignore` is load-bearing — source, tests, and the webview's source tree all stay out. Package size is a real concern once the interpreter is in.
 
-### Extension — integration (Extension Development Host)
+**Bump the version before packaging anything you intend to install.** Installing a VSIX over the same version means replacing a directory the running editor holds open, which fails on Windows and can leave a stale record in `extensions.json`. A new version installs alongside, exactly as a Marketplace update does. `scripts/install-standalone.ps1` installs the newest VSIX and repairs that stale record if a previous attempt already left one.
 
-1. Open the `vscode-extension/` folder in VS Code (its own window — the launch config is scoped to that folder)
-2. Run `npm install` once
-3. Press `F5` to launch the Extension Development Host (uses `vscode-extension/.vscode/launch.json`, which compiles first)
-4. In the new window: open a workspace with markdown files, save one, check notifications and logs
+## End-to-end walkthrough
 
-Note that installing a new build does not replace an already-running extension host. After `INSTALL-EXTENSION.ps1`, run `Developer: Reload Window` in every window you process files from, or you'll keep testing the old build.
+1. <kbd>F5</kbd>, then open a markdown file in the Extension Development Host.
+2. **Speckit: Open Dashboard** — the panel has to be open for mermaid to render.
+3. **Speckit: Process Current File**. The output channel shows, in order: enrichment, validation, the backend's build, and the written PDF.
+4. Check the result: a cover page with the title, executive summary and metadata; a table of contents; diagrams as captioned figures; a glossary appendix.
+5. Save the file again unchanged — the log says the PDF was reused. Edit it and save again — it rebuilds.
 
-## End-to-end pipeline walkthrough
+## When something goes wrong
 
-A step-by-step check that backend, extension, evidence validation, diagrams, and glossary all work together.
-
-### 1. Confirm the backend is healthy
-
-```powershell
-curl http://localhost:8000/health
-# {"status":"ok","service":"speckit-backend"}
-```
-
-### 2. Confirm the extension is installed and active
-
-- `Ctrl+Shift+P` → "Speckit: Check Backend Status" → should report the backend is available
-- `Ctrl+Shift+P` → "Speckit: Show Extension Logs" → keep this panel open to watch requests flow through
-
-### 3. Create a document with diagrammable and glossary-worthy content
-
-Diagrams and glossary entries are only generated where the content warrants them, so a file that's pure prose produces neither. Create `test-doc.md`:
-
-```markdown
-# Authentication Service Design
-
-## Overview
-
-This document describes the authentication system for the customer portal.
-
-## Architecture
-
-The Frontend sends login requests to the API Gateway, which forwards them to
-the Auth Service. The Auth Service validates credentials against the User
-Database and, on success, issues a JWT for the session.
-
-## Glossary Terms
-
-JWT stands for JSON Web Token, a compact, URL-safe token format used here to
-represent an authenticated session without server-side session storage.
-```
-
-### 4. Save it and watch
-
-In the logs you should see, in order: reading the file → transforming with AI → validating JSON → sending to backend. Within a few seconds a success notification appears with an **Open PDF** action.
-
-### 5. Check the result
-
-- Cover page with title/abstract and an executive summary
-- Table of contents linking to each section
-- An **Architecture** diagram (Mermaid-rendered) showing Frontend → API Gateway → Auth Service → User Database
-- A **Glossary** appendix defining **JWT**, linked from its first mention in the body
-
-### 6. Inspect what was dropped, if anything
-
-```powershell
-curl -H "Authorization: Bearer dev-key" http://localhost:8000/api/status/<artifact_id>
-```
-
-The `artifact_id` is in the extension's success notification and logs, or in `GET /api/projects/{project_id}/artifacts`.
-
-### 7. Confirm dedup works
-
-Save the same file again without changing it. The content hash is unchanged, so the run is skipped (logged as "skipped") rather than reprocessed.
+- **Speckit: Show Extension Logs** first. Both halves log there, the backend's lines prefixed `[backend]`.
+- **A PDF looks wrong** — read the generated `.typ`. Its path is in the error when a compile fails, and the build directory is kept in that case.
+- **A page preview does not appear** — the log records each preview's path and the URI it was rewritten to. A webview that refuses a local resource says nothing at all, so those two lines are the only evidence.
+- **The backend will not start** — a damaged install or a platform build that cannot execute. `npm run fetch-runtimes` restores `bin/`.
+- **An orphaned Python process** — it should exit when stdin closes. If one survives, that is a bug worth reporting with the log.

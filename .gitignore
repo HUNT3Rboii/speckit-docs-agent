@@ -11,7 +11,7 @@ downloads/
 eggs/
 .eggs/
 # Anchored to repo root (leading /): an unanchored "lib/" also matched
-# frontend/src/lib/ (real source, holds the shadcn cn() helper every UI
+# webview-ui/src/lib/ (real source, holds the shadcn cn() helper every UI
 # component imports) at any depth, silently keeping it out of git the
 # whole time - a fresh clone built fine locally but broke for anyone else.
 /lib/
@@ -34,11 +34,10 @@ ENV/
 env/
 .virtualenv
 
-# Local environment overrides - these hold real API keys (see .env.example).
-# .env.example itself stays tracked; it is the template.
+# Local environment overrides. The extension itself needs none - it uses the
+# editor's own AI - but a shell used for development may set some.
 .env
 .env.*
-!.env.example
 
 # Testing
 .pytest_cache/
@@ -56,8 +55,6 @@ htmlcov/
 # Temporary files and test artifacts
 tmp/
 tmp-output/
-backend/tmp/
-backend/tmp-output/
 *.log
 *.bak
 *.swp
@@ -66,9 +63,9 @@ backend/tmp-output/
 test-trigger.md
 
 # IDE
-# Anchored to repo root (leading /), same reason as /lib/ above: an unanchored
-# ".vscode/" also swallowed vscode-extension/.vscode/, which holds the shared
-# launch.json/tasks.json the README's "press F5" step depends on.
+# Anchored to repo root (leading /), same reason as /lib/ above - though the
+# repository's own .vscode/ holds the launch.json that "press F5" depends on,
+# so it is force-added rather than left to this rule.
 /.vscode/
 .idea/
 *.sublime-project
@@ -80,7 +77,7 @@ test-trigger.md
 Thumbs.db
 desktop.ini
 
-# Docker volumes (local mounts)
+# Generated PDFs from local runs
 pdf-output/
 
 # Compiled files

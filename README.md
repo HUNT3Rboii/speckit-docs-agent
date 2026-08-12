@@ -26,14 +26,22 @@ the interpreter and typesetter are bundled. The Marketplace serves the right one
 
 ## Using it
 
-Run **Speckit: Open Dashboard** for the full interface — projects, artifacts with their
-categories and tags, the kanban board built from your `tasks.md`, context files, exceptions,
-version history and the PDF viewer. It opens as an editor tab.
+Click the Speckit icon in the Activity Bar. Every part of the extension is one click from
+there: the dashboard, the settings page, the AI providers panel, processing the current file,
+and the diagnostics. Rows that mirror a setting show its state — auto-processing reads `on` or
+`off` without opening anything.
+
+**Open dashboard** is the full interface — projects, artifacts with their categories and tags,
+the kanban board built from your `tasks.md`, context files, exceptions, version history and the
+PDF viewer. It opens as an editor tab, with a gear in its header for the settings page.
+
+Everything is on the Command Palette too:
 
 | Command | What it does |
 |---|---|
 | `Speckit: Process Current File` | Convert the open file |
 | `Speckit: Open Dashboard` | The full panel |
+| `Speckit: Open Settings` | The dashboard's settings page |
 | `Speckit: Show Extension Logs` | Everything that happened, in detail |
 | `Speckit: Check Backend Status` | Confirm the bundled backend is running |
 | `Speckit: Toggle Auto-Processing` | Convert on save, for this workspace |
@@ -95,11 +103,25 @@ registered with VS Code. There is no key to configure and nothing is billed twic
 | `speckitStandalone.maxConcurrentProcessing` | `3` | How many files convert at once |
 | `speckitStandalone.enableDebugLogging` | `false` | Verbose logging |
 
+### Settings
+
+The gear in the dashboard header opens a settings page covering conversion, AI and diagnostics.
+Every switch writes straight to VS Code's settings, so nothing there is a second copy of state —
+the same values are editable in the settings editor, and **Open in VS Code settings** goes
+there. The provider try order is shown but not edited here; that belongs to the AI models panel,
+which the page links to.
+
 ### Your own models
 
-**Speckit: Manage AI Providers** adds an OpenAI-compatible endpoint — a local Ollama, a company
-gateway — and sets the order providers are tried in. A provider that fails or returns nothing
-usable falls through to the next one.
+**Speckit: Manage AI Providers** opens a panel for OpenAI-compatible endpoints — a local Ollama,
+a company gateway. Each entry is a base URL, a model name and an optional key; **Discover models**
+lists what the endpoint actually serves, and **Test connection** sends one real request, because a
+`/models` listing succeeding says nothing about whether generation is permitted.
+
+The same panel holds the try order. Every provider is a row — Copilot, Claude, Kiro, Generic and
+each custom model by name — and they are tried top to bottom; drag one above Copilot to make it
+the primary, or remove it to never try it at all. A provider that fails or returns nothing usable
+falls through to the next one.
 
 ## Troubleshooting
 
