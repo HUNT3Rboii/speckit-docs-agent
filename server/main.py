@@ -9,6 +9,7 @@ the Typst binary are both passed in.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -21,7 +22,13 @@ sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 
 from api import PROTOCOL_VERSION, register  # noqa: E402
 from db import Store  # noqa: E402
-from pdf.compile import TypstCompileError, convert, publish_page_images, write_diagrams  # noqa: E402
+from pdf.compile import (  # noqa: E402
+    TypstCompileError,
+    convert,
+    publish_page_images,
+    renderer_fingerprint,
+    write_diagrams,
+)
 from rpc import Server, log  # noqa: E402
 
 
@@ -70,17 +77,22 @@ def make_pdf_builder(storage_path: Path, typst_binary: Path):
                 summary=request.get("summary"),
                 glossary=request.get("glossary") or [],
                 section_summaries=request.get("sectionSummaries") or {},
+                project=request.get("project"),
+                model=request.get("model"),
+                doc_type=request.get("docType"),
             )
         except TypstCompileError as exc:
             log(f"typst failed; generated markup kept at {exc.typst_source}")
             raise
 
         # Previews outlive the scratch build directory, so they move next to
-        # the PDF under the extension's storage.
-        previews = publish_page_images(
-            result.page_images,
-            storage_path / "previews" / f"{stem}-{abs(hash(str(output_path))) % 10**8}",
-        )
+        # the PDF under the extension's storage. The folder name is a digest of
+        # the output path rather than `hash()`, whose seed is randomised per
+        # process - the same document would otherwise land in a different
+        # directory after every restart, leaving the previous run's images
+        # orphaned on disk.
+        digest = hashlib.sha1(str(output_path).encode("utf-8")).hexdigest()[:8]
+        previews = publish_page_images(result.page_images, storage_path / "previews" / f"{stem}-{digest}")
 
         log(f"wrote {result.pdf_path} ({len(previews)} page preview(s))")
         return {
@@ -130,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         store,
         build_pdf=make_pdf_builder(storage_path, typst_binary),
         log=log,
+        renderer=renderer_fingerprint,
     )
 
     # The host waits for this before sending anything. Spawn returning is not

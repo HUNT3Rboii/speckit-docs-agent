@@ -76,10 +76,14 @@ ${document}` };
 
   const ask = async (attempt: PromptPair, cancellation: vscode.CancellationToken) => {
     const answer = await requestEnrichment(attempt, cancellation, log);
-    if (answer) {
-      log(`enriched by ${answer.provider}`);
+    if (!answer) {
+      return undefined;
     }
-    return answer?.enrichment;
+    log(`enriched by ${answer.provider}`);
+    // Carried on the proposal itself so it survives the retry loop and reaches
+    // the cover page; a document may be re-asked several times, and the name
+    // that matters is the one that produced the answer being kept.
+    return { ...answer.enrichment, provider: answer.provider };
   };
 
   // Without a validator there is nothing to correct against, so a single ask is

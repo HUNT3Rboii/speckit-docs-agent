@@ -32,6 +32,10 @@ def register(
     *,
     build_pdf: Callable[[Dict[str, Any]], Dict[str, Any]],
     log: Callable[[str], None],
+    # Called per conversion rather than read once: during development the
+    # template is edited while the backend is running, and a fingerprint
+    # captured at startup would keep serving the previous look.
+    renderer: Callable[[], str] = lambda: "",
 ) -> Server:
     validator = EnrichmentValidator()
 
@@ -139,6 +143,7 @@ def register(
         store.upsert_project(project_id, str(params.get("projectName") or project_id or "Workspace"))
 
         artifact_type = str(params.get("artifactType") or classify(source_path))
+        fingerprint = renderer()
         hash_value = content_hash(markdown)
         artifact = store.upsert_artifact(
             project_id,
@@ -150,6 +155,20 @@ def register(
 
         if not params.get("force"):
             unchanged = store.unchanged_since_last_build(artifact.id, hash_value)
+            # A version built before page rendering existed has a PDF and no
+            # images, and the panel can only show images - so reusing it leaves
+            # the viewer permanently empty for that document. Rebuilding once is
+            # what fills them in; every later conversion hits the cache again.
+            if unchanged and not _has_page_images(unchanged):
+                log("cached build has no page previews; rebuilding so the panel can show it")
+                unchanged = None
+
+            # The document is unchanged but the renderer is not: an update that
+            # restyles the PDF has to reach documents nobody has edited since,
+            # or the new look would only ever appear on new text.
+            if unchanged and fingerprint and _renderer_of(unchanged) != fingerprint:
+                log("cached build predates the current document template; rebuilding")
+                unchanged = None
             if unchanged:
                 log(f"unchanged since {unchanged.generated_at}, reusing {unchanged.pdf_path}")
                 store.set_status(artifact.id, "complete", {"cache_hit": True})
@@ -175,6 +194,12 @@ def register(
                     "summary": enrichment.summary,
                     "glossary": enrichment.glossary,
                     "sectionSummaries": enrichment.section_summaries,
+                    # Cover-page metadata. The project and the classification are
+                    # this layer's to know; the provider is the host's, since it
+                    # is the side that actually asked a model.
+                    "project": params.get("projectName") or project_id,
+                    "model": params.get("provider"),
+                    "docType": artifact_type,
                 }
             )
         except Exception as exc:
@@ -189,6 +214,9 @@ def register(
                 "summary": enrichment.summary,
                 "glossary": enrichment.glossary,
                 "pageImages": built.get("pageImages") or [],
+                # What drew this PDF, so a later conversion can tell whether the
+                # renderer has changed underneath it.
+                "renderer": fingerprint,
             },
             diagram_count=int(built.get("diagramCount") or 0),
             warnings=built.get("warnings") or [],
@@ -364,6 +392,27 @@ def register(
         return {"ok": True}
 
     return server
+
+
+def _renderer_of(version: Any) -> str:
+    """The renderer fingerprint a version was built with, or "" if unrecorded.
+
+    Versions written before this was tracked have no value, which compares
+    unequal to any current fingerprint - so they are rebuilt once, which is
+    exactly what a document drawn by a superseded template needs.
+    """
+    return str((getattr(version, "structured_json", None) or {}).get("renderer") or "")
+
+
+def _has_page_images(version: Any) -> bool:
+    """Whether a recorded version still has previews the panel can display.
+
+    Both halves matter: a version built before page rendering existed has none
+    recorded at all, and one whose storage has since been cleared has paths
+    pointing at files that are gone.
+    """
+    paths = (getattr(version, "structured_json", None) or {}).get("pageImages") or []
+    return any(Path(path).exists() for path in paths)
 
 
 def _required(params: Dict[str, Any], key: str) -> str:

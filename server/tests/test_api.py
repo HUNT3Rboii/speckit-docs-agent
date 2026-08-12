@@ -29,16 +29,36 @@ class Harness:
 
         def build_pdf(request):
             self.built.append(request)
-            pdf = tmp_path / f"{request['sourcePath'].replace('/', '_')}.pdf"
+            stem = request["sourcePath"].replace("/", "_")
+            pdf = tmp_path / f"{stem}.pdf"
             pdf.write_bytes(b"%PDF-1.7")
-            return {"pdfPath": str(pdf), "typstSource": None, "warnings": [], "diagramCount": 0}
+            # The real builder always renders page previews alongside the PDF,
+            # and a build without them is deliberately not reusable - so a fake
+            # that omitted them would make every cache-hit test fail.
+            page = tmp_path / f"{stem}-page-1.png"
+            page.write_bytes(b"\x89PNG")
+            return {
+                "pdfPath": str(pdf),
+                "typstSource": None,
+                "warnings": [],
+                "diagramCount": 0,
+                "pageImages": [str(page)],
+            }
+
+        # Stands in for the digest of the template and emitter that the real
+        # backend computes; tests change it to act out an extension update.
+        self.renderer = "test-renderer"
 
         self.server = register(
             Server(stdin=io.StringIO(), stdout=self.output),
             self.store,
             build_pdf=build_pdf,
             log=lambda message: None,
+            renderer=lambda: self.renderer,
         )
+
+    def set_renderer(self, fingerprint):
+        self.renderer = fingerprint
 
     def call(self, method, **params):
         self.output.seek(0)
@@ -109,6 +129,32 @@ class TestConversion:
         assert second["reused"] is True
         assert second["pdfPath"] == first["pdfPath"]
         assert len(api.built) == 1
+
+    def test_a_build_without_page_previews_is_not_reused(self, api, tmp_path):
+        api.call("convert", markdown="# Spec", sourcePath="/ws/spec.md", projectId="/ws")
+
+        # What a version built before page rendering existed looks like: a PDF
+        # on disk and no images. The panel can only show images, so reusing it
+        # would leave that document's viewer permanently empty.
+        for page in tmp_path.glob("*-page-*.png"):
+            page.unlink()
+
+        again = api.call("convert", markdown="# Spec", sourcePath="/ws/spec.md", projectId="/ws")
+
+        assert again["reused"] is False
+        assert len(api.built) == 2
+
+    def test_a_build_from_an_older_template_is_not_reused(self, api):
+        api.call("convert", markdown="# Spec", sourcePath="/ws/spec.md", projectId="/ws")
+
+        # What an extension update that restyles the PDF looks like from here:
+        # the document is untouched, the renderer is not. Without this the new
+        # cover page would only ever appear on documents someone had edited.
+        api.set_renderer("a-newer-template")
+        again = api.call("convert", markdown="# Spec", sourcePath="/ws/spec.md", projectId="/ws")
+
+        assert again["reused"] is False
+        assert len(api.built) == 2
 
     def test_force_rebuilds_identical_content(self, api):
         api.call("convert", markdown="# Spec", sourcePath="/ws/spec.md", projectId="/ws")

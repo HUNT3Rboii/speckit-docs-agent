@@ -8,6 +8,7 @@ compiler in the first place.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -18,6 +19,22 @@ from typing import List, Sequence
 from .emitter import Diagram, emit, emit_glossary, escape, escape_string
 
 TEMPLATE = Path(__file__).with_name("template.typ")
+
+
+def renderer_fingerprint() -> str:
+    """A digest of everything that decides what a PDF looks like.
+
+    The build cache keys on the document's content, which is right up to the
+    point the renderer itself changes: an extension update that restyles the
+    cover page would otherwise keep handing back PDFs drawn by the previous
+    template, and the only way to see the new one would be to edit every
+    document. Mixing this into the reuse decision retires those builds once,
+    on the first conversion after an update.
+    """
+    digest = hashlib.sha1()
+    for path in (TEMPLATE, Path(__file__), Path(__file__).with_name("emitter.py")):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
 
 
 class TypstCompileError(RuntimeError):
@@ -58,10 +75,15 @@ def build_document(
     summary: str | None = None,
     glossary: Sequence[dict] = (),
     section_summaries: dict | None = None,
+    project: str | None = None,
+    model: str | None = None,
+    doc_type: str | None = None,
 ) -> tuple[str, List[str]]:
     """Wrap emitted body markup in the template call."""
     result = emit(markdown, diagrams, section_summaries)
-    generated = datetime.now(timezone.utc).strftime("Generated %Y-%m-%d %H:%M UTC")
+    # The cover carries the date only; the label is the template's, as it was
+    # the HTML pipeline's.
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     preamble = [
         # Everything the generated body may call has to be imported by name;
@@ -72,6 +94,13 @@ def build_document(
     ]
     if summary:
         preamble.append(f'  subtitle: "{escape_string(summary)}",')
+    if project:
+        preamble.append(f'  project: "{escape_string(project)}",')
+    if model:
+        preamble.append(f'  model: "{escape_string(model)}",')
+    if doc_type:
+        # "design_decision" is a database value, not something to print.
+        preamble.append(f'  doc-type: "{escape_string(doc_type.replace("_", " ").title())}",')
     if source_label:
         preamble.append(f'  source: "{escape_string(source_label)}",')
     preamble.append(f'  generated: "{generated}",')
@@ -97,6 +126,9 @@ def convert(
     summary: str | None = None,
     glossary: Sequence[dict] = (),
     section_summaries: dict | None = None,
+    project: str | None = None,
+    model: str | None = None,
+    doc_type: str | None = None,
 ) -> ConversionResult:
     """Markdown in, PDF on disk out.
 
@@ -115,6 +147,9 @@ def convert(
         summary=summary,
         glossary=glossary,
         section_summaries=section_summaries,
+        project=project,
+        model=model,
+        doc_type=doc_type,
     )
 
     shutil.copyfile(TEMPLATE, build_dir / TEMPLATE.name)
@@ -251,5 +286,6 @@ __all__ = [
     "escape",
     "publish_page_images",
     "render_page_images",
+    "renderer_fingerprint",
     "write_diagrams",
 ]

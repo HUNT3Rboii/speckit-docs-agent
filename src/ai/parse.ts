@@ -32,6 +32,12 @@ export interface ProposedEnrichment {
   summary?: string;
   glossary: ProposedGlossaryEntry[];
   diagrams: ProposedDiagram[];
+  /**
+   * Which provider answered, for the cover page's "Enriched By" line. Not part
+   * of what the model returns - it is filled in afterwards by whoever asked,
+   * and is absent when nothing answered at all.
+   */
+  provider?: string;
 }
 
 export const EMPTY_ENRICHMENT: ProposedEnrichment = { glossary: [], diagrams: [] };
