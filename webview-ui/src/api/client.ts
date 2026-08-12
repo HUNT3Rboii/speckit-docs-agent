@@ -168,6 +168,23 @@ export class APIClient {
   }
 
   /**
+   * The document's pages, as images the panel can display.
+   *
+   * A webview will not render a PDF: the embedded viewer is a browser plugin
+   * and there is not one inside a webview, which is why `<object>` fell through
+   * to its "unable to display" branch. Typst renders the same document to PNG
+   * at build time, and images a webview handles perfectly well.
+   */
+  async getVersionPages(versionId: string): Promise<string[]> {
+    const { pages } = await call<{ pages: string[] }>('versionPages', { versionId });
+    if (!pages.length) {
+      return [];
+    }
+    const { uris } = await call<{ uris: string[] }>('toWebviewUris', { paths: pages });
+    return uris;
+  }
+
+  /**
    * A URI the panel may actually load a PDF from.
    *
    * Webviews cannot read files by path - the host rewrites it - and there is no

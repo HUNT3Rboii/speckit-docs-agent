@@ -109,6 +109,9 @@ isn't on the exception list.
 **A diagram printed as code instead of a picture.** The panel was closed, or mermaid rejected
 the syntax. The output channel says which.
 
+**The viewer says there is no page preview.** That document was built before previews existed.
+Press Retry to rebuild it.
+
 **A glossary entry I expected is missing.** It was dropped because its quote wasn't found in
 your document — the reason is in the output channel. That is the evidence check working.
 

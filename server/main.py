@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 
 from api import PROTOCOL_VERSION, register  # noqa: E402
 from db import Store  # noqa: E402
-from pdf.compile import TypstCompileError, convert, write_diagrams  # noqa: E402
+from pdf.compile import TypstCompileError, convert, publish_page_images, write_diagrams  # noqa: E402
 from rpc import Server, log  # noqa: E402
 
 
@@ -75,12 +75,20 @@ def make_pdf_builder(storage_path: Path, typst_binary: Path):
             log(f"typst failed; generated markup kept at {exc.typst_source}")
             raise
 
-        log(f"wrote {result.pdf_path}")
+        # Previews outlive the scratch build directory, so they move next to
+        # the PDF under the extension's storage.
+        previews = publish_page_images(
+            result.page_images,
+            storage_path / "previews" / f"{stem}-{abs(hash(str(output_path))) % 10**8}",
+        )
+
+        log(f"wrote {result.pdf_path} ({len(previews)} page preview(s))")
         return {
             "pdfPath": str(result.pdf_path),
             "typstSource": str(result.typst_source),
             "warnings": result.warnings,
             "diagramCount": len(diagrams),
+            "pageImages": [str(path) for path in previews],
         }
 
     return build

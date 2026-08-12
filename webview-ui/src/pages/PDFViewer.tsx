@@ -37,25 +37,26 @@ export function PDFViewer() {
   // read files by path, so the host rewrites it into a URI the panel may load;
   // that replaces the old /api/doc-versions/{id}/pdf?api_key=... address, and
   // with it the API key that used to travel in a query string.
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pages, setPages] = useState<string[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     if (!currentVersionId) {
-      setPdfUrl(null);
+      setPages(null);
       return;
     }
 
+    setPages(null);
     apiClient
-      .getVersionPdfUri(currentVersionId)
-      .then((uri) => {
+      .getVersionPages(currentVersionId)
+      .then((uris) => {
         if (!cancelled) {
-          setPdfUrl(uri ? `${uri}#toolbar=1&navpanes=1` : null);
+          setPages(uris);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setPdfUrl(null);
+          setPages([]);
         }
       });
 
@@ -73,14 +74,6 @@ export function PDFViewer() {
     // already exists on this machine, and a webview has no downloads folder.
     if (currentVersionId) {
       void apiClient.openVersionPdf(currentVersionId);
-      return;
-    }
-
-    if (pdfUrl) {
-      const link = document.createElement('a');
-      link.href = pdfUrl;
-      link.download = `document-${currentVersionId}.pdf`;
-      link.click();
     }
   };
 
@@ -128,9 +121,9 @@ export function PDFViewer() {
                 <Ban className="h-4 w-4 mr-2" />
                 {excluded ? 'Excluded' : 'Exclude from Processing'}
               </Button>
-              <Button onClick={handleDownload} disabled={!pdfUrl}>
+              <Button onClick={handleDownload} disabled={!currentVersionId}>
                 <Download className="h-4 w-4 mr-2" />
-                Download PDF
+                Open PDF
               </Button>
             </div>
           </div>
@@ -139,31 +132,43 @@ export function PDFViewer() {
           )}
           
           {currentVersionId ? (
-            <div className="relative w-full h-[calc(100vh-200px)]">
-              {!pdfUrl ? (
+            /*
+             * Pages, not the PDF itself. A webview has no PDF plugin - <object
+             * type="application/pdf"> always fell through to its "unable to
+             * display" branch - so Typst renders the same document to PNG at
+             * build time and those are shown here. The PDF is still what the
+             * button opens.
+             */
+            <div
+              className="relative w-full h-[calc(100vh-200px)] overflow-y-auto rounded-lg border bg-muted/30 p-4"
+              key={currentVersionId}
+            >
+              {pages === null ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  <p className="text-muted-foreground">Opening the PDF…</p>
+                  <p className="text-muted-foreground">Rendering pages…</p>
+                </div>
+              ) : pages.length ? (
+                <div className="flex flex-col items-center gap-4">
+                  {pages.map((page, index) => (
+                    <img
+                      key={page}
+                      src={page}
+                      alt={`Page ${index + 1}`}
+                      className="w-full max-w-3xl rounded shadow-sm bg-white"
+                      loading="lazy"
+                    />
+                  ))}
                 </div>
               ) : (
-              <object
-                data={pdfUrl}
-                type="application/pdf"
-                className="w-full h-full border rounded-lg"
-                key={currentVersionId} // Force re-render when version changes
-              >
                 <div className="flex flex-col items-center justify-center h-full space-y-4">
-                  <p className="text-muted-foreground">Unable to display PDF in browser.</p>
-                  <a 
-                    href={pdfUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline font-medium"
-                  >
-                    Click here to open PDF in new tab
-                  </a>
+                  <p className="text-muted-foreground">
+                    No page preview for this version. Rebuild it to generate one.
+                  </p>
+                  <button type="button" onClick={handleDownload} className="text-primary hover:underline font-medium">
+                    Open the PDF instead
+                  </button>
                 </div>
-              </object>
               )}
             </div>
           ) : processing ? (

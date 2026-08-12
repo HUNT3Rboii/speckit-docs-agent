@@ -152,7 +152,7 @@ export function deactivate(): void {
  * here. These four are the exceptions because they need the editor: the
  * workspace, a file on disk, or a window to open something in.
  */
-const HOST_METHODS = new Set(['currentProject', 'convertDocument', 'openPdf', 'revealPdf', 'pdfUri']);
+const HOST_METHODS = new Set(['currentProject', 'convertDocument', 'openPdf', 'revealPdf', 'pdfUri', 'toWebviewUris']);
 
 let diagramCache: DiagramCache | undefined;
 
@@ -182,6 +182,15 @@ async function routeWebviewRequest(
       }
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
       return convert(document, backend, output, { force: Boolean(params.force) });
+    }
+
+    case 'toWebviewUris': {
+      const panel = SpeckitPanel.active;
+      if (!panel) {
+        throw new Error('The Speckit panel is not open.');
+      }
+      const paths = Array.isArray(params.paths) ? (params.paths as string[]) : [];
+      return { uris: paths.map((target) => panel.toWebviewUri(target)) };
     }
 
     case 'pdfUri': {

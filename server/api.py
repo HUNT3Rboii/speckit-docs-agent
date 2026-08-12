@@ -106,6 +106,26 @@ def register(
         # multi-megabyte PDF through a JSON line would be absurd.
         return {"pdfPath": version.pdf_path, "exists": Path(version.pdf_path).exists()}
 
+    @server.method("versionPages")
+    def _version_pages(params: Dict[str, Any]) -> Dict[str, Any]:
+        """The page images for a version, for display inside the panel.
+
+        A webview cannot show a PDF - the viewer is a browser plugin and there
+        is none inside one - so the panel shows what Typst rendered as images
+        and leaves the PDF itself to be opened outside.
+        """
+        version_id = _required(params, "versionId")
+        version = store.version(version_id)
+        if not version:
+            raise ValueError(f"No such version: {version_id}")
+
+        pages = [
+            path
+            for path in (version.structured_json or {}).get("pageImages", [])
+            if Path(path).exists()
+        ]
+        return {"pages": pages, "pdfPath": version.pdf_path}
+
     # -- conversion -----------------------------------------------------------
 
     @server.method("convert")
@@ -165,7 +185,11 @@ def register(
         version = store.record_version(
             artifact.id,
             pdf_path=built["pdfPath"],
-            structured_json={"summary": enrichment.summary, "glossary": enrichment.glossary},
+            structured_json={
+                "summary": enrichment.summary,
+                "glossary": enrichment.glossary,
+                "pageImages": built.get("pageImages") or [],
+            },
             diagram_count=int(built.get("diagramCount") or 0),
             warnings=built.get("warnings") or [],
         )

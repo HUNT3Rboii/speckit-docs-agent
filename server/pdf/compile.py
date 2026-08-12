@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Sequence
@@ -37,6 +37,7 @@ class ConversionResult:
     pdf_path: Path
     typst_source: Path
     warnings: List[str]
+    page_images: List[Path] = field(default_factory=list)
 
 
 def _document_title(markdown: str, fallback: str) -> str:
@@ -150,7 +151,74 @@ def convert(
             typst_source,
         )
 
-    return ConversionResult(pdf_path=output_path, typst_source=typst_source, warnings=warnings)
+    return ConversionResult(
+        pdf_path=output_path,
+        typst_source=typst_source,
+        warnings=warnings,
+        page_images=render_page_images(typst_binary, build_dir, typst_source),
+    )
+
+
+def render_page_images(typst_binary: Path, build_dir: Path, typst_source: Path, ppi: int = 144) -> List[Path]:
+    """Also render the document as one PNG per page.
+
+    A webview will not display a PDF: the embedded viewer is a browser plugin,
+    and it is not available inside one. Chromium renders images perfectly well
+    though, so the panel shows pages rather than the file itself, and the PDF is
+    still what gets opened, downloaded and shared.
+
+    This is a second Typst run over markup that has already compiled once, so it
+    is fast and cannot fail in a way the first run did not. A failure here is
+    logged and ignored - the PDF exists either way, and a preview is a
+    convenience.
+    """
+    pages_dir = build_dir / "pages"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+
+    process = subprocess.run(
+        [
+            str(typst_binary),
+            "compile",
+            "--root",
+            str(build_dir),
+            "--format",
+            "png",
+            "--ppi",
+            str(ppi),
+            str(typst_source),
+            str(pages_dir / "page-{p}.png"),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+    if process.returncode != 0:
+        return []
+
+    # Sorted numerically: page-10 must not come between page-1 and page-2.
+    return sorted(pages_dir.glob("page-*.png"), key=lambda path: int(path.stem.split("-")[1]))
+
+
+def publish_page_images(images: Sequence[Path], destination: Path) -> List[Path]:
+    """Move rendered pages somewhere the panel can be pointed at.
+
+    The build directory is scratch and gets discarded; previews have to outlive
+    it, so they are copied under the extension's own storage next to the PDF.
+    """
+    if not images:
+        return []
+
+    destination.mkdir(parents=True, exist_ok=True)
+    published: List[Path] = []
+
+    for image in images:
+        target = destination / image.name
+        shutil.copyfile(image, target)
+        published.append(target)
+
+    return published
 
 
 def write_diagrams(build_dir: Path, diagrams: Sequence[dict]) -> List[Diagram]:
@@ -181,5 +249,7 @@ __all__ = [
     "build_document",
     "convert",
     "escape",
+    "publish_page_images",
+    "render_page_images",
     "write_diagrams",
 ]
