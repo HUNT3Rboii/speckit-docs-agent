@@ -25,6 +25,12 @@ import { request } from '../bridge';
  * machines.
  */
 
+/** One rendered page: where it lives, and the URI the panel should try first. */
+export interface PagePreview {
+  path: string;
+  uri: string;
+}
+
 export class APIError extends Error {
   statusCode: number;
   details?: unknown;
@@ -175,13 +181,16 @@ export class APIClient {
    * to its "unable to display" branch. Typst renders the same document to PNG
    * at build time, and images a webview handles perfectly well.
    */
-  async getVersionPages(versionId: string): Promise<string[]> {
+  async getVersionPages(versionId: string): Promise<PagePreview[]> {
     const { pages } = await call<{ pages: string[] }>('versionPages', { versionId });
     if (!pages.length) {
       return [];
     }
     const { uris } = await call<{ uris: string[] }>('toWebviewUris', { paths: pages });
-    return uris;
+    // The path travels with the URI: a webview that refuses a rewritten local
+    // resource does so silently, and the path is what the fallback needs to ask
+    // the host for the bytes instead.
+    return pages.map((path, index) => ({ path, uri: uris[index] }));
   }
 
   /**

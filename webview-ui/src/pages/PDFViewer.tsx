@@ -3,11 +3,59 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { VersionList } from '../components/VersionList';
 import { Button } from '../components/ui/button';
 import { Download, Loader2, AlertCircle, AlertTriangle, Ban, RotateCw } from 'lucide-react';
-import { apiClient } from '../api/client';
+import { apiClient, type PagePreview } from '../api/client';
+import { readPageImage } from '../api/host';
 import { useArtifactStatus } from '../hooks/useArtifactStatus';
 import { useAddException } from '../hooks/useExceptions';
 import { useRetryArtifact } from '../hooks/useArtifacts';
 import { isActivelyProcessing, isCancelled, isProcessing, needsCorrection, stepLabel } from '../utils/processingStatus';
+
+/**
+ * One page image.
+ *
+ * Tries the rewritten local-resource URI, which is the cheap path - the webview
+ * streams the file straight off disk. When that fails, and it fails without a
+ * console entry or a network error to look at, the bytes are fetched through
+ * the bridge and shown as a `data:` URI instead. A page is never simply a
+ * broken image: either it renders, or it says what went wrong.
+ */
+function PageImage({ page, index }: { page: PagePreview; index: number }) {
+  const [source, setSource] = useState(page.uri);
+  const [failed, setFailed] = useState(false);
+
+  // A new version replaces the pages under us; without this the previous
+  // page's fallback would stick.
+  useEffect(() => {
+    setSource(page.uri);
+    setFailed(false);
+  }, [page.uri]);
+
+  if (failed) {
+    return (
+      <div className="w-full max-w-3xl rounded border border-dashed p-4 text-center text-sm text-muted-foreground">
+        Page {index + 1} could not be displayed.
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={source}
+      alt={`Page ${index + 1}`}
+      className="w-full max-w-3xl rounded shadow-sm bg-white"
+      loading="lazy"
+      onError={() => {
+        if (source !== page.uri) {
+          setFailed(true);
+          return;
+        }
+        readPageImage(page.path)
+          .then(setSource)
+          .catch(() => setFailed(true));
+      }}
+    />
+  );
+}
 
 export function PDFViewer() {
   const { artifactId, versionId } = useParams<{
@@ -37,7 +85,7 @@ export function PDFViewer() {
   // read files by path, so the host rewrites it into a URI the panel may load;
   // that replaces the old /api/doc-versions/{id}/pdf?api_key=... address, and
   // with it the API key that used to travel in a query string.
-  const [pages, setPages] = useState<string[] | null>(null);
+  const [pages, setPages] = useState<PagePreview[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,23 +199,30 @@ export function PDFViewer() {
               ) : pages.length ? (
                 <div className="flex flex-col items-center gap-4">
                   {pages.map((page, index) => (
-                    <img
-                      key={page}
-                      src={page}
-                      alt={`Page ${index + 1}`}
-                      className="w-full max-w-3xl rounded shadow-sm bg-white"
-                      loading="lazy"
-                    />
+                    <PageImage key={page.path} page={page} index={index} />
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-full space-y-4">
+                /*
+                 * A version built before page rendering existed has a PDF and
+                 * no images. Rebuilding is what produces them, so the button
+                 * that does it is here rather than in a sentence telling the
+                 * reader to go and find it.
+                 */
+                <div className="flex flex-col items-center justify-center h-full space-y-4 px-6 text-center">
                   <p className="text-muted-foreground">
-                    No page preview for this version. Rebuild it to generate one.
+                    This version has no page preview - it was built before the panel could show one.
                   </p>
-                  <button type="button" onClick={handleDownload} className="text-primary hover:underline font-medium">
-                    Open the PDF instead
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={handleRetry} disabled={!artifact || processing || retryArtifact.isPending}>
+                      <RotateCw className="h-4 w-4 mr-2" />
+                      {retryArtifact.isPending ? 'Rendering…' : 'Render pages'}
+                    </Button>
+                    <Button variant="outline" onClick={handleDownload}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Open the PDF instead
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
