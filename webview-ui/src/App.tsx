@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { initialRoute } from './api/host'
-import { on } from './bridge'
+import { loadState, on, saveState } from './bridge'
 import { SettingsView } from './pages/SettingsView'
 import { ProjectDashboard } from './pages/ProjectDashboard'
 import { ArtifactListView } from './pages/ArtifactListView'
@@ -36,6 +36,39 @@ const queryClient = new QueryClient({
   },
 })
 
+interface PanelState {
+  path?: string
+}
+
+/**
+ * The page this panel was last showing.
+ *
+ * Read once, at module scope, because it decides where the router starts and
+ * that decision happens before anything renders. VS Code destroys a hidden
+ * tab's DOM rather than pausing it - the whole app is remounted on reveal - so
+ * without this every trip to another tab lands the reader back on the project
+ * list, having lost the document they were reading.
+ */
+const restored = loadState<PanelState>()
+
+/**
+ * Records the current page so the panel can come back to it.
+ *
+ * `setState` is the editor's own store for a webview: it survives the tab being
+ * hidden, the panel being serialized, and the window being restarted, which is
+ * three things `retainContextWhenHidden` would buy by keeping the entire DOM in
+ * memory instead.
+ */
+function RouteMemory() {
+  const location = useLocation()
+
+  useEffect(() => {
+    saveState<PanelState>({ path: location.pathname })
+  }, [location.pathname])
+
+  return null
+}
+
 /**
  * Lets the extension host choose the page.
  *
@@ -43,6 +76,9 @@ const queryClient = new QueryClient({
  * /settings. Two paths, because there are two cases: a panel that is being
  * created has nobody listening yet, so it asks for the parked route on mount;
  * one that is already open is told by event.
+ *
+ * A route from the host outranks the restored one: it is a fresh instruction,
+ * and the restored page is only a default.
  */
 function HostRouting() {
   const navigate = useNavigate()
@@ -80,8 +116,9 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[restored?.path || '/']}>
           <HostRouting />
+          <RouteMemory />
           <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<ProjectDashboard />} />

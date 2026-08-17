@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 — unreleased
+
+### Fixed
+
+- The dashboard comes back to the page it was on. VS Code destroys a hidden tab's DOM rather
+  than pausing it, so every switch to another editor tab remounted the app on the project list -
+  losing the document being read. The current page is now recorded through the editor's own
+  webview state, which also survives a window restart.
+
 ## 0.2.0 — unreleased
 
 ### Changed
