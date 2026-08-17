@@ -20,7 +20,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22, not 20: the host tests are run through node --test with a glob,
+          # and glob expansion by the test runner only exists from Node 21. On
+          # 20 every run died with "Could not find out/src/test/**/*.test.js"
+          # before a single test executed.
+          node-version: '22'
           cache: npm
 
       - uses: actions/setup-python@v5
@@ -75,7 +79,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22, not 20: the host tests are run through node --test with a glob,
+          # and glob expansion by the test runner only exists from Node 21. On
+          # 20 every run died with "Could not find out/src/test/**/*.test.js"
+          # before a single test executed.
+          node-version: '22'
           cache: npm
 
       - uses: actions/setup-python@v5

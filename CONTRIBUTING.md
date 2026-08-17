@@ -4,7 +4,7 @@ Thanks for taking an interest. This is a small project, so the process is light:
 
 ## Getting set up
 
-You need Node.js 20+, Python 3.11+, and VS Code 1.90+. Nothing else — no Docker, no database, no API key. The extension bundles its own Python interpreter and its own typesetter.
+You need Node.js 22+, Python 3.11+, and VS Code 1.90+. Node 22 rather than 20 because `npm test` hands a glob to `node --test`, which only expands one from Node 21 onwards. Nothing else — no Docker, no database, no API key. The extension bundles its own Python interpreter and its own typesetter.
 
 ```bash
 git clone https://github.com/HUNT3Rboii/speckit-docs-agent
