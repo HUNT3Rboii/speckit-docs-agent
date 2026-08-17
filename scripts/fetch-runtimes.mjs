@@ -17,7 +17,6 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile, readdir, rename, chmod, access } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
@@ -137,7 +136,12 @@ async function extract(archive) {
 }
 
 async function fetchOne(kind, url, expected, into, after) {
-  const scratch = await mkdtemp(join(tmpdir(), 'colophon-runtime-'));
+  // Beside the destination, not in the system temp directory: the unpacked
+  // runtime is moved into place with rename(), which cannot cross volumes.
+  // GitHub's Windows runners put TEMP on C: and the workspace on D:, so every
+  // fetch there died with "EXDEV: cross-device link not permitted".
+  await mkdir(into, { recursive: true });
+  const scratch = await mkdtemp(join(into, '.colophon-runtime-'));
   try {
     const archive = join(scratch, url.split('/').pop());
     process.stdout.write(`  ${kind}: downloading ${url.split('/').pop()}\n`);

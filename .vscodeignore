@@ -8,6 +8,12 @@ specs/**
 pdf-output/**
 *.ps1
 
+# The Linux interpreter ships terminfo entries whose paths differ only in case -
+# terminfo/e/eterm-color beside terminfo/E/Eterm-color - and the VSIX format
+# forbids that, so packaging that target failed outright. Nothing in the backend
+# drives a terminal, so they are dropped rather than renamed.
+bin/*/python/share/terminfo/**
+
 # Extension host sources - out/ is what runs. shared/ is compiled into it.
 src/**
 shared/**

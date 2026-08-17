@@ -11,6 +11,11 @@
   hidden.
 - A diagram that cannot be rendered no longer aborts the conversion. Its source is printed and
   the document is still built, which is what already happened when no panel was open at all.
+- The Linux build packages again. The bundled interpreter ships terminfo entries whose paths
+  differ only in case, which the VSIX format forbids; nothing here drives a terminal, so they are
+  no longer included.
+- Fetching the runtimes works on machines whose temp directory is on another volume than the
+  checkout - GitHub's Windows runners, for one, where every fetch failed with `EXDEV`.
 
 ## 0.2.1 — unreleased
 
