@@ -29,7 +29,7 @@ interface Group {
 type Node = { kind: 'group'; group: Group } | { kind: 'action'; action: Action };
 
 function settings() {
-  return vscode.workspace.getConfiguration('speckitStandalone');
+  return vscode.workspace.getConfiguration('colophon');
 }
 
 const GROUPS: Group[] = [
@@ -38,13 +38,13 @@ const GROUPS: Group[] = [
     actions: [
       {
         label: 'Open dashboard',
-        command: 'speckitStandalone.openPanel',
+        command: 'colophon.openPanel',
         icon: 'window',
         tooltip: 'Projects, artifacts, the board, context files and the document viewer',
       },
       {
         label: 'Settings',
-        command: 'speckitStandalone.openSettingsPage',
+        command: 'colophon.openSettingsPage',
         icon: 'settings-gear',
         tooltip: "The dashboard's settings page, including the AI providers",
       },
@@ -55,7 +55,7 @@ const GROUPS: Group[] = [
     actions: [
       {
         label: 'Manage AI providers',
-        command: 'speckitStandalone.manageProviders',
+        command: 'colophon.manageProviders',
         icon: 'server',
         tooltip: 'Add endpoints, test them, and set the order providers are tried in',
         describe: () => {
@@ -65,7 +65,7 @@ const GROUPS: Group[] = [
       },
       {
         label: 'Discover models',
-        command: 'speckitStandalone.discoverModels',
+        command: 'colophon.discoverModels',
         icon: 'search',
         tooltip: 'Ask a configured endpoint what it serves, and save one of its models',
       },
@@ -76,20 +76,20 @@ const GROUPS: Group[] = [
     actions: [
       {
         label: 'Process current file',
-        command: 'speckitStandalone.convertCurrentFile',
+        command: 'colophon.convertCurrentFile',
         icon: 'file-pdf',
         tooltip: 'Convert the markdown file in the active editor',
       },
       {
         label: 'Auto-processing',
-        command: 'speckitStandalone.toggleConvertOnSave',
+        command: 'colophon.toggleConvertOnSave',
         icon: 'sync',
         tooltip: 'Convert a markdown file whenever it is saved',
         describe: () => (settings().get<boolean>('convertOnSave', false) ? 'on' : 'off'),
       },
       {
         label: 'Stop processing',
-        command: 'speckitStandalone.stopProcessing',
+        command: 'colophon.stopProcessing',
         icon: 'debug-stop',
         tooltip: 'Cancel every request in flight',
       },
@@ -100,33 +100,33 @@ const GROUPS: Group[] = [
     actions: [
       {
         label: 'Check backend status',
-        command: 'speckitStandalone.checkBackendStatus',
+        command: 'colophon.checkBackendStatus',
         icon: 'pulse',
         tooltip: 'Ping the Python process this extension spawned',
       },
       {
         label: 'Show extension logs',
-        command: 'speckitStandalone.showLogs',
+        command: 'colophon.showLogs',
         icon: 'output',
-        tooltip: 'The Speckit output channel',
+        tooltip: 'The Colophon output channel',
       },
     ],
   },
 ];
 
-export class SpeckitActionsProvider implements vscode.TreeDataProvider<Node> {
-  public static readonly viewId = 'speckitStandalone.actions';
+export class ColophonActionsProvider implements vscode.TreeDataProvider<Node> {
+  public static readonly viewId = 'colophon.actions';
 
   private readonly changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
 
   /** Registers the view and keeps it in step with the settings it reports. */
   static register(): vscode.Disposable[] {
-    const provider = new SpeckitActionsProvider();
+    const provider = new ColophonActionsProvider();
     return [
-      vscode.window.registerTreeDataProvider(SpeckitActionsProvider.viewId, provider),
+      vscode.window.registerTreeDataProvider(ColophonActionsProvider.viewId, provider),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration('speckitStandalone')) {
+        if (event.affectsConfiguration('colophon')) {
           provider.refresh();
         }
       }),
@@ -140,7 +140,7 @@ export class SpeckitActionsProvider implements vscode.TreeDataProvider<Node> {
   getTreeItem(node: Node): vscode.TreeItem {
     if (node.kind === 'group') {
       const item = new vscode.TreeItem(node.group.label, vscode.TreeItemCollapsibleState.Expanded);
-      item.contextValue = 'speckitGroup';
+      item.contextValue = 'colophonGroup';
       return item;
     }
 
@@ -150,7 +150,7 @@ export class SpeckitActionsProvider implements vscode.TreeDataProvider<Node> {
     item.iconPath = new vscode.ThemeIcon(action.icon);
     item.tooltip = action.tooltip;
     item.description = action.describe?.();
-    item.contextValue = 'speckitAction';
+    item.contextValue = 'colophonAction';
     return item;
   }
 

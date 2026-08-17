@@ -46,7 +46,7 @@ export interface HostMethods {
 /**
  * The settings the dashboard's own settings page may write.
  *
- * An allowlist rather than "any speckitStandalone key": the webview is the
+ * An allowlist rather than "any colophon key": the webview is the
  * least trusted side of the bridge, and the try order is not here at all
  * because the AI models panel owns it.
  */
@@ -93,13 +93,13 @@ export interface SettingsSnapshot {
  * webview cannot reach `workbench.action.*` or any other extension's commands.
  */
 export const WEBVIEW_COMMANDS = [
-  'speckitStandalone.manageProviders',
-  'speckitStandalone.discoverModels',
-  'speckitStandalone.convertCurrentFile',
-  'speckitStandalone.checkBackendStatus',
-  'speckitStandalone.stopProcessing',
-  'speckitStandalone.showLogs',
-  'speckitStandalone.openNativeSettings',
+  'colophon.manageProviders',
+  'colophon.discoverModels',
+  'colophon.convertCurrentFile',
+  'colophon.checkBackendStatus',
+  'colophon.stopProcessing',
+  'colophon.showLogs',
+  'colophon.openNativeSettings',
 ] as const;
 
 /** Host -> webview. Rendering needs a DOM, which only this side has. */
@@ -134,4 +134,4 @@ export interface MermaidResult {
   title?: string;
 }
 
-export const WEBVIEW_VIEW_TYPE = 'speckitStandalone.panel';
+export const WEBVIEW_VIEW_TYPE = 'colophon.panel';

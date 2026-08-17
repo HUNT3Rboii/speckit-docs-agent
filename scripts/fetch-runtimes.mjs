@@ -137,7 +137,7 @@ async function extract(archive) {
 }
 
 async function fetchOne(kind, url, expected, into, after) {
-  const scratch = await mkdtemp(join(tmpdir(), 'speckit-runtime-'));
+  const scratch = await mkdtemp(join(tmpdir(), 'colophon-runtime-'));
   try {
     const archive = join(scratch, url.split('/').pop());
     process.stdout.write(`  ${kind}: downloading ${url.split('/').pop()}\n`);

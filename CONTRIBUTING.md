@@ -61,7 +61,7 @@ If your change alters setup, configuration, or observable behaviour, update the 
 
 ## Reporting bugs
 
-Include what you did, what you expected, what happened, and the output of `Speckit: Show Extension Logs` — that log is almost always where the answer is. Note your OS, VS Code version, and which AI provider was active.
+Include what you did, what you expected, what happened, and the output of `Colophon: Show Extension Logs` — that log is almost always where the answer is. Note your OS, VS Code version, and which AI provider was active.
 
 ## Security
 

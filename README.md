@@ -1,12 +1,15 @@
-# Speckit
+# Colophon
 
 Turn markdown into typeset PDF documentation, inside VS Code, with nothing to install.
 
+*A colophon is the printer's note stating how a book was made — which is what this puts on
+every document's cover page.*
+
 [![VSIX](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/vsix.yml/badge.svg)](https://github.com/HUNT3Rboii/speckit-docs-agent/actions/workflows/vsix.yml)
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 [![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 
-Open a `.md` file, run **Speckit Preview: Convert Current File to PDF**, and you get a
+Open a `.md` file, run **Colophon: Convert Current File to PDF**, and you get a
 typeset document: cover page, contents, numbered headings, running headers, page-breaking
 tables, syntax-highlighted code, and your mermaid diagrams rendered as figures.
 
@@ -18,7 +21,7 @@ typesetter, and uses whatever AI you already have in your editor.
 Install from the Marketplace, or from a `.vsix`:
 
 ```
-code --install-extension speckit-win32-x64.vsix
+code --install-extension colophon-win32-x64.vsix
 ```
 
 Downloads are per platform — `win32-x64`, `linux-x64`, `darwin-x64`, `darwin-arm64` — because
@@ -26,7 +29,7 @@ the interpreter and typesetter are bundled. The Marketplace serves the right one
 
 ## Using it
 
-Click the Speckit icon in the Activity Bar. Every part of the extension is one click from
+Click the Colophon icon in the Activity Bar. Every part of the extension is one click from
 there: the dashboard, the settings page, the AI providers panel, processing the current file,
 and the diagnostics. Rows that mirror a setting show its state — auto-processing reads `on` or
 `off` without opening anything.
@@ -39,15 +42,15 @@ Everything is on the Command Palette too:
 
 | Command | What it does |
 |---|---|
-| `Speckit: Process Current File` | Convert the open file |
-| `Speckit: Open Dashboard` | The full panel |
-| `Speckit: Open Settings` | The dashboard's settings page |
-| `Speckit: Show Extension Logs` | Everything that happened, in detail |
-| `Speckit: Check Backend Status` | Confirm the bundled backend is running |
-| `Speckit: Toggle Auto-Processing` | Convert on save, for this workspace |
-| `Speckit: Stop Processing` | Cancel in-flight AI requests and queued work |
-| `Speckit: Manage AI Providers` | Add endpoints, reorder which is tried first |
-| `Speckit: Discover Models for Custom Provider` | Ask an endpoint what it can run |
+| `Colophon: Process Current File` | Convert the open file |
+| `Colophon: Open Dashboard` | The full panel |
+| `Colophon: Open Settings` | The dashboard's settings page |
+| `Colophon: Show Extension Logs` | Everything that happened, in detail |
+| `Colophon: Check Backend Status` | Confirm the bundled backend is running |
+| `Colophon: Toggle Auto-Processing` | Convert on save, for this workspace |
+| `Colophon: Stop Processing` | Cancel in-flight AI requests and queued work |
+| `Colophon: Manage AI Providers` | Add endpoints, reorder which is tried first |
+| `Colophon: Discover Models for Custom Provider` | Ask an endpoint what it can run |
 
 PDFs are written under the extension's own storage, which VS Code removes when you uninstall.
 
@@ -65,7 +68,7 @@ log says so.
 
 ### Annotation, and why you can trust it
 
-With a language model available, Speckit also proposes a summary, a glossary, and diagrams for
+With a language model available, Colophon also proposes a summary, a glossary, and diagrams for
 relationships your document describes.
 
 Every claim has to quote your document. Each proposed glossary entry and each diagram component
@@ -82,7 +85,7 @@ output channel names what went and why:
 [dropped] component "d1: Redis Cache" - not backed by a quote from the document
 ```
 
-Nothing invented reaches the PDF. Turn it off entirely with `speckitStandalone.enrich`.
+Nothing invented reaches the PDF. Turn it off entirely with `colophon.enrich`.
 
 The model is whichever one your editor already provides — GitHub Copilot, or anything else
 registered with VS Code. There is no key to configure and nothing is billed twice.
@@ -91,17 +94,17 @@ registered with VS Code. There is no key to configure and nothing is billed twic
 
 | Setting | Default | What it does |
 |---|---|---|
-| `speckitStandalone.enrich` | `true` | Ask an AI provider for a summary, glossary and diagrams |
-| `speckitStandalone.autoProcess` | `false` | Convert a file when it is saved |
-| `speckitStandalone.includePatterns` | `["**/*.md"]` | Which files to process |
-| `speckitStandalone.excludePatterns` | *(scaffolding)* | Which to skip — tool-generated folders by default |
-| `speckitStandalone.providerPriority` | Copilot first | Order in which AI providers are tried |
-| `speckitStandalone.customModels` | `[]` | Your own OpenAI-compatible endpoints |
-| `speckitStandalone.preferredModelId` | *(empty)* | Prefer a model whose id contains this |
-| `speckitStandalone.allowRuleBasedFallback` | `false` | Build a plain PDF when no AI is available, instead of failing |
-| `speckitStandalone.debounceMs` | `1500` | How long to wait after a save before converting |
-| `speckitStandalone.maxConcurrentProcessing` | `3` | How many files convert at once |
-| `speckitStandalone.enableDebugLogging` | `false` | Verbose logging |
+| `colophon.enrich` | `true` | Ask an AI provider for a summary, glossary and diagrams |
+| `colophon.autoProcess` | `false` | Convert a file when it is saved |
+| `colophon.includePatterns` | `["**/*.md"]` | Which files to process |
+| `colophon.excludePatterns` | *(scaffolding)* | Which to skip — tool-generated folders by default |
+| `colophon.providerPriority` | Copilot first | Order in which AI providers are tried |
+| `colophon.customModels` | `[]` | Your own OpenAI-compatible endpoints |
+| `colophon.preferredModelId` | *(empty)* | Prefer a model whose id contains this |
+| `colophon.allowRuleBasedFallback` | `false` | Build a plain PDF when no AI is available, instead of failing |
+| `colophon.debounceMs` | `1500` | How long to wait after a save before converting |
+| `colophon.maxConcurrentProcessing` | `3` | How many files convert at once |
+| `colophon.enableDebugLogging` | `false` | Verbose logging |
 
 ### Settings
 
@@ -113,7 +116,7 @@ which the page links to.
 
 ### Your own models
 
-**Speckit: Manage AI Providers** opens a panel for OpenAI-compatible endpoints — a local Ollama,
+**Colophon: Manage AI Providers** opens a panel for OpenAI-compatible endpoints — a local Ollama,
 a company gateway. Each entry is a base URL, a model name and an optional key; **Discover models**
 lists what the endpoint actually serves, and **Test connection** sends one real request, because a
 `/models` listing succeeding says nothing about whether generation is permitted.
@@ -138,9 +141,9 @@ Press Retry to rebuild it.
 your document — the reason is in the output channel. That is the evidence check working.
 
 **"No language model is available."** Install and sign in to Copilot, or set
-`speckitStandalone.enrich` to `false` to build plain PDFs.
+`colophon.enrich` to `false` to build plain PDFs.
 
-Everything else lives in the **Speckit Preview** output channel.
+Everything else lives in the **Colophon** output channel.
 
 ## Building it yourself
 

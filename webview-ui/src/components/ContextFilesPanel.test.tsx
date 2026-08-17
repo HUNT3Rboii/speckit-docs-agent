@@ -86,7 +86,7 @@ describe('ContextFilesPanel', () => {
     render(<ContextFilesPanel projectId="proj-1" />);
 
     expect(screen.getByText(/No markdown files found/)).toBeInTheDocument();
-    expect(screen.getByText(/Speckit extension running/)).toBeInTheDocument();
+    expect(screen.getByText(/Colophon extension running/)).toBeInTheDocument();
   });
 
   it('lists every reported file with its path', () => {

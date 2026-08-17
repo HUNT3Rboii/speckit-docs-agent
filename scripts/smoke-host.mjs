@@ -245,14 +245,14 @@ async function main() {
   };
 
   extension.activate(context);
-  const convertCommand = commands.get('speckitStandalone.convertCurrentFile');
+  const convertCommand = commands.get('colophon.convertCurrentFile');
   assert.ok(convertCommand, 'activate() did not register the convert command');
   process.stdout.write(`activate() registered ${[...commands.keys()].join(', ')}\n`);
 
   // The Activity Bar view is a list of commands, so the failure worth catching
   // is a row pointing at a command nobody registered - which shows up in the
   // editor only as a click that does nothing.
-  const actions = treeProviders.get('speckitStandalone.actions');
+  const actions = treeProviders.get('colophon.actions');
   assert.ok(actions, 'activate() did not register the Activity Bar view');
   const rows = [];
   for (const group of actions.getChildren()) {
@@ -266,7 +266,7 @@ async function main() {
 
   if (withPanel) {
     // Diagrams are only rendered when a panel exists to render them in.
-    commands.get('speckitStandalone.openPanel')?.();
+    commands.get('colophon.openPanel')?.();
     process.stdout.write('opened stub panel\n');
   }
 

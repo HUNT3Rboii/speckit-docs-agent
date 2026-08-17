@@ -93,7 +93,7 @@ export function ContextFilesPanel({ projectId }: ContextFilesPanelProps) {
             <h2 className="text-xl font-semibold text-muted-foreground">No markdown files found</h2>
             <p className="text-muted-foreground">
               This list comes from the VS Code extension. Open this project in VS Code with the
-              Speckit extension running and it will appear here.
+              Colophon extension running and it will appear here.
             </p>
           </div>
         </div>

@@ -102,5 +102,5 @@ export function ensureExecutable(paths: RuntimePaths): void {
 
 /** Fallback storage location for contexts that have no globalStorageUri. */
 export function fallbackStoragePath(): string {
-  return path.join(os.tmpdir(), 'speckit-standalone');
+  return path.join(os.tmpdir(), 'colophon');
 }

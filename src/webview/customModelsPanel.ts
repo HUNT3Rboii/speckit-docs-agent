@@ -2,7 +2,7 @@
  * Custom AI Models editor (webview panel).
  *
  * Adding a custom model otherwise means hand-editing the
- * speckitStandalone.customModels array in settings.json: the VS Code settings
+ * colophon.customModels array in settings.json: the VS Code settings
  * UI renders an array-of-objects setting as an "Edit in settings.json" link and
  * nothing else, so every field - including which of them are required and what
  * a valid baseUrl looks like - has to be typed blind, with no feedback until an
@@ -25,7 +25,7 @@ import { describePriority, filterPriorityTokens } from '../ai/providerPriority';
 import { readCustomModels, readPriority } from '../ai/providers';
 
 export class CustomModelsPanel {
-  public static readonly viewType = 'speckitStandalone.customModelsEditor';
+  public static readonly viewType = 'colophon.customModelsEditor';
   private static current: CustomModelsPanel | undefined;
 
   private readonly disposables: vscode.Disposable[] = [];
@@ -49,7 +49,7 @@ export class CustomModelsPanel {
 
     const panel = vscode.window.createWebviewPanel(
       CustomModelsPanel.viewType,
-      'Speckit: Custom AI Models',
+      'Colophon: Custom AI Models',
       column,
       {
         enableScripts: true,
@@ -85,7 +85,7 @@ export class CustomModelsPanel {
     // open.
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (!this.dirty && event.affectsConfiguration('speckitStandalone')) {
+        if (!this.dirty && event.affectsConfiguration('colophon')) {
           this.postState();
         }
       })
@@ -152,7 +152,7 @@ export class CustomModelsPanel {
     }
 
     const priority = filterPriorityTokens(Array.isArray(rawPriority) ? rawPriority : [], entries);
-    const configuration = vscode.workspace.getConfiguration('speckitStandalone');
+    const configuration = vscode.workspace.getConfiguration('colophon');
 
     try {
       // Global scope for both: which endpoints exist and which is tried first
@@ -483,7 +483,7 @@ export class CustomModelsPanel {
   <p class="intro">
     Each entry is a server speaking the OpenAI chat-completions API shape (Ollama, LM Studio,
     Together, Groq, Google AI Studio, OpenAI itself, most self-hosted gateways). Saving writes
-    <code>speckitStandalone.customModels</code> and the try order below into your user settings,
+    <code>colophon.customModels</code> and the try order below into your user settings,
     so this panel is the only place either needs to be edited.
   </p>
 
@@ -519,7 +519,7 @@ export class CustomModelsPanel {
   const priorityEl = document.getElementById('priority');
   const excludedEl = document.getElementById('excluded');
 
-  /** @type {Array<Object>} working copy of speckitStandalone.customModels */
+  /** @type {Array<Object>} working copy of colophon.customModels */
   let entries = [];
   /** @type {Array<string>} tokens in try-order: builtin ids and custom:<entry id> */
   let priority = [];

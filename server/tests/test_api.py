@@ -22,7 +22,7 @@ class Harness:
     """Drives the server the way the host does: one JSON line in, one out."""
 
     def __init__(self, tmp_path):
-        self.store = Store(tmp_path / "speckit.sqlite3")
+        self.store = Store(tmp_path / "colophon.sqlite3")
         self.output = io.StringIO()
         self.built = []
         self.tmp_path = tmp_path

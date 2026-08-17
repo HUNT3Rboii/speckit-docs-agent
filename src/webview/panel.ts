@@ -19,23 +19,23 @@ const RENDER_TIMEOUT_MS = 20_000;
  * no ordering or delivery guarantee, so a reply is only recognisable by the id
  * it quotes.
  */
-export class SpeckitPanel {
-  private static current?: SpeckitPanel;
+export class ColophonPanel {
+  private static current?: ColophonPanel;
 
   private readonly disposables: vscode.Disposable[] = [];
   private readonly pending = new Map<number, PendingHostRequest>();
   private nextRequestId = 1;
   private disposed = false;
 
-  static createOrShow(context: vscode.ExtensionContext, handler: RequestHandler): SpeckitPanel {
+  static createOrShow(context: vscode.ExtensionContext, handler: RequestHandler): ColophonPanel {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
-    if (SpeckitPanel.current) {
-      SpeckitPanel.current.panel.reveal(column);
-      return SpeckitPanel.current;
+    if (ColophonPanel.current) {
+      ColophonPanel.current.panel.reveal(column);
+      return ColophonPanel.current;
     }
 
-    const panel = vscode.window.createWebviewPanel(WEBVIEW_VIEW_TYPE, 'Speckit', column, {
+    const panel = vscode.window.createWebviewPanel(WEBVIEW_VIEW_TYPE, 'Colophon', column, {
       enableScripts: true,
       // The alternative to a serializer is holding the entire DOM in memory for
       // every hidden tab; restoring state on reveal is cheaper.
@@ -46,8 +46,8 @@ export class SpeckitPanel {
       ],
     });
 
-    SpeckitPanel.current = new SpeckitPanel(panel, context, handler);
-    return SpeckitPanel.current;
+    ColophonPanel.current = new ColophonPanel(panel, context, handler);
+    return ColophonPanel.current;
   }
 
   /** A panel open when the window closed is restored by VS Code, not recreated. */
@@ -61,13 +61,13 @@ export class SpeckitPanel {
             context.globalStorageUri,
           ],
         };
-        SpeckitPanel.current = new SpeckitPanel(panel, context, handler);
+        ColophonPanel.current = new ColophonPanel(panel, context, handler);
       },
     });
   }
 
-  static get active(): SpeckitPanel | undefined {
-    return SpeckitPanel.current;
+  static get active(): ColophonPanel | undefined {
+    return ColophonPanel.current;
   }
 
   /**
@@ -81,14 +81,14 @@ export class SpeckitPanel {
   private static pendingRoute: string | undefined;
 
   static navigate(path: string): void {
-    SpeckitPanel.pendingRoute = path;
-    SpeckitPanel.current?.emit('navigate', { path });
+    ColophonPanel.pendingRoute = path;
+    ColophonPanel.current?.emit('navigate', { path });
   }
 
   /** Read once: a route that has been delivered must not reappear on reload. */
   static takePendingRoute(): string | undefined {
-    const route = SpeckitPanel.pendingRoute;
-    SpeckitPanel.pendingRoute = undefined;
+    const route = ColophonPanel.pendingRoute;
+    ColophonPanel.pendingRoute = undefined;
     return route;
   }
 
@@ -142,7 +142,7 @@ export class SpeckitPanel {
 
   private request<T>(method: string, params: Record<string, unknown>): Promise<T> {
     if (this.disposed) {
-      return Promise.reject(new Error('The Speckit panel is closed.'));
+      return Promise.reject(new Error('The Colophon panel is closed.'));
     }
 
     const id = this.nextRequestId++;
@@ -222,7 +222,7 @@ export class SpeckitPanel {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';" />
-    <title>Speckit</title>
+    <title>Colophon</title>
   </head>
   <body>
     <div id="root"></div>
@@ -236,10 +236,10 @@ export class SpeckitPanel {
       return;
     }
     this.disposed = true;
-    SpeckitPanel.current = undefined;
+    ColophonPanel.current = undefined;
 
     for (const pending of this.pending.values()) {
-      pending.reject(new Error('The Speckit panel was closed.'));
+      pending.reject(new Error('The Colophon panel was closed.'));
     }
     this.pending.clear();
 

@@ -127,14 +127,14 @@ Targets: `win32-x64`, `linux-x64`, `darwin-x64`, `darwin-arm64`. Because a Pytho
 ## End-to-end walkthrough
 
 1. <kbd>F5</kbd>, then open a markdown file in the Extension Development Host.
-2. **Speckit: Open Dashboard** — the panel has to be open for mermaid to render.
-3. **Speckit: Process Current File**. The output channel shows, in order: enrichment, validation, the backend's build, and the written PDF.
+2. **Colophon: Open Dashboard** — the panel has to be open for mermaid to render.
+3. **Colophon: Process Current File**. The output channel shows, in order: enrichment, validation, the backend's build, and the written PDF.
 4. Check the result: a cover page with the title, executive summary and metadata; a table of contents; diagrams as captioned figures; a glossary appendix.
 5. Save the file again unchanged — the log says the PDF was reused. Edit it and save again — it rebuilds.
 
 ## When something goes wrong
 
-- **Speckit: Show Extension Logs** first. Both halves log there, the backend's lines prefixed `[backend]`.
+- **Colophon: Show Extension Logs** first. Both halves log there, the backend's lines prefixed `[backend]`.
 - **A PDF looks wrong** — read the generated `.typ`. Its path is in the error when a compile fails, and the build directory is kept in that case.
 - **A page preview does not appear** — the log records each preview's path and the URI it was rewritten to. A webview that refuses a local resource says nothing at all, so those two lines are the only evidence.
 - **The backend will not start** — a damaged install or a platform build that cannot execute. `npm run fetch-runtimes` restores `bin/`.

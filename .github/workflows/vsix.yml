@@ -111,10 +111,10 @@ jobs:
           python -m pytest server/tests -q
 
       - name: Package
-        run: npx @vscode/vsce package --target ${{ matrix.target }} --out speckit-${{ matrix.target }}.vsix
+        run: npx @vscode/vsce package --target ${{ matrix.target }} --out colophon-${{ matrix.target }}.vsix
 
       - uses: actions/upload-artifact@v4
         with:
           name: vsix-${{ matrix.target }}
-          path: speckit-${{ matrix.target }}.vsix
+          path: colophon-${{ matrix.target }}.vsix
           retention-days: 14

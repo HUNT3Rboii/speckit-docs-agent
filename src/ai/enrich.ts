@@ -54,7 +54,7 @@ Rules:
 /**
  * Ask the configured providers to annotate a document.
  *
- * Which provider answers is decided by speckitStandalone.providerPriority - the
+ * Which provider answers is decided by colophon.providerPriority - the
  * editor's own models first by default, then any custom endpoint the user
  * added. A failure here is never fatal to a conversion: the caller falls back
  * to a plain PDF, which is what the document is anyway without annotation.

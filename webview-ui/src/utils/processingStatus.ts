@@ -41,7 +41,7 @@ export function needsCorrection(status: string): boolean {
 
 /**
  * True when a run was stopped by the user (the Cancel button, or
- * speckit.stopProcessing in VS Code) rather than failing on its own. Kept
+ * colophon.stopProcessing in VS Code) rather than failing on its own. Kept
  * distinct from `failed` so the UI can read it as a deliberate action, not
  * an error - no PDF exists yet for this run, but nothing is broken either.
  */

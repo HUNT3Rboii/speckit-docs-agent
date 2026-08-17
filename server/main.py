@@ -33,7 +33,7 @@ from rpc import Server, log  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="speckit-backend")
+    parser = argparse.ArgumentParser(prog="colophon-backend")
     parser.add_argument(
         "--storage-path",
         required=True,
@@ -63,7 +63,7 @@ def make_pdf_builder(storage_path: Path, typst_binary: Path):
         # The build directory is scratch: it holds the generated .typ, the
         # template, and diagram SVGs. It is kept when compilation fails so the
         # markup can be inspected, and discarded otherwise.
-        build_dir = Path(tempfile.mkdtemp(prefix="speckit-typst-"))
+        build_dir = Path(tempfile.mkdtemp(prefix="colophon-typst-"))
         diagrams = write_diagrams(build_dir, request.get("diagrams") or [])
 
         try:
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     # Migrations run here, before the first request: the extension can update
     # while a user's database sits at an older schema, and that is the normal
     # case rather than an edge case.
-    store = Store(storage_path / "speckit.sqlite3", log)
+    store = Store(storage_path / "colophon.sqlite3", log)
     log(f"database at schema version {store.schema_version}")
 
     server = register(

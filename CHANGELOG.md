@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — unreleased
+
+### Changed
+
+- **The extension is now called Colophon.** A colophon is the printer's note stating how a book
+  was made, which is what this puts on every document's cover page. The old name belonged to the
+  spec tooling the project was built with, not to what the extension does.
+- The extension id is `HUNT3Rboii.colophon`, commands are `Colophon: …`, and settings moved from
+  `speckitStandalone.*` to `colophon.*`. Endpoints configured under the old settings are still
+  read until the AI models panel next saves, so a rename does not silently stop using a provider
+  someone already set up.
+
 ## 0.1.2 — unreleased
 
 ### Fixed

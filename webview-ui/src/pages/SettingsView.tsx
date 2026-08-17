@@ -159,10 +159,10 @@ export function SettingsView() {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button onClick={() => void runCommand('speckitStandalone.manageProviders')}>
+            <Button onClick={() => void runCommand('colophon.manageProviders')}>
               <SlidersHorizontal /> Manage AI providers
             </Button>
-            <Button variant="outline" onClick={() => void runCommand('speckitStandalone.discoverModels')}>
+            <Button variant="outline" onClick={() => void runCommand('colophon.discoverModels')}>
               <Search /> Discover models
             </Button>
             <span className="self-center text-sm text-muted-foreground">
@@ -262,7 +262,7 @@ export function SettingsView() {
           <CardDescription>The backend is a child process of this editor window.</CardDescription>
         </CardHeader>
         <CardContent>
-          <SettingRow title="Verbose logging" description="Writes every step to the Speckit output channel.">
+          <SettingRow title="Verbose logging" description="Writes every step to the Colophon output channel.">
             <Switch
               checked={settings.enableDebugLogging}
               onCheckedChange={(checked) => set('enableDebugLogging', checked)}
@@ -271,16 +271,16 @@ export function SettingsView() {
           </SettingRow>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => void runCommand('speckitStandalone.checkBackendStatus')}>
+            <Button variant="outline" onClick={() => void runCommand('colophon.checkBackendStatus')}>
               Check backend status
             </Button>
-            <Button variant="outline" onClick={() => void runCommand('speckitStandalone.showLogs')}>
+            <Button variant="outline" onClick={() => void runCommand('colophon.showLogs')}>
               Show logs
             </Button>
-            <Button variant="outline" onClick={() => void runCommand('speckitStandalone.stopProcessing')}>
+            <Button variant="outline" onClick={() => void runCommand('colophon.stopProcessing')}>
               Stop processing
             </Button>
-            <Button variant="ghost" onClick={() => void runCommand('speckitStandalone.openNativeSettings')}>
+            <Button variant="ghost" onClick={() => void runCommand('colophon.openNativeSettings')}>
               <ExternalLink /> Open in VS Code settings
             </Button>
           </div>

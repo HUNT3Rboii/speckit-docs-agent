@@ -1,9 +1,9 @@
 /**
- * Draws resources/speckit.png, the extension's Marketplace and Extensions-view
+ * Draws resources/colophon.png, the extension's Marketplace and Extensions-view
  * logo.
  *
  * A generator rather than a checked-in binary nobody can edit: the glyph is the
- * same document-with-a-fold as resources/speckit.svg, so the Activity Bar icon
+ * same document-with-a-fold as resources/colophon.svg, so the Activity Bar icon
  * and the logo cannot drift apart. Rendered here rather than by a build
  * dependency because the whole job is a rounded rectangle, three line segments
  * and zlib - all of which Node already has.
@@ -23,7 +23,7 @@ const SUPERSAMPLE = 4;
 const BACKGROUND = [0x24, 0x2b, 0x54];
 const GLYPH = [0xf5, 0xf7, 0xff];
 
-// The glyph, in the 24x24 units resources/speckit.svg is drawn in, scaled up.
+// The glyph, in the 24x24 units resources/colophon.svg is drawn in, scaled up.
 const UNIT = SIZE / 24;
 const STROKE = 1.7 * UNIT;
 
@@ -170,7 +170,7 @@ const png = Buffer.concat([
   chunk('IEND', Buffer.alloc(0)),
 ]);
 
-const target = join(dirname(dirname(fileURLToPath(import.meta.url))), 'resources', 'speckit.png');
+const target = join(dirname(dirname(fileURLToPath(import.meta.url))), 'resources', 'colophon.png');
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, png);
 console.log(`wrote ${target} (${png.length} bytes)`);

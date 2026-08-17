@@ -14,7 +14,7 @@ from db.schema import connect
 
 @pytest.fixture
 def store(tmp_path):
-    instance = Store(tmp_path / "nested" / "speckit.sqlite3")
+    instance = Store(tmp_path / "nested" / "colophon.sqlite3")
     instance.upsert_project("/ws", "Workspace")
     yield instance
     instance.close()
@@ -25,7 +25,7 @@ class TestSchema:
         assert store.schema_version == LATEST_VERSION
 
     def test_migrating_twice_is_a_no_op(self, tmp_path):
-        path = tmp_path / "speckit.sqlite3"
+        path = tmp_path / "colophon.sqlite3"
         first = Store(path)
         first.close()
 

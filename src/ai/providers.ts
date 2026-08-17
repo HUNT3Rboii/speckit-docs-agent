@@ -47,9 +47,7 @@ const VENDORS: Record<string, string> = {
  * offered as a provider that can only fail.
  */
 export function readCustomModels(): CustomModelEntry[] {
-  const configured = vscode.workspace
-    .getConfiguration('speckitStandalone')
-    .get<unknown[]>('customModels', []);
+  const configured = readSetting<unknown[]>('customModels', []);
 
   return configured
     .map((entry) => readEntry(entry))
@@ -57,10 +55,36 @@ export function readCustomModels(): CustomModelEntry[] {
 }
 
 export function readPriority(): PriorityEntry[] {
-  const configured = vscode.workspace
-    .getConfiguration('speckitStandalone')
-    .get<PriorityEntry[]>('providerPriority', DEFAULT_PRIORITY);
+  const configured = readSetting<PriorityEntry[]>('providerPriority', DEFAULT_PRIORITY);
   return configured.length ? configured : DEFAULT_PRIORITY;
+}
+
+/**
+ * Reads a setting, falling back to the name it had before the extension was
+ * renamed to Colophon.
+ *
+ * A rename changes the settings section, and VS Code has no notion of an alias:
+ * an endpoint someone configured under `speckitStandalone.customModels` would
+ * simply stop being tried, with nothing to explain why. The old value is
+ * therefore still honoured until the panel next saves, which writes the new
+ * name.
+ */
+function readSetting<T>(key: string, fallback: T): T {
+  const current = vscode.workspace.getConfiguration('colophon').inspect<T>(key);
+  const chosen =
+    current?.workspaceFolderValue ?? current?.workspaceValue ?? current?.globalValue;
+  if (chosen !== undefined) {
+    return chosen;
+  }
+
+  const legacy = vscode.workspace.getConfiguration('speckitStandalone').inspect<T>(key);
+  return (
+    legacy?.workspaceFolderValue ??
+    legacy?.workspaceValue ??
+    legacy?.globalValue ??
+    current?.defaultValue ??
+    fallback
+  );
 }
 
 /**
@@ -190,7 +214,7 @@ export class NoProviderAvailableError extends Error {
   constructor() {
     super(
       'No AI provider is available. Sign in to GitHub Copilot, install another provider that registers with ' +
-        'VS Code, or add an endpoint under "Speckit: Manage AI Providers".'
+        'VS Code, or add an endpoint under "Colophon: Manage AI Providers".'
     );
     this.name = 'NoProviderAvailableError';
   }

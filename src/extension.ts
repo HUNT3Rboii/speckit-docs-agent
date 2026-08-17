@@ -18,8 +18,8 @@ import { findMermaidBlocks } from './markdown/mermaid';
 import { checkBackendStatus, discoverModelsCommand, manageProviders, showLogs, stopProcessing } from './commands';
 import { SaveWatcher } from './watcher';
 import { CustomModelsPanel } from './webview/customModelsPanel';
-import { SpeckitPanel } from './webview/panel';
-import { SpeckitActionsProvider } from './webview/sidebar';
+import { ColophonPanel } from './webview/panel';
+import { ColophonActionsProvider } from './webview/sidebar';
 
 interface ConvertResponse {
   pdfPath: string;
@@ -32,7 +32,7 @@ interface ConvertResponse {
 const DEFAULT_INCLUDE = ['**/*.md'];
 
 function settings() {
-  return vscode.workspace.getConfiguration('speckitStandalone');
+  return vscode.workspace.getConfiguration('colophon');
 }
 
 /** One glob for findFiles, from the include list the user controls. */
@@ -47,7 +47,7 @@ function excludeGlob(): string | undefined {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel('Speckit Preview');
+  const output = vscode.window.createOutputChannel('Colophon');
   context.subscriptions.push(output);
 
   // Per-user, cleaned up by VS Code on uninstall. Never a path the extension
@@ -77,34 +77,34 @@ export function activate(context: vscode.ExtensionContext): void {
     routeWebviewRequest(method, params, backend, output);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('speckitStandalone.convertCurrentFile', () =>
+    vscode.commands.registerCommand('colophon.convertCurrentFile', () =>
       convertCurrentFile(backend, output)
     ),
-    vscode.commands.registerCommand('speckitStandalone.openPanel', () =>
-      SpeckitPanel.createOrShow(context, handleWebviewRequest)
+    vscode.commands.registerCommand('colophon.openPanel', () =>
+      ColophonPanel.createOrShow(context, handleWebviewRequest)
     ),
-    vscode.commands.registerCommand('speckitStandalone.toggleConvertOnSave', () => toggleConvertOnSave()),
-    vscode.commands.registerCommand('speckitStandalone.showLogs', () => showLogs(output)),
-    vscode.commands.registerCommand('speckitStandalone.checkBackendStatus', () =>
+    vscode.commands.registerCommand('colophon.toggleConvertOnSave', () => toggleConvertOnSave()),
+    vscode.commands.registerCommand('colophon.showLogs', () => showLogs(output)),
+    vscode.commands.registerCommand('colophon.checkBackendStatus', () =>
       checkBackendStatus(backend, output)
     ),
-    vscode.commands.registerCommand('speckitStandalone.stopProcessing', () =>
+    vscode.commands.registerCommand('colophon.stopProcessing', () =>
       stopProcessing(inFlight, backend, output)
     ),
-    vscode.commands.registerCommand('speckitStandalone.discoverModels', () => discoverModelsCommand(output)),
-    vscode.commands.registerCommand('speckitStandalone.manageProviders', () => manageProviders(output)),
+    vscode.commands.registerCommand('colophon.discoverModels', () => discoverModelsCommand(output)),
+    vscode.commands.registerCommand('colophon.manageProviders', () => manageProviders(output)),
     // The dashboard's own settings page, reached from the Activity Bar without
     // having to open the dashboard and find the button first.
-    vscode.commands.registerCommand('speckitStandalone.openSettingsPage', () => {
-      SpeckitPanel.navigate('/settings');
-      SpeckitPanel.createOrShow(context, handleWebviewRequest);
+    vscode.commands.registerCommand('colophon.openSettingsPage', () => {
+      ColophonPanel.navigate('/settings');
+      ColophonPanel.createOrShow(context, handleWebviewRequest);
     }),
-    vscode.commands.registerCommand('speckitStandalone.openNativeSettings', () =>
-      vscode.commands.executeCommand('workbench.action.openSettings', 'speckitStandalone')
+    vscode.commands.registerCommand('colophon.openNativeSettings', () =>
+      vscode.commands.executeCommand('workbench.action.openSettings', 'colophon')
     ),
-    ...SpeckitActionsProvider.register(),
-    SpeckitPanel.registerSerializer(context, handleWebviewRequest),
-    { dispose: () => SpeckitPanel.active?.dispose() },
+    ...ColophonActionsProvider.register(),
+    ColophonPanel.registerSerializer(context, handleWebviewRequest),
+    { dispose: () => ColophonPanel.active?.dispose() },
     { dispose: () => CustomModelsPanel.active?.dispose() }
   );
 
@@ -112,7 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // and disappearing rather than only refreshing when asked.
   const watcher = vscode.workspace.createFileSystemWatcher(includeGlob());
   const refreshInventory = () => {
-    void syncWorkspace(backend, output).then(() => SpeckitPanel.active?.emit('documentsChanged', {}));
+    void syncWorkspace(backend, output).then(() => ColophonPanel.active?.emit('documentsChanged', {}));
   };
   watcher.onDidCreate(refreshInventory);
   watcher.onDidDelete(refreshInventory);
@@ -133,11 +133,11 @@ export function activate(context: vscode.ExtensionContext): void {
     new SaveWatcher(
       async (document) => {
         await convert(document, backend, output);
-        SpeckitPanel.active?.emit('documentsChanged', {});
+        ColophonPanel.active?.emit('documentsChanged', {});
       },
       (document) => shouldConvertOnSave(document, backend),
       (message) => output.appendLine(message),
-      vscode.workspace.getConfiguration('speckitStandalone').get<number>('debounceMs', 1500)
+      vscode.workspace.getConfiguration('colophon').get<number>('debounceMs', 1500)
     )
   );
 }
@@ -223,9 +223,9 @@ async function routeWebviewRequest(
     }
 
     case 'toWebviewUris': {
-      const panel = SpeckitPanel.active;
+      const panel = ColophonPanel.active;
       if (!panel) {
-        throw new Error('The Speckit panel is not open.');
+        throw new Error('The Colophon panel is not open.');
       }
       const paths = Array.isArray(params.paths) ? (params.paths as string[]) : [];
       const uris = paths.map((target) => panel.toWebviewUri(target));
@@ -265,9 +265,9 @@ async function routeWebviewRequest(
     }
 
     case 'pdfUri': {
-      const panel = SpeckitPanel.active;
+      const panel = ColophonPanel.active;
       if (!panel) {
-        throw new Error('The Speckit panel is not open.');
+        throw new Error('The Colophon panel is not open.');
       }
       return { uri: panel.toWebviewUri(String(params.path ?? '')) };
     }
@@ -283,7 +283,7 @@ async function routeWebviewRequest(
     }
 
     case 'initialRoute': {
-      return { path: SpeckitPanel.takePendingRoute() ?? null };
+      return { path: ColophonPanel.takePendingRoute() ?? null };
     }
 
     case 'readSettings': {
@@ -400,7 +400,7 @@ async function drainTransformRequests(backend: BackendProcess, output: vscode.Ou
       output.appendLine(`[info] converting ${target} at the dashboard's request`);
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
       await convert(document, backend, output, { force: true });
-      SpeckitPanel.active?.emit('documentsChanged', {});
+      ColophonPanel.active?.emit('documentsChanged', {});
     }
   } catch (error) {
     output.appendLine(`[error] could not run a queued conversion: ${describe(error)}`);
@@ -564,12 +564,12 @@ async function renderDiagrams(
     return cached;
   }
 
-  const panel = SpeckitPanel.active;
+  const panel = ColophonPanel.active;
   if (!panel) {
     // Without a panel there is no browser to render in. The backend prints the
     // diagram source instead, so the document still converts.
     output.appendLine(
-      `[info] ${missing.length} mermaid diagram(s) skipped: open the Speckit panel to render them.`
+      `[info] ${missing.length} mermaid diagram(s) skipped: open the Colophon panel to render them.`
     );
     return cached;
   }
@@ -638,7 +638,7 @@ async function convertCurrentFile(backend: BackendProcess, output: vscode.Output
 }
 
 async function toggleConvertOnSave(): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration('speckitStandalone');
+  const configuration = vscode.workspace.getConfiguration('colophon');
   const next = !configuration.get<boolean>('convertOnSave', false);
 
   // Workspace scope, not global: whether a project rebuilds its PDFs on every

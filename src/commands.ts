@@ -28,18 +28,18 @@ export function showLogs(output: vscode.OutputChannel): void {
 export async function checkBackendStatus(backend: BackendProcess, output: vscode.OutputChannel): Promise<void> {
   try {
     const result = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: 'Checking the Speckit backend…' },
+      { location: vscode.ProgressLocation.Window, title: 'Checking the Colophon backend…' },
       () => backend.request<{ ok: boolean; protocol: number }>('ping', {})
     );
 
     output.appendLine(`[status] backend responded, protocol ${result.protocol}`);
-    void vscode.window.showInformationMessage(`Speckit backend is running (protocol ${result.protocol}).`);
+    void vscode.window.showInformationMessage(`Colophon backend is running (protocol ${result.protocol}).`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     output.appendLine(`[status] backend did not respond: ${message}`);
 
     const showLog = 'Show Log';
-    const choice = await vscode.window.showErrorMessage(`Speckit backend is not responding: ${message}`, showLog);
+    const choice = await vscode.window.showErrorMessage(`Colophon backend is not responding: ${message}`, showLog);
     if (choice === showLog) {
       output.show(true);
     }
@@ -181,7 +181,7 @@ async function updateCustomModel(
 ): Promise<void> {
   const updated = readCustomModels().map((entry) => (entry.id === id ? change(entry) : entry));
   await vscode.workspace
-    .getConfiguration('speckitStandalone')
+    .getConfiguration('colophon')
     .update('customModels', updated, vscode.ConfigurationTarget.Global);
 }
 

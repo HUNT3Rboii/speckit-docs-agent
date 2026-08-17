@@ -21,8 +21,15 @@ let availableModels: Record<string, { vendor: string; family: string; id: string
 
 const vscodeStub = {
   workspace: {
-    getConfiguration: () => ({
+    getConfiguration: (section: string) => ({
       get: (key: string, fallback: unknown) => (settings as Record<string, unknown>)[key] ?? fallback,
+      // The provider chain reads through `inspect` so it can fall back to the
+      // pre-rename `speckitStandalone.*` section; only the current section is
+      // populated here, which is the case that matters for ordering.
+      inspect: (key: string) =>
+        section === 'colophon'
+          ? { globalValue: (settings as Record<string, unknown>)[key] }
+          : { globalValue: undefined },
     }),
   },
   lm: {

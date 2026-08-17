@@ -1,5 +1,5 @@
 /**
- * Provider try-order resolution (speckitStandalone.providerPriority).
+ * Provider try-order resolution (colophon.providerPriority).
  *
  * The priority list holds two kinds of token:
  * - a built-in provider id: "copilot" | "claude" | "kiro" | "generic"

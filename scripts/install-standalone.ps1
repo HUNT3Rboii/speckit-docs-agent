@@ -17,7 +17,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$ExtensionId = 'HUNT3Rboii.speckit-auto-ai-standalone'
+$ExtensionId = 'HUNT3Rboii.colophon'
 $ExtensionsDir = Join-Path $env:USERPROFILE '.vscode\extensions'
 
 Set-Location $RepoRoot
@@ -47,7 +47,7 @@ if ($Package) {
     Write-Host '[1/3] Using the VSIX already in the repository root' -ForegroundColor Yellow
 }
 
-$vsix = Get-ChildItem -Path $RepoRoot -Filter 'speckit-auto-ai-standalone-*.vsix' |
+$vsix = Get-ChildItem -Path $RepoRoot -Filter 'colophon-*.vsix' |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 
@@ -129,4 +129,4 @@ if ($LASTEXITCODE -eq 0) {
 
 Write-Host ''
 Write-Host '[OK] Installed.' -ForegroundColor Green
-Write-Host 'Open VS Code and look for the Speckit icon in the Activity Bar.' -ForegroundColor White
+Write-Host 'Open VS Code and look for the Colophon icon in the Activity Bar.' -ForegroundColor White

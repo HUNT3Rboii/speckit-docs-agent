@@ -1,8 +1,8 @@
 {
-  "name": "speckit-auto-ai-standalone",
-  "displayName": "Speckit Auto-AI (Standalone Preview)",
-  "description": "Markdown to typeset PDF documentation, with no Docker and no setup",
-  "version": "0.1.2",
+  "name": "colophon",
+  "displayName": "Colophon — Markdown to typeset PDF",
+  "description": "Turns markdown into typeset PDF documentation - cover page, contents, diagrams and glossary - using the AI already in your editor. No Docker, no database, no API key.",
+  "version": "0.2.0",
   "publisher": "HUNT3Rboii",
   "license": "MIT",
   "author": "Mohamed Yassine Reggui",
@@ -21,93 +21,93 @@
     "Other"
   ],
   "main": "./out/src/extension.js",
-  "icon": "resources/speckit.png",
+  "icon": "resources/colophon.png",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "speckit",
-          "title": "Speckit",
-          "icon": "resources/speckit.svg"
+          "id": "colophon",
+          "title": "Colophon",
+          "icon": "resources/colophon.svg"
         }
       ]
     },
     "views": {
-      "speckit": [
+      "colophon": [
         {
-          "id": "speckitStandalone.actions",
-          "name": "Speckit",
-          "icon": "resources/speckit.svg"
+          "id": "colophon.actions",
+          "name": "Colophon",
+          "icon": "resources/colophon.svg"
         }
       ]
     },
     "commands": [
       {
-        "command": "speckitStandalone.convertCurrentFile",
-        "title": "Speckit: Process Current File"
+        "command": "colophon.convertCurrentFile",
+        "title": "Colophon: Process Current File"
       },
       {
-        "command": "speckitStandalone.openPanel",
-        "title": "Speckit: Open Dashboard"
+        "command": "colophon.openPanel",
+        "title": "Colophon: Open Dashboard"
       },
       {
-        "command": "speckitStandalone.showLogs",
-        "title": "Speckit: Show Extension Logs"
+        "command": "colophon.showLogs",
+        "title": "Colophon: Show Extension Logs"
       },
       {
-        "command": "speckitStandalone.checkBackendStatus",
-        "title": "Speckit: Check Backend Status"
+        "command": "colophon.checkBackendStatus",
+        "title": "Colophon: Check Backend Status"
       },
       {
-        "command": "speckitStandalone.toggleConvertOnSave",
-        "title": "Speckit: Toggle Auto-Processing"
+        "command": "colophon.toggleConvertOnSave",
+        "title": "Colophon: Toggle Auto-Processing"
       },
       {
-        "command": "speckitStandalone.stopProcessing",
-        "title": "Speckit: Stop Processing"
+        "command": "colophon.stopProcessing",
+        "title": "Colophon: Stop Processing"
       },
       {
-        "command": "speckitStandalone.discoverModels",
-        "title": "Speckit: Discover Models for Custom Provider"
+        "command": "colophon.discoverModels",
+        "title": "Colophon: Discover Models for Custom Provider"
       },
       {
-        "command": "speckitStandalone.manageProviders",
-        "title": "Speckit: Manage AI Providers"
+        "command": "colophon.manageProviders",
+        "title": "Colophon: Manage AI Providers"
       },
       {
-        "command": "speckitStandalone.openSettingsPage",
-        "title": "Speckit: Open Settings"
+        "command": "colophon.openSettingsPage",
+        "title": "Colophon: Open Settings"
       },
       {
-        "command": "speckitStandalone.openNativeSettings",
-        "title": "Speckit: Open Settings in VS Code"
+        "command": "colophon.openNativeSettings",
+        "title": "Colophon: Open Settings in VS Code"
       }
     ],
     "configuration": {
-      "title": "Speckit Preview",
+      "title": "Colophon",
       "properties": {
-        "speckitStandalone.convertOnSave": {
+        "colophon.convertOnSave": {
           "type": "boolean",
           "default": false,
           "description": "Convert a markdown file to PDF when it is saved."
         },
-        "speckitStandalone.enrich": {
+        "colophon.enrich": {
           "type": "boolean",
           "default": true,
           "description": "Use the editor's language model to add a summary, glossary and diagrams. Every claim is checked against your document before it is printed; unsupported ones are dropped."
         },
-        "speckitStandalone.debounceMs": {
+        "colophon.debounceMs": {
           "type": "number",
           "default": 1500,
           "minimum": 200,
           "description": "How long to wait after a save before converting."
         },
-        "speckitStandalone.autoProcess": {
+        "colophon.autoProcess": {
           "type": "boolean",
           "default": false,
           "description": "Process a markdown file when it is saved. Per-project automation is set from the dashboard's Auto transform switch; this is the global gate."
         },
-        "speckitStandalone.includePatterns": {
+        "colophon.includePatterns": {
           "type": "array",
           "default": [
             "**/*.md"
@@ -117,7 +117,7 @@
           },
           "description": "Glob patterns for files to include in auto-processing."
         },
-        "speckitStandalone.excludePatterns": {
+        "colophon.excludePatterns": {
           "type": "array",
           "default": [
             "**/node_modules/**",
@@ -136,28 +136,28 @@
           },
           "description": "Glob patterns to skip. Tool-generated scaffolding is excluded by default."
         },
-        "speckitStandalone.maxConcurrentProcessing": {
+        "colophon.maxConcurrentProcessing": {
           "type": "number",
           "default": 3,
           "minimum": 1,
           "description": "Maximum number of files converted at once."
         },
-        "speckitStandalone.allowRuleBasedFallback": {
+        "colophon.allowRuleBasedFallback": {
           "type": "boolean",
           "default": false,
           "description": "Produce a plain PDF when no AI provider is available, instead of reporting an error. Off by default so missing AI is noticed rather than silently producing a document with no glossary or diagrams."
         },
-        "speckitStandalone.enableDebugLogging": {
+        "colophon.enableDebugLogging": {
           "type": "boolean",
           "default": false,
           "description": "Verbose logging in the Speckit output channel."
         },
-        "speckitStandalone.preferredModelId": {
+        "colophon.preferredModelId": {
           "type": "string",
           "default": "",
           "description": "Substring matched case-insensitively against the id, family or name of the available models, e.g. \"gpt-4o\". If it matches, that model is tried first."
         },
-        "speckitStandalone.providerPriority": {
+        "colophon.providerPriority": {
           "type": "array",
           "default": [
             "copilot",
@@ -170,12 +170,12 @@
             "type": "string",
             "pattern": "^(copilot|claude|kiro|generic|custom|custom:.+)$"
           },
-          "description": "Order in which AI providers are tried. Use custom:<id> to name one entry from speckitStandalone.customModels."
+          "description": "Order in which AI providers are tried. Use custom:<id> to name one entry from colophon.customModels."
         },
-        "speckitStandalone.customModels": {
+        "colophon.customModels": {
           "type": "array",
           "default": [],
-          "markdownDescription": "### ➜ [Manage AI providers](command:speckitStandalone.manageProviders)\n\nOpenAI-compatible endpoints of your own - a local Ollama, a company gateway. VS Code cannot render an array-of-objects setting, so this row only offers raw JSON; the panel writes it for you, and also tests an endpoint and lists the models it actually serves.",
+          "markdownDescription": "### ➜ [Manage AI providers](command:colophon.manageProviders)\n\nOpenAI-compatible endpoints of your own - a local Ollama, a company gateway. VS Code cannot render an array-of-objects setting, so this row only offers raw JSON; the panel writes it for you, and also tests an endpoint and lists the models it actually serves.",
           "items": {
             "type": "object",
             "required": [
