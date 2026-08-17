@@ -574,7 +574,22 @@ async function renderDiagrams(
     return cached;
   }
 
-  const rendered = await panel.renderMermaid(missing);
+  let rendered: MermaidResult[];
+  try {
+    rendered = await panel.renderMermaid(missing);
+  } catch (error) {
+    // A diagram that cannot be drawn is not a reason to fail the document. The
+    // panel can be open but unable to answer - a hidden tab is torn down by VS
+    // Code, and a webview that is reloading has no listener yet - and losing an
+    // entire conversion to that is far worse than printing the diagram's source
+    // and carrying on.
+    output.appendLine(
+      `[warning] ${missing.length} mermaid diagram(s) not rendered: ${describe(error)}. ` +
+        'Their source is printed instead; reveal the Colophon panel and convert again to draw them.'
+    );
+    return cached;
+  }
+
   for (const diagram of rendered) {
     if (diagram.error) {
       output.appendLine(`[warning] mermaid could not render ${diagram.id}: ${diagram.error}`);

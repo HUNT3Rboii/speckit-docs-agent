@@ -81,8 +81,14 @@ the extension's TypeScript compilation.
   Hardcoded colors make the panel look foreign inside the editor.
 - **No React Router.** The history API does not work in a webview. Use in-memory routing or
   component state.
-- State is destroyed when the tab is hidden. Persist through `vscode.setState()`/`getState()`.
-  `retainContextWhenHidden` is the lazy alternative but holds the entire DOM in memory.
+- State is destroyed when the tab is hidden. Persist through `vscode.setState()`/`getState()` —
+  the router does, so a reopened window returns to the page it was on.
+- The dashboard panel nonetheless sets `retainContextWhenHidden: true`, which is the expensive
+  option and here the only working one: **mermaid renders in that DOM**, and convert-on-save runs
+  while the reader is in a markdown file with the panel in the background. A torn-down webview
+  cannot answer `renderMermaid`, so every automatic conversion of a document with diagrams timed
+  out. A restored panel (through the serializer) cannot be given that option, so a failed render
+  must never be fatal to the conversion.
 - `registerWebviewPanelSerializer` is required for the tab to survive an editor restart.
 
 ### PDF generation — Typst

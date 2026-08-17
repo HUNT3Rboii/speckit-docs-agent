@@ -97,7 +97,9 @@ Mermaid renders in the webview, because a webview is a browser and the backend i
 
 Two consequences: mermaid must be configured with `htmlLabels: false` (Typst's SVG support does not render `<foreignObject>`), and any font the SVG names has to exist at compile time.
 
-With the panel closed there is no browser to render in, so the diagram's source is printed instead and the conversion still succeeds.
+With the panel closed there is no browser to render in, so the diagram's source is printed instead and the conversion still succeeds. The same applies when the panel is open but cannot answer — a request that fails or times out is logged and the conversion continues, because losing a whole document to one undrawable diagram is far worse than printing its source.
+
+This is also why the panel is created with `retainContextWhenHidden: true`. Convert-on-save fires while the reader is in a markdown file, with the dashboard in a background tab; VS Code tears a hidden webview's DOM down, and mermaid lives in that DOM.
 
 ## Testing
 

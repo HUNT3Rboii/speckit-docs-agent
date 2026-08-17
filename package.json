@@ -2,7 +2,7 @@
   "name": "colophon",
   "displayName": "Colophon — Markdown to typeset PDF",
   "description": "Turns markdown into typeset PDF documentation - cover page, contents, diagrams and glossary - using the AI already in your editor. No Docker, no database, no API key.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "HUNT3Rboii",
   "license": "MIT",
   "author": "Mohamed Yassine Reggui",

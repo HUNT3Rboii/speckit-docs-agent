@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2 — unreleased
+
+### Fixed
+
+- Convert-on-save no longer fails on documents with diagrams. It runs while the reader is in a
+  markdown file, so the dashboard sits in a background tab - and VS Code tears a hidden webview's
+  DOM down, which is where mermaid renders. Every such conversion ended in
+  `The panel did not answer renderMermaid within 20s`. The panel now keeps its context while
+  hidden.
+- A diagram that cannot be rendered no longer aborts the conversion. Its source is printed and
+  the document is still built, which is what already happened when no panel was open at all.
+
 ## 0.2.1 — unreleased
 
 ### Fixed

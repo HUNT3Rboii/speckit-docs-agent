@@ -37,9 +37,15 @@ export class ColophonPanel {
 
     const panel = vscode.window.createWebviewPanel(WEBVIEW_VIEW_TYPE, 'Colophon', column, {
       enableScripts: true,
-      // The alternative to a serializer is holding the entire DOM in memory for
-      // every hidden tab; restoring state on reveal is cheaper.
-      retainContextWhenHidden: false,
+      // Held in memory while hidden, which is not the frugal choice but is the
+      // only working one: mermaid renders in this DOM, and convert-on-save runs
+      // precisely when the reader is in a markdown file with this tab in the
+      // background. A torn-down webview cannot answer renderMermaid, so every
+      // automatic conversion of a document with diagrams timed out.
+      //
+      // The router still persists its page through setState, because this does
+      // nothing for a window that has been closed and reopened.
+      retainContextWhenHidden: true,
       localResourceRoots: [
         vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist'),
         context.globalStorageUri,
