@@ -140,6 +140,12 @@ Architecture, configuration reference, project layout, tests, and running the ba
 
 Pull requests are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for how to set up, what runs in CI, and what a reviewable change looks like.
 
+## Credits
+
+Built by [Mohamed Yassine Reggui](https://github.com/HUNT3Rboii) in the frame of a summer internship at **Talan Tunisie**, under the mentorship of **Rasha Friji**.
+
+<a href="https://www.talan.com/"><img src="https://raw.githubusercontent.com/HUNT3Rboii/speckit-docs-agent/main/assets/talan-logo.png" alt="Talan" width="200"></a>
+
 ## License
 
 [MIT](LICENSE).

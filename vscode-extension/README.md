@@ -188,3 +188,8 @@ MIT - See LICENSE file for details
 - **Documentation**: [Repository README](https://github.com/HUNT3Rboii/speckit-docs-agent)
 - **Backend Setup**: See main Speckit documentation
 
+## Credits
+
+Built by [Mohamed Yassine Reggui](https://github.com/HUNT3Rboii) in the frame of a summer internship at **Talan Tunisie**, under the mentorship of **Rasha Friji**.
+
+<a href="https://www.talan.com/"><img src="https://raw.githubusercontent.com/HUNT3Rboii/speckit-docs-agent/main/assets/talan-logo.png" alt="Talan" width="200"></a>
