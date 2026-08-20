@@ -118,7 +118,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (selection === 'Retry Connection') {
           vscode.commands.executeCommand('speckit.checkBackend');
         } else if (selection === 'View Documentation') {
-          vscode.env.openExternal(vscode.Uri.parse('https://github.com/speckit/vscode-speckit-auto-ai'));
+          vscode.env.openExternal(vscode.Uri.parse('https://github.com/HUNT3Rboii/speckit-docs-agent'));
         }
       });
     } else {
@@ -151,7 +151,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (selection === 'Install GitHub Copilot') {
           vscode.env.openExternal(vscode.Uri.parse('https://marketplace.visualstudio.com/items?itemName=GitHub.copilot'));
         } else if (selection === 'Learn More') {
-          vscode.env.openExternal(vscode.Uri.parse('https://github.com/speckit/vscode-speckit-auto-ai'));
+          vscode.env.openExternal(vscode.Uri.parse('https://github.com/HUNT3Rboii/speckit-docs-agent'));
         }
       });
     }
@@ -774,7 +774,7 @@ function showWelcomeMessage(): void {
     if (selection === 'Check Backend') {
       vscode.commands.executeCommand('speckit.checkBackend');
     } else if (selection === 'View Documentation') {
-      vscode.env.openExternal(vscode.Uri.parse('https://github.com/speckit/vscode-speckit-auto-ai'));
+      vscode.env.openExternal(vscode.Uri.parse('https://github.com/HUNT3Rboii/speckit-docs-agent'));
     } else if (selection === 'Configure') {
       vscode.commands.executeCommand('workbench.action.openSettings', 'speckit');
     }

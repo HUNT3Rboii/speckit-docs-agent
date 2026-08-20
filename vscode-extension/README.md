@@ -184,10 +184,7 @@ MIT - See LICENSE file for details
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/speckit/vscode-speckit-auto-ai/issues)
-- **Documentation**: [GitHub Wiki](https://github.com/speckit/vscode-speckit-auto-ai/wiki)
+- **Issues**: [GitHub Issues](https://github.com/HUNT3Rboii/speckit-docs-agent/issues)
+- **Documentation**: [Repository README](https://github.com/HUNT3Rboii/speckit-docs-agent)
 - **Backend Setup**: See main Speckit documentation
 
-## Credits
-
-Built with ❤️ by the Speckit Team

@@ -15,7 +15,7 @@ Thank you for your interest in contributing! This document provides guidelines a
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/speckit/vscode-speckit-auto-ai.git
+   git clone https://github.com/HUNT3Rboii/speckit-docs-agent.git
    cd vscode-speckit-auto-ai/vscode-extension
    ```
 
