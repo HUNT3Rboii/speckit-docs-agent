@@ -162,6 +162,12 @@ npx @vscode/vsce package --target win32-x64
 Architecture, the constraints a VSIX imposes, and why Typst rather than anything else:
 [CLAUDE.md](CLAUDE.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Credits
+
+Built by [Mohamed Yassine Reggui](https://github.com/HUNT3Rboii) in the frame of a summer internship at **Talan Tunisie**, under the mentorship of **Rasha Friji**.
+
+<a href="https://www.talan.com/"><img src="https://raw.githubusercontent.com/HUNT3Rboii/speckit-docs-agent/main/assets/talan-logo.png" alt="Talan" width="200"></a>
+
 ## License
 
 [MIT](LICENSE).
